@@ -8,8 +8,14 @@ PUBLIC_DIR="${1:?Usage: $0 <public_dir> <project_name> <branch>}"
 PROJECT_NAME="${2:?Usage: $0 <public_dir> <project_name> <branch>}"
 BRANCH="${3:?Usage: $0 <public_dir> <project_name> <branch>}"
 
-if ! command -v wrangler &>/dev/null; then
-	echo "ERROR: wrangler not found. Run bun install first." >&2
+WRANGLER=""
+if command -v wrangler &>/dev/null; then
+	WRANGLER="wrangler"
+elif npx --yes -p wrangler -- echo &>/dev/null; then
+	WRANGLER="npx wrangler"
+fi
+if [ -z "$WRANGLER" ]; then
+	echo "ERROR: wrangler not found." >&2
 	exit 1
 fi
 
@@ -30,7 +36,7 @@ trap cleanup EXIT
 echo "Deploying $PUBLIC_DIR to Cloudflare Pages project $PROJECT_NAME..."
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
 	CI=true CLOUDFLARE_TELEMETRY_DISABLED=1 NO_UPDATE_NOTIFIER=1 \
-	wrangler pages deploy "$PUBLIC_DIR" --project-name "$PROJECT_NAME" --branch "$BRANCH" --commit-dirty=true \
+	$WRANGLER pages deploy "$PUBLIC_DIR" --project-name "$PROJECT_NAME" --branch "$BRANCH" --commit-dirty=true \
 	>"$log_file" 2>&1 &
 wrangler_pid=$!
 
