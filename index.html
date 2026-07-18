@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bakudan — Danmaku Playground</title>
+    <meta
+      name="description"
+      content="Canvas-native danmaku playground — 5,000 concurrent barrage entities at 60fps on VectoJS."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bakudan" />
+    <meta property="og:title" content="Bakudan — Danmaku Playground" />
+    <meta
+      property="og:description"
+      content="Canvas-native danmaku playground — 5,000 concurrent barrage entities at 60fps on VectoJS."
+    />
+    <meta property="og:url" content="https://bakudan.vectojs.org/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Bakudan — Danmaku Playground" />
+    <meta
+      name="twitter:description"
+      content="Canvas-native danmaku playground — 5,000 concurrent barrage entities at 60fps on VectoJS."
+    />
+    <style>
+      :root {
+        --bg-color: #0f1420;
+        --text-color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="bakudan-canvas"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
