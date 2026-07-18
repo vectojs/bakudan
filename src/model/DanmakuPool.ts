@@ -3,11 +3,10 @@ import { createDefaultParams, type DanmakuParams, type PoolSlot } from './types'
 export class DanmakuPool {
   readonly capacity: number;
   readonly slots: PoolSlot[];
-  private _idCounter = 0;
 
   constructor(capacity: number) {
     this.capacity = capacity;
-    this.slots = new Array(capacity);
+    this.slots = Array.from({ length: capacity }) as PoolSlot[];
     for (let i = 0; i < capacity; i++) {
       this.slots[i] = this._createEmptySlot(i);
     }
