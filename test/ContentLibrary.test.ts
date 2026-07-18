@@ -26,7 +26,7 @@ describe('ContentLibrary', () => {
 
   it('entries array is readonly', () => {
     const len = ContentLibrary.entries.length;
-    expect(ContentLibrary.entries[0]).toBeDefined()
+    expect(ContentLibrary.entries[0]).toBeDefined();
     expect(len).toBeGreaterThan(0);
   });
 });
