@@ -60,6 +60,17 @@ export interface HUDData {
   heapUsedMB: number | null;
 }
 
+/** A single pre-authored danmaku pinned to a video timestamp (seconds). */
+export interface TimedDanmakuEntry {
+  /** Video time in seconds at which this danmaku should appear. */
+  time: number;
+  text: string;
+  color?: string;
+  fontSize?: number;
+  speed?: number;
+  preset?: PresetId;
+}
+
 export const DEFAULT_EFFECTS: CharacterEffects = {
   glow: false,
   gradient: false,

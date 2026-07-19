@@ -1,6 +1,8 @@
 import { Scene, Entity } from '@vectojs/core';
 import { DanmakuPool } from '../model/DanmakuPool';
 import { Scheduler } from '../model/Scheduler';
+import { DanmakuTrack } from '../model/DanmakuTrack';
+import { DEMO_TIMED_TRACK } from '../model/demoTimedTrack';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
 import { DanmakuEntity } from './DanmakuEntity';
@@ -8,6 +10,7 @@ import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import { Dock } from './Dock';
 import { ControlCenter } from './ControlCenter';
 import { HUD } from './HUD';
+import { PlayerControls } from './PlayerControls';
 
 const DESKTOP_POOL = 5000;
 const MOBILE_POOL = 1000;
@@ -16,6 +19,9 @@ const HUD_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
 const PANEL_WIDTH = 280;
 const INTERACTIVE_IDLE_MS = 1500;
+const DEMO_VIDEO_SRC = '/video/demo-clip.mp4';
+
+type AppMode = 'stress' | 'video';
 
 class Ticker extends Entity {
   constructor(private app: App) {
@@ -52,7 +58,17 @@ export class App {
   private hud: HUD;
   private dock: Dock;
   private controlCenter: ControlCenter;
+  private playerControls: PlayerControls;
   private panelOpen = false;
+
+  private mode: AppMode = 'stress';
+  private danmakuTrack: DanmakuTrack;
+  private videoLoading = false;
+  private videoLoadFailed = false;
+  /** Restore the stress-test spawn target when switching back from video
+   * mode, since video mode zeroes it out (the track drives spawns itself,
+   * not the random-fill scheduler). */
+  private _stressTargetBeforeVideo = 500;
 
   private activePreset: PresetId = 'scroll';
   private effects: CharacterEffects = {
@@ -94,9 +110,18 @@ export class App {
     this.bg = new StageBackground();
     this.announcer = new DanmakuAnnouncer();
     this.hud = new HUD();
+    this.danmakuTrack = new DanmakuTrack(DEMO_TIMED_TRACK);
+    this._stressTargetBeforeVideo = isMobileInit ? 200 : 500;
     this.dock = new Dock({
       onSend: (text) => this._onUserSend(text),
       onTogglePanel: () => this._togglePanel(),
+    });
+    this.playerControls = new PlayerControls({
+      onPlayPause: () => this._togglePlayback(),
+      onSeek: (t) => this._onSeek(t),
+      onRateChange: (r) => {
+        this.bg.playbackRate = r;
+      },
     });
     this.controlCenter = new ControlCenter(PANEL_WIDTH, 600, {
       onPresetChange: (p) => {
@@ -109,6 +134,7 @@ export class App {
       },
       onToggleShowcase: () => {},
       onBgModeChange: (mode) => {
+        if (this.mode === 'video') return; // video mode owns bg.mode
         this.bg.mode = mode;
         if (mode !== 'video') {
           this.bg.stopVideo();
@@ -118,6 +144,7 @@ export class App {
       onFpsCapChange: (fps) => {
         this.scene.maxFPS = fps;
       },
+      onAppModeChange: (m) => this._setAppMode(m),
     });
 
     for (let i = 0; i < poolCap; i++) {
@@ -149,6 +176,7 @@ export class App {
 
     this._layoutDock(width, height);
     this._layoutPanel(width, height);
+    this._layoutPlayerControls(width, height);
 
     this.scene.markDirty();
   }
@@ -202,6 +230,10 @@ export class App {
       if (now - this._lastPointerMove > INTERACTIVE_IDLE_MS) {
         this._interactiveMode = false;
       }
+    }
+
+    if (this.mode === 'video') {
+      this._frameVideo();
     }
 
     this.scheduler.tick(dt, this.activePreset, {
@@ -271,6 +303,88 @@ export class App {
     }
   }
 
+  /**
+   * Switch between the random-fill stress-test scheduler and timestamp-
+   * pinned video-track playback. The two are mutually exclusive: video
+   * mode zeroes the scheduler's random-fill target (userSpawn() calls from
+   * DanmakuTrack entries still flow through the same pool/lane machinery),
+   * and switching back restores whatever target was active before.
+   */
+  private _setAppMode(mode: AppMode): void {
+    if (this.mode === mode) return;
+    this.mode = mode;
+
+    if (mode === 'video') {
+      this._stressTargetBeforeVideo = this.scheduler.target;
+      this.scheduler.setTargetCount(0);
+      this.bg.mode = 'video';
+      this.danmakuTrack.reset();
+      this.videoLoadFailed = false;
+      if (!this.videoLoading && !this.bg.isVideoReady) {
+        this.videoLoading = true;
+        this.bg
+          .setVideo(DEMO_VIDEO_SRC)
+          .then(() => {
+            this.videoLoading = false;
+            this.bg.onEnded(() => {
+              this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
+            });
+          })
+          .catch(() => {
+            this.videoLoading = false;
+            this.videoLoadFailed = true;
+            this.announcer.setSummary('Video failed to load. Falling back to ambient background.');
+            this.bg.mode = 'ambient';
+          });
+      }
+      if (!this.playerControls.parent) this.scene.showOverlay(this.playerControls);
+    } else {
+      this.scheduler.setTargetCount(this._stressTargetBeforeVideo);
+      this.bg.mode = 'ambient';
+      this.bg.pause();
+      if (this.playerControls.parent) this.scene.hideOverlay(this.playerControls);
+    }
+    this._layoutPlayerControls(this.stageW, this.stageH);
+    this.scene.markDirty();
+  }
+
+  /** Advance the video-danmaku track and reflect the video element's
+   * transport state into the PlayerControls UI. Called once per frame
+   * while in video mode. */
+  private _frameVideo(): void {
+    if (this.videoLoadFailed || !this.bg.isVideoReady) {
+      return;
+    }
+    const t = this.bg.currentTime;
+    const fired = this.danmakuTrack.sync(t);
+    for (const entry of fired) {
+      this.scheduler.userSpawn({
+        text: entry.text,
+        color: entry.color ?? '#f1f5f9',
+        fontSize: entry.fontSize ?? 24,
+        speed: entry.speed ?? 200,
+        opacity: 0.9,
+        preset: entry.preset ?? 'scroll',
+        presetParams: {},
+        effects: { ...this.effects },
+      });
+    }
+    this.playerControls.setPlaybackState(t, this.bg.duration, this.bg.paused);
+  }
+
+  private _togglePlayback(): void {
+    if (this.bg.paused) {
+      this.bg.play().catch(() => {});
+    } else {
+      this.bg.pause();
+    }
+  }
+
+  private _onSeek(t: number): void {
+    this.bg.seek(t);
+    this.danmakuTrack.seek(t);
+  }
+
   private _onUserSend(text: string): void {
     this.scheduler.userSpawn({
       text,
@@ -299,6 +413,19 @@ export class App {
       this.dock.width = Math.min(600, W - PANEL_WIDTH - 32);
       this.dock.x = (W - PANEL_WIDTH - this.dock.width) / 2;
       this.dock.y = H - 60;
+    }
+  }
+
+  /** Positioned directly above the Dock, sharing its horizontal span. */
+  private _layoutPlayerControls(W: number, H: number): void {
+    if (this.isMobile) {
+      this.playerControls.width = W - 16;
+      this.playerControls.x = 8;
+      this.playerControls.y = H - 60 - 52;
+    } else {
+      this.playerControls.width = Math.min(640, W - PANEL_WIDTH - 32);
+      this.playerControls.x = (W - PANEL_WIDTH - this.playerControls.width) / 2;
+      this.playerControls.y = H - 60 - 52;
     }
   }
 

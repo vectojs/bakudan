@@ -22,18 +22,35 @@ export class StageBackground extends Entity {
   /**
    * Set a video source for the background layer. The `<video>` element is
    * created, loaded, and its canvas-draw-compatible frames are drawn via
-   * renderer.drawImage each frame.
+   * renderer.drawImage each frame. Does NOT auto-play — call `play()`
+   * explicitly so the video-danmaku track and the visible playhead start
+   * from the same known state (autoplay-and-fire-danmaku-immediately would
+   * race against `DanmakuTrack.seek(0)`).
    */
   async setVideo(src: string): Promise<void> {
     this.stopVideo();
     const video = document.createElement('video');
     video.src = src;
-    video.loop = true;
+    video.loop = false;
     video.muted = true;
     video.playsInline = true;
     video.crossOrigin = 'anonymous';
     video.setAttribute('playsinline', '');
-    await video.play();
+    video.preload = 'auto';
+    await new Promise<void>((resolve, reject) => {
+      const onReady = () => {
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('error', onError);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('error', onError);
+        reject(new Error(`Failed to load video: ${src}`));
+      };
+      video.addEventListener('loadedmetadata', onReady);
+      video.addEventListener('error', onError);
+    });
     this._video = video;
     this._videoSrc = src;
   }
@@ -46,6 +63,55 @@ export class StageBackground extends Entity {
       this._video = null;
       this._videoSrc = null;
     }
+  }
+
+  /** Play the background video. No-op if none is loaded. */
+  async play(): Promise<void> {
+    await this._video?.play();
+  }
+
+  /** Pause the background video. No-op if none is loaded. */
+  pause(): void {
+    this._video?.pause();
+  }
+
+  get paused(): boolean {
+    return this._video?.paused ?? true;
+  }
+
+  /** Current playback position in seconds, or 0 if no video is loaded. */
+  get currentTime(): number {
+    return this._video?.currentTime ?? 0;
+  }
+
+  /** Total duration in seconds, or 0 if metadata hasn't loaded yet. */
+  get duration(): number {
+    return this._video?.duration ?? 0;
+  }
+
+  /** Jump to an absolute time in seconds, clamped to `[0, duration]`. */
+  seek(t: number): void {
+    if (!this._video) return;
+    const d = this._video.duration || Infinity;
+    this._video.currentTime = Math.max(0, Math.min(t, d));
+  }
+
+  get playbackRate(): number {
+    return this._video?.playbackRate ?? 1;
+  }
+
+  set playbackRate(rate: number) {
+    if (this._video) this._video.playbackRate = rate;
+  }
+
+  /** True once the video has metadata loaded and is ready to seek/play. */
+  get isVideoReady(): boolean {
+    return !!this._video && this._video.readyState >= 1;
+  }
+
+  /** Register a listener for the underlying `<video>` element's `ended` event. */
+  onEnded(cb: () => void): void {
+    this._video?.addEventListener('ended', cb);
   }
 
   render(renderer: IRenderer): void {

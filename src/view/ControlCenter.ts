@@ -11,6 +11,7 @@ export interface ControlCenterCallbacks {
   onBgModeChange: (mode: 'none' | 'ambient' | 'video') => void;
   onPresetParamChange: (key: string, value: number) => void;
   onFpsCapChange: (fps: number) => void;
+  onAppModeChange: (mode: 'stress' | 'video') => void;
 }
 
 const PRESET_LABELS = [
@@ -51,12 +52,27 @@ const FPS_MAP: Record<string, number> = {
   'Max (uncapped)': 0,
 };
 
+const APP_MODE_LABELS = ['Stress Test', 'Video Playback'];
+
+const APP_MODE_MAP: Record<string, 'stress' | 'video'> = {
+  'Stress Test': 'stress',
+  'Video Playback': 'video',
+};
+
 export class ControlCenter extends Stack {
   constructor(width: number, height: number, callbacks: ControlCenterCallbacks) {
     super({ direction: 'vertical', gap: 10 });
     this.width = width;
     this.height = height;
     this.padding = 16;
+
+    // App mode: stress test vs. video playback with timed danmaku
+    const modeLabel = new Text('Mode');
+    this.add(modeLabel);
+    const modeDropdown = new Dropdown(APP_MODE_LABELS, { value: 'Stress Test' });
+    modeDropdown.width = width - 32;
+    modeDropdown.on('change', (e: any) => callbacks.onAppModeChange(APP_MODE_MAP[e.value]));
+    this.add(modeDropdown);
 
     // Preset dropdown
     const presetLabel = new Text('Motion Preset');
