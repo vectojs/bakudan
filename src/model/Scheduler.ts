@@ -6,21 +6,23 @@ import { ContentLibrary } from './ContentLibrary';
 const LINE_HEIGHT = 36;
 const LANE_GAP = 4;
 const DEFAULT_SPAWN_RATE = 300;
+const LANE_SAFETY_MARGIN = 1.3;
 
 interface LaneState {
   occupied: boolean;
-  lastX: number;
+  /** Trailing edge position:
+   *  scroll/glitch/sine: left edge (slot.x) — what a following danmaku approaches
+   *  reverse: right edge (slot.x + slot.width) */
+  trailingX: number;
+  /** Width of the current occupant in px */
+  width: number;
+  /** Speed in px/s */
+  speed: number;
+  isReverse: boolean;
 }
 
 let sharedMeasureCtx: CanvasRenderingContext2D | null = null;
 
-/**
- * Measure a danmaku's rendered pixel width using a single shared offscreen
- * canvas context. Called at spawn time (not at view-sync time) so
- * `slot.width` is correct from the instant a slot is activated — culling
- * (`x + width < -200`) and lane-gap checks both depend on it being right
- * immediately, before the next Scheduler.tick() or App view sync runs.
- */
 function measureWidth(text: string, fontSize: number): number {
   if (typeof document === 'undefined') return text.length * fontSize * 0.6;
   if (!sharedMeasureCtx) {
@@ -30,6 +32,18 @@ function measureWidth(text: string, fontSize: number): number {
   if (!sharedMeasureCtx) return text.length * fontSize * 0.6;
   sharedMeasureCtx.font = `400 ${fontSize}px system-ui, sans-serif`;
   return sharedMeasureCtx.measureText(text).width + 4;
+}
+
+/**
+ * Culling margin in px. A danmaku whose slot.x + slot.width < -MARGIN or
+ * slot.x > stageWidth + MARGIN is considered off-screen and deactivated.
+ * Must match the culling check in tick().
+ */
+const CULL_MARGIN = 200;
+const MIN_SPAWN_GAP = 50;
+
+function isScrollPreset(preset: PresetId): boolean {
+  return preset === 'scroll' || preset === 'reverse' || preset === 'glitch' || preset === 'sine';
 }
 
 export class Scheduler {
@@ -97,13 +111,19 @@ export class Scheduler {
       const slot = this.pool.slots[id];
       preset(slot, dt, state, W, H);
 
-      if (slot.x + slot.width < -200 || slot.x > W + 200) {
+      if (slot.x + slot.width < -CULL_MARGIN || slot.x > W + CULL_MARGIN) {
         this.pool.deactivate(id);
         this._releaseLane(slot.lane);
         continue;
       }
-      if (slot.params.preset === 'scroll' || slot.params.preset === 'reverse') {
-        this.lanes[slot.lane].lastX = slot.x + slot.width;
+
+      if (isScrollPreset(slot.params.preset)) {
+        const ls = this.lanes[slot.lane];
+        if (ls) {
+          ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
+          ls.width = slot.width;
+          ls.speed = slot.params.speed;
+        }
       }
     }
 
@@ -113,8 +133,8 @@ export class Scheduler {
     this.spawnAccumulator += (this.spawnRate * dt) / 1000;
     let spawned = 0;
     while (this.spawnAccumulator >= 1 && spawned < deficit) {
-      this.spawnAccumulator -= 1;
       const lane = this._assignLane(presetId);
+      this.spawnAccumulator -= 1;
       const didSpawn = this._spawnOne(presetId, lane);
       if (!didSpawn) break;
       spawned++;
@@ -171,20 +191,18 @@ export class Scheduler {
     return true;
   }
 
-  /**
-   * Mark a lane occupied and immediately record its `lastX` from the just-
-   * spawned slot. Without this, `lastX` would only update on the NEXT
-   * tick's update pass, so several spawns within the same tick (spawnRate
-   * can produce dozens per frame) would all read the same stale `lastX`
-   * (0 by default) and collapse onto lane 0.
-   */
   private _occupyLane(
     lane: number,
     slot: { x: number; width: number; params: DanmakuParams },
   ): void {
-    this.lanes[lane].occupied = true;
-    if (slot.params.preset === 'scroll' || slot.params.preset === 'reverse') {
-      this.lanes[lane].lastX = slot.x + slot.width;
+    const ls = this.lanes[lane];
+    if (!ls) return;
+    ls.occupied = true;
+    if (isScrollPreset(slot.params.preset)) {
+      ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
+      ls.width = slot.width;
+      ls.speed = slot.params.speed;
+      ls.isReverse = slot.params.preset === 'reverse';
     }
   }
 
@@ -192,8 +210,68 @@ export class Scheduler {
     const laneCount = Math.floor(this.stageHeight / (LINE_HEIGHT + LANE_GAP));
     this.lanes = Array.from({ length: laneCount });
     for (let i = 0; i < laneCount; i++) {
-      this.lanes[i] = { occupied: false, lastX: 0 };
+      this.lanes[i] = {
+        occupied: false,
+        trailingX: 0,
+        width: 0,
+        speed: 0,
+        isReverse: false,
+      };
     }
+  }
+
+  /**
+   * Kinematic safety check: can a new danmaku (spawned at the entry edge
+   * with speed `newSpeed`) share this lane with the current occupant
+   * without ever visually overlapping?
+   *
+   * Two conditions must hold:
+   *   1. **Minimum gap** — the new spawn's rightward boundary (its nearest
+   *      edge to the moving occupant) must be at least `MIN_SPAWN_GAP` px
+   *      from the occupant's approaching edge at spawn time. This is a hard
+   *      floor that prevents immediate on-top-of rendering.
+   *   2. **Kinematic** — if `newSpeed > ls.speed` (the new one is faster),
+   *      the time it takes for the new to close the gap must exceed the
+   *      occupant's remaining time on stage, scaled by `LANE_SAFETY_MARGIN`.
+   *      If the new is slower or equal-speed, the gap never closes and the
+   *      lane is unconditionally safe (subject to rule 1).
+   */
+  private _isLaneSafe(lane: number, newSpeed: number, isReverse: boolean): boolean {
+    const ls = this.lanes[lane];
+    if (!ls.occupied) return true;
+
+    // Already past culling boundary — treat as free
+    if (isReverse) {
+      if (ls.trailingX - ls.width > this.stageWidth + CULL_MARGIN) return true;
+    } else {
+      if (ls.trailingX + ls.width < -CULL_MARGIN) return true;
+    }
+
+    if (ls.speed <= 0) return false;
+
+    let gap: number;
+    let exitTime: number;
+
+    if (isReverse) {
+      // Both move right. New right edge at -20. Old left edge at trailingX - width.
+      // gap = old left edge - new right edge
+      gap = ls.trailingX - ls.width + 20;
+      exitTime = (this.stageWidth + CULL_MARGIN - (ls.trailingX - ls.width)) / ls.speed;
+    } else {
+      // Both move left. New left edge at stageWidth + 20. Old right edge at trailingX + width.
+      // gap = new left edge - old right edge
+      gap = this.stageWidth + 20 - (ls.trailingX + ls.width);
+      exitTime = (ls.trailingX + ls.width + CULL_MARGIN) / ls.speed;
+    }
+
+    // Rule 1: minimum spawn gap
+    if (gap < MIN_SPAWN_GAP) return false;
+
+    // Rule 2: kinematic — if slower- or equal-speed, they never collide
+    if (newSpeed <= ls.speed) return true;
+
+    const catchTime = gap / (newSpeed - ls.speed);
+    return catchTime > exitTime * LANE_SAFETY_MARGIN;
   }
 
   private _assignLane(presetId: PresetId): number {
@@ -206,23 +284,34 @@ export class Scheduler {
       return Math.floor(Math.random() * this.lanes.length);
     }
     if (this.lanes.length === 0) return -1;
-    // Scan starting from a rotating offset (not always index 0) so lane
-    // occupancy spreads evenly across the full stage height. Scanning from
-    // 0 every time means lane 0 wins whenever it's free, and under heavy
-    // spawn load (many spawns per tick) low-index lanes get reused far more
-    // often than high-index ones — visually the danmaku pile up near the
-    // top of the stage instead of filling it.
-    const minGap = 200;
+
     const n = this.lanes.length;
+    const isReverse = presetId === 'reverse';
+
+    // Pass 1: free lane (round-robin)
     for (let k = 0; k < n; k++) {
       const i = (this._laneRoundRobin + k) % n;
-      if (!this.lanes[i].occupied || this.lanes[i].lastX < this.stageWidth - minGap) {
+      if (!this.lanes[i].occupied) {
         this._laneRoundRobin = (i + 1) % n;
         return i;
       }
     }
-    this._laneRoundRobin = (this._laneRoundRobin + 1) % n;
-    return Math.floor(Math.random() * n);
+
+    // Pass 2: lane that passes MIN_SPAWN_GAP + kinematic safety
+    const newSpeed = 150 + Math.random() * 150;
+    for (let k = 0; k < n; k++) {
+      const i = (this._laneRoundRobin + k) % n;
+      if (this._isLaneSafe(i, newSpeed, isReverse)) {
+        this._laneRoundRobin = (i + 1) % n;
+        return i;
+      }
+    }
+
+    // Pass 3: all occupied and no safe slot — round-robin distributes load
+    // evenly so a single hot lane doesn't absorb all overflow
+    const i = this._laneRoundRobin % n;
+    this._laneRoundRobin = (i + 1) % n;
+    return i;
   }
 
   private _releaseLane(lane: number): void {
