@@ -1,8 +1,9 @@
-import { Scene, Entity } from '@vectojs/core';
+import { Scene, Entity, type IRenderer } from '@vectojs/core';
 import { DanmakuPool } from '../model/DanmakuPool';
 import { Scheduler } from '../model/Scheduler';
 import { DanmakuTrack } from '../model/DanmakuTrack';
-import { DEMO_TIMED_TRACK } from '../model/demoTimedTrack';
+import { detectBrowserLanguage, type Language } from '../model/i18n';
+import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
 import { DanmakuEntity } from './DanmakuEntity';
@@ -11,6 +12,7 @@ import { Dock } from './Dock';
 import { ControlCenter } from './ControlCenter';
 import { HUD } from './HUD';
 import { PlayerControls } from './PlayerControls';
+import { ParticleSystem } from './ParticleSystem';
 
 const DESKTOP_POOL = 5000;
 const MOBILE_POOL = 1000;
@@ -19,7 +21,6 @@ const HUD_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
 const PANEL_WIDTH = 280;
 const INTERACTIVE_IDLE_MS = 1500;
-const DEMO_VIDEO_SRC = '/video/demo-clip.mp4';
 
 type AppMode = 'stress' | 'video';
 
@@ -43,8 +44,19 @@ class Ticker extends Entity {
       this.app.pool.activeCount > 0 ||
       this.app.isDragging ||
       this.app.isVideoPlaying ||
-      this.app.hasAmbientAnimation
+      this.app.hasAmbientAnimation ||
+      this.app.hasActiveParticles
     );
+  }
+}
+
+class ParticleOverlay extends Entity {
+  isPointInside(_gx: number, _gy: number): boolean {
+    return false;
+  }
+
+  render(renderer: IRenderer): void {
+    ParticleSystem.render(renderer);
   }
 }
 
@@ -57,26 +69,31 @@ export class App {
   private stageH = 0;
   private isMobile = false;
 
-  private bg: StageBackground;
+  private bg!: StageBackground;
   private danmakuEntities: DanmakuEntity[] = [];
   private announcer: DanmakuAnnouncer;
-  private hud: HUD;
-  private dock: Dock;
-  private controlCenter: ControlCenter;
-  private playerControls: PlayerControls;
+  private hud!: HUD;
+  private dock!: Dock;
+  private controlCenter!: ControlCenter;
+  private playerControls!: PlayerControls;
   private panelOpen = false;
 
   private mode: AppMode = 'stress';
-  private danmakuTrack: DanmakuTrack;
+  private danmakuTrack!: DanmakuTrack;
   private videoLoading = false;
   private videoLoadFailed = false;
-  /** Restore the stress-test spawn target when switching back from video
-   * mode, since video mode zeroes it out (the track drives spawns itself,
-   * not the random-fill scheduler). */
   private _stressTargetBeforeVideo = 500;
   private _effectsDirty = true;
   showcasePhysics = false;
   showcaseJelly = false;
+
+  // Language & Video tracking state
+  currentLang: Language;
+  currentVideoUrl = '/video/demo-clip.mp4';
+
+  // Sliding panel animation X coordinate
+  private _panelX = 0;
+  private _particlesActive = false;
 
   /** True while a danmaku entity is being dragged. */
   get isDragging(): boolean {
@@ -91,6 +108,11 @@ export class App {
   /** True while the ambient gradient background is animating. */
   get hasAmbientAnimation(): boolean {
     return this.bg.mode === 'ambient';
+  }
+
+  /** True while there are active explosion particles. */
+  get hasActiveParticles(): boolean {
+    return this._particlesActive;
   }
 
   private activePreset: PresetId = 'scroll';
@@ -117,6 +139,8 @@ export class App {
 
   constructor(scene: Scene) {
     this.scene = scene;
+    this.currentLang = detectBrowserLanguage();
+    this._panelX = window.innerWidth; // start panel closed
 
     const isMobileInit = window.innerWidth < MOBILE_BREAKPOINT;
     const poolCap = isMobileInit ? MOBILE_POOL : DESKTOP_POOL;
@@ -132,51 +156,14 @@ export class App {
 
     this.bg = new StageBackground();
     this.announcer = new DanmakuAnnouncer();
-    this.hud = new HUD();
-    this.danmakuTrack = new DanmakuTrack(DEMO_TIMED_TRACK);
     this._stressTargetBeforeVideo = isMobileInit ? 200 : 500;
-    this.dock = new Dock({
-      onSend: (text) => this._onUserSend(text),
-      onTogglePanel: () => this._togglePanel(),
-    });
-    this.playerControls = new PlayerControls({
-      onPlayPause: () => this._togglePlayback(),
-      onSeek: (t) => this._onSeek(t),
-      onRateChange: (r) => {
-        this.bg.playbackRate = r;
-      },
-    });
-    this.controlCenter = new ControlCenter(PANEL_WIDTH, 600, {
-      onPresetChange: (p) => {
-        this.activePreset = p;
-      },
-      onStressCountChange: (n) => this.scheduler.setTargetCount(n),
-      onStressRateChange: (r) => this.scheduler.setSpawnRate(r),
-      onEffectToggle: (key) => {
-        this.effects[key] = !this.effects[key];
-        this._effectsDirty = true;
-      },
-      onToggleShowcase: (preset, enabled) => {
-        if (preset === 'physics') {
-          this.showcasePhysics = enabled;
-          this.scheduler.showcasePhysics = enabled;
-        } else if (preset === 'jelly') {
-          this.showcaseJelly = enabled;
-        }
-      },
-      onBgModeChange: (mode) => {
-        if (this.mode === 'video') return; // video mode owns bg.mode
-        this.bg.mode = mode;
-        if (mode !== 'video') {
-          this.bg.stopVideo();
-        }
-      },
-      onPresetParamChange: () => {},
-      onFpsCapChange: (fps) => {
-        this.scene.maxFPS = fps;
-      },
-      onAppModeChange: (m) => this._setAppMode(m),
-    });
+
+    // Default 15s track generator
+    const initialTrack = generateLargeTimedTrack(15);
+    this.danmakuTrack = new DanmakuTrack(initialTrack);
+
+    // Initial build of UI controls
+    this._buildUI();
 
     for (let i = 0; i < poolCap; i++) {
       const de = new DanmakuEntity();
@@ -186,14 +173,126 @@ export class App {
 
     scene.add(this.bg);
     scene.add(this.announcer);
-    // UI chrome uses the overlay root, not the main tree: danmaku entities
-    // are continuously scene.add()-ed as new ones spawn, and each newly
-    // added entity draws AFTER (on top of) everything already in the main
-    // tree. A HUD/Dock/panel added once at startup would end up buried
-    // under every danmaku spawned afterward. showOverlay() bypasses main-
-    // tree ordering and clipping so UI chrome always stays on top.
-    scene.showOverlay(this.hud);
-    scene.showOverlay(this.dock);
+    scene.showOverlay(new ParticleOverlay());
+  }
+
+  /** Build or rebuild all UI overlay cards dynamically on lang/source change */
+  private _buildUI(): void {
+    if (this.hud?.parent) this.scene.hideOverlay(this.hud);
+    if (this.dock?.parent) this.scene.hideOverlay(this.dock);
+    if (this.controlCenter?.parent) this.scene.hideOverlay(this.controlCenter);
+    if (this.playerControls?.parent) this.scene.hideOverlay(this.playerControls);
+
+    this.hud = new HUD();
+    this.hud.lang = this.currentLang;
+
+    this.dock = new Dock(this.currentLang, {
+      onSend: (text) => this._onUserSend(text),
+      onTogglePanel: () => this._togglePanel(),
+    });
+
+    this.playerControls = new PlayerControls({
+      onPlayPause: () => this._togglePlayback(),
+      onSeek: (t) => this._onSeek(t),
+      onRateChange: (r) => {
+        this.bg.playbackRate = r;
+      },
+    });
+
+    // Populate timeline curves
+    this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, this.bg.paused);
+    this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
+
+    this.controlCenter = new ControlCenter(
+      PANEL_WIDTH,
+      this.stageH || 600,
+      this.currentLang,
+      this.currentVideoUrl,
+      {
+        onPresetChange: (p) => {
+          this.activePreset = p;
+        },
+        onStressCountChange: (n) => this.scheduler.setTargetCount(n),
+        onStressRateChange: (r) => this.scheduler.setSpawnRate(r),
+        onEffectToggle: (key) => {
+          this.effects[key] = !this.effects[key];
+          this._effectsDirty = true;
+        },
+        onToggleShowcase: (preset, enabled) => {
+          if (preset === 'physics') {
+            this.showcasePhysics = enabled;
+            this.scheduler.showcasePhysics = enabled;
+          } else if (preset === 'jelly') {
+            this.showcaseJelly = enabled;
+          }
+        },
+        onBgModeChange: (mode) => {
+          if (this.mode === 'video') return;
+          this.bg.mode = mode;
+          if (mode !== 'video') {
+            this.bg.stopVideo();
+          }
+        },
+        onVideoSourceChange: (url) => this._onVideoSourceChange(url),
+        onPresetParamChange: () => {},
+        onFpsCapChange: (fps) => {
+          this.scene.maxFPS = fps;
+        },
+        onAppModeChange: (m) => this._setAppMode(m),
+        onLanguageChange: (lang) => this._changeLanguage(lang),
+        onTogglePanel: () => this._togglePanel(),
+      },
+    );
+
+    // Sync position coordinate
+    this.controlCenter.x = this._panelX;
+
+    this.scene.showOverlay(this.hud);
+    this.scene.showOverlay(this.dock);
+    this.scene.showOverlay(this.controlCenter);
+
+    if (this.mode === 'video') {
+      this.scene.showOverlay(this.playerControls);
+    }
+  }
+
+  private _onVideoSourceChange(url: string): void {
+    if (this.currentVideoUrl === url) return;
+    this.currentVideoUrl = url;
+    this.videoLoading = true;
+    this.bg.stopVideo();
+
+    this.bg
+      .setVideo(url)
+      .then(() => {
+        this.videoLoading = false;
+        const duration = this.bg.duration || 15;
+
+        // Dynamic timed track & density map
+        const trackData = generateLargeTimedTrack(duration);
+        this.danmakuTrack = new DanmakuTrack(trackData);
+
+        this.playerControls.setPlaybackState(0, duration, true);
+        this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
+
+        this.bg.onEnded(() => {
+          this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
+        });
+        this.scene.markDirty();
+      })
+      .catch(() => {
+        this.videoLoading = false;
+        this.videoLoadFailed = true;
+        this.announcer.setSummary('Video failed to load.');
+      });
+  }
+
+  private _changeLanguage(lang: Language): void {
+    if (this.currentLang === lang) return;
+    this.currentLang = lang;
+    this._buildUI();
+    this.onResize(this.stageW, this.stageH);
+    this.scene.markDirty();
   }
 
   onResize(width: number, height: number): void {
@@ -205,6 +304,11 @@ export class App {
     this.bg.width = width;
     this.bg.height = height;
     this.hud.alignToStage(width);
+
+    // Recalculate offscreen coordinate targets
+    const targetPanelX = this.panelOpen ? width - PANEL_WIDTH : width;
+    this._panelX = targetPanelX;
+    this.controlCenter.x = this._panelX;
 
     this._layoutDock(width, height);
     this._layoutPanel(width, height);
@@ -264,6 +368,27 @@ export class App {
       this._lastA11y = Date.now();
     }
 
+    // 1. Update Particle Physics
+    this._particlesActive = ParticleSystem.update(dt);
+
+    // 2. Interpolate Panel Slide Transition
+    const targetPanelX = this.panelOpen ? this.stageW - PANEL_WIDTH : this.stageW;
+    if (this._panelX !== targetPanelX) {
+      const speed = 1800; // px/sec
+      const dist = targetPanelX - this._panelX;
+      const step = Math.sign(dist) * speed * (dt / 1000);
+      if (Math.abs(step) >= Math.abs(dist)) {
+        this._panelX = targetPanelX;
+      } else {
+        this._panelX += step;
+      }
+      this.controlCenter.x = this._panelX;
+      // Sync Dock & PlayerControls layout to match the active viewport bounds!
+      this._layoutDock(this.stageW, this.stageH);
+      this._layoutPlayerControls(this.stageW, this.stageH);
+      this.scene.markDirty();
+    }
+
     if (!this._dragEntity) {
       const now = performance.now();
       if (now - this._lastPointerMove > INTERACTIVE_IDLE_MS) {
@@ -295,11 +420,6 @@ export class App {
           de.interactive = true;
           this.scene.add(de);
         } else if (de.boundParams !== slot.params) {
-          // Same pool index recycled within the same tick (deactivate +
-          // reactivate before the view sync ran, e.g. a danmaku scrolled
-          // off-screen and a new one spawned into the same slot before
-          // App.frame() got to sync entities). Re-bind so hovered/liked
-          // state from the previous occupant doesn't leak onto new content.
           de.slot = slot;
           de.boundParams = slot.params;
           de.hovered = false;
@@ -321,7 +441,6 @@ export class App {
           de.hovered = false;
           de.interactive = false;
           de.dragging = false;
-          // If we were dragging this entity, release the drag
           if (this._dragEntity === de) {
             this._dragEntity = null;
           }
@@ -350,13 +469,6 @@ export class App {
     }
   }
 
-  /**
-   * Switch between the random-fill stress-test scheduler and timestamp-
-   * pinned video-track playback. The two are mutually exclusive: video
-   * mode zeroes the scheduler's random-fill target (userSpawn() calls from
-   * DanmakuTrack entries still flow through the same pool/lane machinery),
-   * and switching back restores whatever target was active before.
-   */
   private _setAppMode(mode: AppMode): void {
     if (this.mode === mode) return;
     this.mode = mode;
@@ -370,17 +482,27 @@ export class App {
       if (!this.videoLoading && !this.bg.isVideoReady) {
         this.videoLoading = true;
         this.bg
-          .setVideo(DEMO_VIDEO_SRC)
+          .setVideo(this.currentVideoUrl)
           .then(() => {
             this.videoLoading = false;
+            const duration = this.bg.duration || 15;
+
+            // Generate localized timely track
+            const trackData = generateLargeTimedTrack(duration);
+            this.danmakuTrack = new DanmakuTrack(trackData);
+
+            this.playerControls.setPlaybackState(0, duration, true);
+            this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
+
             this.bg.onEnded(() => {
               this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
             });
+            this.scene.markDirty();
           })
           .catch(() => {
             this.videoLoading = false;
             this.videoLoadFailed = true;
-            this.announcer.setSummary('Video failed to load. Falling back to ambient background.');
+            this.announcer.setSummary('Video failed to load.');
             this.bg.mode = 'ambient';
           });
       }
@@ -395,9 +517,6 @@ export class App {
     this.scene.markDirty();
   }
 
-  /** Advance the video-danmaku track and reflect the video element's
-   * transport state into the PlayerControls UI. Called once per frame
-   * while in video mode. */
   private _frameVideo(): void {
     if (this.videoLoadFailed || !this.bg.isVideoReady) {
       return;
@@ -407,7 +526,7 @@ export class App {
     for (const entry of fired) {
       this.scheduler.userSpawn({
         text: entry.text,
-        color: entry.color ?? '#f1f5f9',
+        color: entry.color ?? '#453c38', // warm-charcoal default color
         fontSize: entry.fontSize ?? 24,
         speed: entry.speed ?? 200,
         opacity: 0.9,
@@ -433,16 +552,29 @@ export class App {
   }
 
   private _onUserSend(text: string): void {
-    this.scheduler.userSpawn({
+    const time = this.mode === 'video' ? this.bg.currentTime : 0;
+    const entry = {
+      time: Math.round(time * 10) / 10,
       text,
-      color: '#f1f5f9',
+      color: '#453c38',
       fontSize: 24,
       speed: 200,
       opacity: 0.9,
       preset: this.activePreset,
       presetParams: {},
       effects: { ...this.effects },
-    });
+    };
+
+    this.scheduler.userSpawn(entry);
+
+    if (this.mode === 'video') {
+      saveUserDanmaku(entry);
+      const duration = this.bg.duration || 15;
+      const trackData = generateLargeTimedTrack(duration);
+      this.danmakuTrack = new DanmakuTrack(trackData);
+      this.danmakuTrack.seek(this.bg.currentTime);
+      this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
+    }
   }
 
   private _togglePanel(): void {
@@ -457,21 +589,23 @@ export class App {
       this.dock.x = 8;
       this.dock.y = H - 60;
     } else {
-      this.dock.width = Math.min(600, W - PANEL_WIDTH - 32);
-      this.dock.x = (W - PANEL_WIDTH - this.dock.width) / 2;
+      // remaining space is exactly the animated panel coordinate
+      const remainingW = this._panelX;
+      this.dock.width = Math.min(600, remainingW - 32);
+      this.dock.x = (remainingW - this.dock.width) / 2;
       this.dock.y = H - 60;
     }
   }
 
-  /** Positioned directly above the Dock, sharing its horizontal span. */
   private _layoutPlayerControls(W: number, H: number): void {
     if (this.isMobile) {
       this.playerControls.width = W - 16;
       this.playerControls.x = 8;
       this.playerControls.y = H - 60 - 52;
     } else {
-      this.playerControls.width = Math.min(640, W - PANEL_WIDTH - 32);
-      this.playerControls.x = (W - PANEL_WIDTH - this.playerControls.width) / 2;
+      const remainingW = this._panelX;
+      this.playerControls.width = Math.min(640, remainingW - 32);
+      this.playerControls.x = (remainingW - this.playerControls.width) / 2;
       this.playerControls.y = H - 60 - 52;
     }
   }
@@ -491,13 +625,8 @@ export class App {
       this.controlCenter.height = H;
       this.controlCenter.y = 0;
       this.controlCenter.width = PANEL_WIDTH;
-      if (this.panelOpen) {
-        this.controlCenter.x = W - PANEL_WIDTH;
-        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
-      } else {
-        this.controlCenter.x = W;
-        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
-      }
+      // In desktop mode, controlCenter stays mounted overlay, X coordinate is animated via _panelX in frame()
+      if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
     }
   }
 
@@ -539,6 +668,21 @@ export class App {
       this.pointerActive = true;
       if (!this._interactiveMode) return;
 
+      // Click outside panel/dock to close
+      if (this.panelOpen) {
+        const clickInPanel =
+          this.pointerX >= this._panelX && this.pointerX <= this._panelX + this.controlCenter.width;
+        const clickInDock =
+          this.pointerX >= this.dock.x &&
+          this.pointerX <= this.dock.x + this.dock.width &&
+          this.pointerY >= this.dock.y &&
+          this.pointerY <= this.dock.y + this.dock.height;
+        if (!clickInPanel && !clickInDock) {
+          this._togglePanel();
+          return;
+        }
+      }
+
       const de = this._findEntityAtPointer();
       if (!de || !de.slot) return;
 
@@ -546,11 +690,15 @@ export class App {
       const action = de.hitAction(localX);
       if (action === 'like') {
         de.liked = !de.liked;
+        // Spawn particle explosion!
+        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, de.slot.params.color);
         this.scene.markDirty();
         return;
       }
       if (action === 'copy') {
         navigator.clipboard.writeText(de.slot.params.text).catch(() => {});
+        // Spawn particle explosion!
+        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#d97706');
         return;
       }
 

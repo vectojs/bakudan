@@ -27,6 +27,10 @@ export class DanmakuTrack {
     return this.entries.length;
   }
 
+  getTimes(): number[] {
+    return this.entries.map((e) => e.time);
+  }
+
   /**
    * Reposition the cursor to match a discontinuous time change (scrubbing,
    * seeking, initial load) WITHOUT firing any entries. Unlike `sync()`,

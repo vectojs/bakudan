@@ -134,14 +134,14 @@ export class StageBackground extends Entity {
 
     if (this.mode === 'ambient') {
       this._t += 0.005;
-      // Subtle deep-blue gradient animation
+      // Subtle light warm cream gradient animation matching gallery
       const grad = renderer.createLinearGradient(0, 0, this.width, this.height, [
-        { stop: 0, color: '#0f1420' },
+        { stop: 0, color: '#faf8f6' },
         {
           stop: 0.5,
-          color: `hsl(${220 + Math.sin(this._t) * 5}, 20%, ${8 + Math.cos(this._t * 1.3) * 2}%)`,
+          color: `hsl(${34 + Math.sin(this._t) * 3}, 15%, ${95 + Math.cos(this._t * 1.3) * 1.5}%)`,
         },
-        { stop: 1, color: '#1a2233' },
+        { stop: 1, color: '#f3eee6' },
       ]);
       renderer.beginPath();
       renderer.moveTo(0, 0);
@@ -153,14 +153,14 @@ export class StageBackground extends Entity {
       return;
     }
 
-    // "none" mode — flat dark background
+    // "none" mode — flat warm cream background
     renderer.beginPath();
     renderer.moveTo(0, 0);
     renderer.lineTo(this.width, 0);
     renderer.lineTo(this.width, this.height);
     renderer.lineTo(0, this.height);
     renderer.closePath();
-    renderer.fill('#0f1420');
+    renderer.fill('#faf8f6');
   }
 
   override destroy(): void {

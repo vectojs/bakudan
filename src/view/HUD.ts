@@ -1,9 +1,12 @@
 import { Entity, type IRenderer } from '@vectojs/core';
 import type { HUDData } from '../model/types';
+import { t } from '../model/i18n';
 
 export class HUD extends Entity {
   width = 240;
   height = 105;
+  lang: any = 'en'; // Defaults to 'en'
+
   data: HUDData = {
     fps: 60,
     frameTime: 16,
@@ -27,8 +30,8 @@ export class HUD extends Entity {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 6);
-    renderer.fill('#111827');
-    renderer.stroke('rgba(148, 163, 184, 0.2)', 1);
+    renderer.fill('#ffffff'); // Pure white panel background matching gallery!
+    renderer.stroke('rgba(69, 60, 56, 0.15)', 1); // thin warm grey stroke
     renderer.restore();
 
     const y0 = 18;
@@ -37,28 +40,32 @@ export class HUD extends Entity {
     const gcSaved = this.data.gcSavedCount ?? 0;
     const isThrottled = this.data.fps <= 5 && this.data.entityCount === 0;
 
+    const stateText = isThrottled
+      ? t('hud.state.throttle', this.lang)
+      : t('hud.state.active', this.lang);
+
     const lines = [
-      ['FPS', `${this.data.fps} (${this.data.frameTime.toFixed(1)}ms)`],
-      ['Engine State', isThrottled ? 'Throttle (2fps)' : 'Active (60fps)'],
-      ['Barrage Count', `${this.data.entityCount} active`],
-      ['Width Cache', `${hitRate.toFixed(1)}% hit`],
-      ['GC Saved', `${gcSaved.toLocaleString()} objs/s`],
+      [t('hud.fps', this.lang), `${this.data.fps} (${this.data.frameTime.toFixed(1)}ms)`],
+      [t('hud.state', this.lang), stateText],
+      [t('hud.barrage', this.lang), `${this.data.entityCount}`],
+      [t('hud.cache', this.lang), `${hitRate.toFixed(1)}% ${t('hud.hit', this.lang)}`],
+      [t('hud.gc', this.lang), `${gcSaved.toLocaleString()} ${t('hud.objs', this.lang)}`],
     ];
 
     renderer.save();
-    renderer.setGlobalAlpha(0.9);
+    renderer.setGlobalAlpha(0.95);
     for (let i = 0; i < lines.length; i++) {
       const [label, val] = lines[i];
       const y = y0 + i * 16;
-      renderer.fillText(label + ':', 10, y, font, '#94a3b8');
+      renderer.fillText(label + ':', 10, y, font, '#453c38'); // warm charcoal label
 
-      let valColor = '#f8fafc';
-      if (label === 'Engine State') {
-        valColor = isThrottled ? '#fbbf24' : '#38bdf8'; // amber vs sky
-      } else if (label === 'Width Cache') {
-        valColor = '#34d399'; // emerald
-      } else if (label === 'GC Saved' && gcSaved > 0) {
-        valColor = '#818cf8'; // indigo
+      let valColor = '#453c38';
+      if (label === t('hud.state', this.lang)) {
+        valColor = isThrottled ? '#d97706' : '#2563eb'; // brand orange vs blue
+      } else if (label === t('hud.cache', this.lang)) {
+        valColor = '#16a34a'; // green
+      } else if (label === t('hud.gc', this.lang) && gcSaved > 0) {
+        valColor = '#d97706'; // VectoJS Gallery Orange
       }
       renderer.fillText(val, 115, y, font, valColor);
     }
