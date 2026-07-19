@@ -6,7 +6,7 @@
       "name": "bakudan",
       "dependencies": {
         "@vectojs/core": "1.11.3",
-        "@vectojs/ui": "1.11.3",
+        "@vectojs/ui": "1.11.4",
       },
       "devDependencies": {
         "@changesets/cli": "^2.31.0",
@@ -216,7 +216,7 @@
 
     "@vectojs/devtools": ["@vectojs/devtools@0.4.3", "", { "peerDependencies": { "@vectojs/core": ">=1.0.0 <2.0.0", "@vectojs/ui": ">=1.0.0 <2.0.0" }, "optionalPeers": ["@vectojs/ui"] }, "sha512-YgFziIgN7ECUPrIerkGBXvpmFORpUqm9WI5vcjonNERyS2bEj046/Nbf4QG8tsq+ufH7mCKNlldCNxF/VbWNmw=="],
 
-    "@vectojs/ui": ["@vectojs/ui@1.11.3", "", { "dependencies": { "marked": "^18.0.6", "mathjax-full": "^3.2.2" }, "peerDependencies": { "@vectojs/core": ">=1.8.0 <2.0.0" } }, "sha512-jfKZjzcDMUzo9ood9zKzgOIMH0J4DrW40NUt22imsCA+H0ki9yoJ8M1iSHX3HOgbfgEOg7ltiY6+y3r2lscqyQ=="],
+    "@vectojs/ui": ["@vectojs/ui@1.11.4", "", { "dependencies": { "marked": "^18.0.6", "mathjax-full": "^3.2.2" }, "peerDependencies": { "@vectojs/core": ">=1.8.0 <2.0.0" } }, "sha512-R/eqVflq6MvmIjcu5mfA8lyVx66Df+c0jzK9NiTLf/r27nBWcf36gmW6RE5JGHnu0l1IBgOhUq/DWFFO97qUvA=="],
 
     "@xmldom/xmldom": ["@xmldom/xmldom@0.9.10", "", {}, "sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw=="],
 

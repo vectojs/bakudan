@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@vectojs/core": "1.11.3",
-    "@vectojs/ui": "1.11.3"
+    "@vectojs/ui": "1.11.4"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
