@@ -104,4 +104,22 @@ describe('Scheduler', () => {
     expect(pool.activeCount).toBeGreaterThan(before);
     expect(pool.activeCount).toBeLessThanOrEqual(150);
   });
+
+  it('lane assignment selects safe lanes or falls back gracefully', () => {
+    const pool = new DanmakuPool(10);
+    const sched = new Scheduler(pool, 1000, 360, 5); // has 9 lanes
+    const lane1 = (sched as any)._assignLane('scroll');
+    expect(lane1).toBeGreaterThanOrEqual(0);
+
+    // Occupy all lanes with far-right values to simulate congestion (gap > 800)
+    for (const lane of (sched as any).lanes) {
+      lane.occupied = true;
+      lane.lastX = 900; // stageWidth is 1000, minGap is 200 => 900 > 800 (congested)
+    }
+
+    // Congested lanes should trigger fallback behavior
+    const fallbackLane = (sched as any)._assignLane('scroll');
+    expect(fallbackLane).toBeGreaterThanOrEqual(0);
+    expect(fallbackLane).toBeLessThan((sched as any).lanes.length);
+  });
 });

@@ -3,6 +3,8 @@ import { createDefaultParams, type DanmakuParams, type PoolSlot } from './types'
 export class DanmakuPool {
   readonly capacity: number;
   readonly slots: PoolSlot[];
+  private _activeCount = 0;
+  private _activeIdsCache: number[] | null = null;
 
   constructor(capacity: number) {
     this.capacity = capacity;
@@ -13,11 +15,7 @@ export class DanmakuPool {
   }
 
   get activeCount(): number {
-    let c = 0;
-    for (let i = 0; i < this.capacity; i++) {
-      if (this.slots[i].active) c++;
-    }
-    return c;
+    return this._activeCount;
   }
 
   /**
@@ -40,13 +38,18 @@ export class DanmakuPool {
       slot.params = p;
       slot.age = 0;
       activated.push(slot);
+      this._activeCount++;
+      this._activeIdsCache = null;
     }
     return activated;
   }
 
   deactivate(slotId: number): void {
     if (slotId < 0 || slotId >= this.capacity) return;
+    if (!this.slots[slotId].active) return;
     this.slots[slotId].active = false;
+    this._activeCount--;
+    this._activeIdsCache = null;
   }
 
   deactivateBatch(ids: number[]): void {
@@ -54,10 +57,12 @@ export class DanmakuPool {
   }
 
   getActiveIds(): number[] {
+    if (this._activeIdsCache) return this._activeIdsCache;
     const ids: number[] = [];
     for (let i = 0; i < this.capacity; i++) {
       if (this.slots[i].active) ids.push(i);
     }
+    this._activeIdsCache = ids;
     return ids;
   }
 
@@ -65,6 +70,8 @@ export class DanmakuPool {
     for (let i = 0; i < this.capacity; i++) {
       this.slots[i].active = false;
     }
+    this._activeCount = 0;
+    this._activeIdsCache = null;
   }
 
   private _findFree(): PoolSlot | null {
@@ -85,7 +92,6 @@ export class DanmakuPool {
     s.age = 0;
     s.lane = 0;
     for (let i = 0; i < s.charAngles.length; i++) s.charAngles[i] = 0;
-    s.charColors = [];
   }
 
   private _createEmptySlot(id: number): PoolSlot {
@@ -101,7 +107,6 @@ export class DanmakuPool {
       age: 0,
       lane: 0,
       charAngles: new Float64Array(64),
-      charColors: [],
     };
   }
 }

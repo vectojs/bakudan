@@ -24,7 +24,7 @@ const DEMO_VIDEO_SRC = '/video/demo-clip.mp4';
 type AppMode = 'stress' | 'video';
 
 class Ticker extends Entity {
-  constructor(private app: App) {
+  constructor(readonly app: App) {
     super();
   }
 
@@ -39,7 +39,12 @@ class Ticker extends Entity {
   }
 
   hasPendingAnimations(): boolean {
-    return true;
+    return (
+      this.app.pool.activeCount > 0 ||
+      this.app.isDragging ||
+      this.app.isVideoPlaying ||
+      this.app.hasAmbientAnimation
+    );
   }
 }
 
@@ -69,6 +74,22 @@ export class App {
    * mode, since video mode zeroes it out (the track drives spawns itself,
    * not the random-fill scheduler). */
   private _stressTargetBeforeVideo = 500;
+  private _effectsDirty = true;
+
+  /** True while a danmaku entity is being dragged. */
+  get isDragging(): boolean {
+    return this._dragEntity !== null;
+  }
+
+  /** True while a background video is actively playing. */
+  get isVideoPlaying(): boolean {
+    return this.mode === 'video' && this.bg.isVideoReady && !this.bg.paused;
+  }
+
+  /** True while the ambient gradient background is animating. */
+  get hasAmbientAnimation(): boolean {
+    return this.bg.mode === 'ambient';
+  }
 
   private activePreset: PresetId = 'scroll';
   private effects: CharacterEffects = {
@@ -131,6 +152,7 @@ export class App {
       onStressRateChange: (r) => this.scheduler.setSpawnRate(r),
       onEffectToggle: (key) => {
         this.effects[key] = !this.effects[key];
+        this._effectsDirty = true;
       },
       onToggleShowcase: () => {},
       onBgModeChange: (mode) => {
@@ -265,13 +287,16 @@ export class App {
           de.boundParams = slot.params;
           de.hovered = false;
           de.liked = false;
+          de.dragging = false;
         }
         if (!this._dragEntity) {
           de.x = slot.x;
           de.y = slot.y;
         }
         de.interactive = this._interactiveMode;
-        slot.params.effects = { ...this.effects };
+        if (this._effectsDirty) {
+          slot.params.effects = { ...this.effects };
+        }
       } else {
         if (de.parent) {
           this.scene.remove(de);
@@ -279,9 +304,14 @@ export class App {
           de.hovered = false;
           de.interactive = false;
           de.dragging = false;
+          // If we were dragging this entity, release the drag
+          if (this._dragEntity === de) {
+            this._dragEntity = null;
+          }
         }
       }
     }
+    this._effectsDirty = false;
 
     if (!this._interactiveMode) {
       for (const de of this.danmakuEntities) {

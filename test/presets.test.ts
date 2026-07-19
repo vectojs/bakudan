@@ -15,7 +15,6 @@ function makeSlot(): PoolSlot {
     age: 0,
     lane: 2,
     charAngles: new Float64Array(64),
-    charColors: [],
   };
 }
 

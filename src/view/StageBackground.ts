@@ -9,6 +9,7 @@ export class StageBackground extends Entity {
   private _video: HTMLVideoElement | null = null;
   private _videoSrc: string | null = null;
   private _t = 0;
+  private _endedCallback: (() => void) | null = null;
 
   isPointInside(_globalX: number, _globalY: number): boolean {
     return false;
@@ -57,6 +58,7 @@ export class StageBackground extends Entity {
 
   stopVideo(): void {
     if (this._video) {
+      this._removeEndedListener();
       this._video.pause();
       this._video.removeAttribute('src');
       this._video.load();
@@ -111,7 +113,17 @@ export class StageBackground extends Entity {
 
   /** Register a listener for the underlying `<video>` element's `ended` event. */
   onEnded(cb: () => void): void {
+    // Remove any previous listener to prevent accumulation
+    this._removeEndedListener();
+    this._endedCallback = cb;
     this._video?.addEventListener('ended', cb);
+  }
+
+  private _removeEndedListener(): void {
+    if (this._endedCallback && this._video) {
+      this._video.removeEventListener('ended', this._endedCallback);
+    }
+    this._endedCallback = null;
   }
 
   render(renderer: IRenderer): void {

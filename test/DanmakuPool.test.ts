@@ -91,4 +91,18 @@ describe('DanmakuPool', () => {
     expect(pool.activeCount).toBe(0);
     expect(pool.slots.every((s) => !s.active)).toBe(true);
   });
+
+  it('activeCount is O(1) and accurate after mixed ops', () => {
+    const pool = new DanmakuPool(10);
+    expect(pool.activeCount).toBe(0);
+    pool.activateBatch(makeSlot().slice(0, 5));
+    expect(pool.activeCount).toBe(5);
+    pool.deactivate(0);
+    pool.deactivate(1);
+    expect(pool.activeCount).toBe(3);
+    pool.activateBatch([makeParams('new1'), makeParams('new2')]);
+    expect(pool.activeCount).toBe(5);
+    pool.reset();
+    expect(pool.activeCount).toBe(0);
+  });
 });

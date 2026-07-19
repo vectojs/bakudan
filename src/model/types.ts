@@ -34,8 +34,6 @@ export interface PoolSlot {
   lane: number;
   /** Per-character rotation offsets for the `rotation` preset. */
   charAngles: Float64Array;
-  /** Per-character color offsets for `rainbow` effect. */
-  charColors: string[];
 }
 
 export interface PresetState {

@@ -1,15 +1,23 @@
 import { Entity, type IRenderer } from '@vectojs/core';
 import type { PoolSlot, DanmakuParams } from '../model/types';
 
-const fontCtxCache = new Map<string, CanvasRenderingContext2D>();
+const fontCtxCache = new Map<string, any>();
 
-function getMeasureCtx(fontSize: number): CanvasRenderingContext2D {
-  const key = `${fontSize}`;
+function getMeasureCtx(fontSize: number): { measureText(text: string): { width: number } } {
+  const rounded = Math.round(fontSize);
+  const key = `${rounded}`;
   let ctx = fontCtxCache.get(key);
   if (ctx) return ctx;
   const c = document.createElement('canvas');
-  const cctx = c.getContext('2d')!;
-  cctx.font = `400 ${fontSize}px system-ui, sans-serif`;
+  const cctx = c.getContext('2d');
+  if (!cctx) {
+    return {
+      measureText(t: string) {
+        return { width: t.length * rounded * 0.6 };
+      },
+    };
+  }
+  cctx.font = `400 ${rounded}px system-ui, sans-serif`;
   fontCtxCache.set(key, cctx);
   return cctx;
 }
@@ -38,8 +46,35 @@ export class DanmakuEntity extends Entity {
 
   private _actionBtnW = 44;
 
+  /** Cached per-character widths, recomputed only on text/fontSize change. */
+  private _cachedCharWidths: number[] | null = null;
+  private _cachedText = '';
+  private _cachedFontSize = 0;
+
   get actionBtnWidth(): number {
     return this._actionBtnW;
+  }
+
+  /**
+   * Return per-character pixel widths for the current slot text. The result
+   * is cached and only recomputed when text or fontSize changes — avoids
+   * calling the expensive `measureText()` on every frame during rainbow and
+   * rotation rendering.
+   */
+  private _getCharWidths(): number[] {
+    const s = this.slot;
+    if (!s) return [];
+    const { text, fontSize } = s.params;
+    if (this._cachedCharWidths && this._cachedText === text && this._cachedFontSize === fontSize) {
+      return this._cachedCharWidths;
+    }
+    const chars = [...text];
+    const ctx = getMeasureCtx(fontSize);
+    const widths = chars.map((ch) => ctx.measureText(ch).width);
+    this._cachedCharWidths = widths;
+    this._cachedText = text;
+    this._cachedFontSize = fontSize;
+    return widths;
   }
 
   isPointInside(globalX: number, globalY: number): boolean {
@@ -141,11 +176,12 @@ export class DanmakuEntity extends Entity {
   private _renderRainbow(renderer: IRenderer, s: PoolSlot, font: string): void {
     const chars = [...s.params.text];
     const fontSize = s.params.fontSize;
+    const widths = this._getCharWidths();
     let cx = 0;
     for (let i = 0; i < chars.length; i++) {
       const hue = ((s.age / 50 + i * 30) % 360) | 0;
       renderer.fillText(chars[i], cx, fontSize * 0.8, font, `hsl(${hue}, 80%, 65%)`);
-      cx += getMeasureCtx(fontSize).measureText(chars[i]).width;
+      cx += widths[i] ?? 0;
     }
   }
 
@@ -157,7 +193,7 @@ export class DanmakuEntity extends Entity {
     fontSize: number,
   ): void {
     const chars = [...s.params.text];
-    const ctx = getMeasureCtx(fontSize);
+    const widths = this._getCharWidths();
     let cx = 0;
     for (let i = 0; i < chars.length; i++) {
       renderer.save();
@@ -165,7 +201,7 @@ export class DanmakuEntity extends Entity {
       renderer.rotate(s.charAngles[i] ?? 0);
       renderer.fillText(chars[i], 0, 0, font, color);
       renderer.restore();
-      cx += ctx.measureText(chars[i]).width;
+      cx += widths[i] ?? 0;
     }
   }
 

@@ -8,7 +8,7 @@ function main(): void {
 
   const scene = new Scene(canvas, {
     maxFPS: 60,
-    maxDPR: 2,
+    maxDPR: 1,
     a11ySyncInterval: 100,
   });
   scene.renderMode = 'always';
