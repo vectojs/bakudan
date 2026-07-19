@@ -1,7 +1,6 @@
 import { Entity, type IRenderer } from '@vectojs/core';
 import type { PoolSlot } from '../model/types';
 
-/** Cached per-font measurements: key = fontSize|fontWeight, value = ctx */
 const fontCtxCache = new Map<string, CanvasRenderingContext2D>();
 
 function getMeasureCtx(fontSize: number): CanvasRenderingContext2D {
@@ -15,16 +14,32 @@ function getMeasureCtx(fontSize: number): CanvasRenderingContext2D {
   return cctx;
 }
 
-/**
- * A single danmaku strip. Owns a PoolSlot reference and renders its text
- * directly via fillText — no LayoutEngine, no Text/RichText, no
- * getContentProjection(). Implements getBounds() for viewport culling.
- */
+export type ActionKind = 'like' | 'copy';
+
 export class DanmakuEntity extends Entity {
   slot: PoolSlot | null = null;
+  liked = false;
+  hovered = false;
+  dragging = false;
+  dragOffX = 0;
+  dragOffY = 0;
 
-  isPointInside(_globalX: number, _globalY: number): boolean {
-    return false;
+  onAction: ((kind: ActionKind) => void) | null = null;
+  onDragStart: ((gx: number, gy: number) => void) | null = null;
+
+  private _actionBtnW = 44;
+
+  get actionBtnWidth(): number {
+    return this._actionBtnW;
+  }
+
+  isPointInside(globalX: number, globalY: number): boolean {
+    if (!this.interactive || !this.slot) return false;
+    const local = this.worldToLocal(globalX, globalY);
+    if (!local) return false;
+    const w = (this.slot.width || 80) + this._actionBtnW;
+    const h = (this.slot.params.fontSize || 24) * 1.4;
+    return local.x >= 0 && local.x <= w && local.y >= 0 && local.y <= h;
   }
 
   getBounds() {
@@ -57,15 +72,15 @@ export class DanmakuEntity extends Entity {
     } else {
       renderer.fillText(text, 0, fontSize * 0.8, font, color);
       if (effects.outline) {
-        const outlineOff = 1;
-        renderer.fillText(text, outlineOff, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, -outlineOff, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, 0, fontSize * 0.8 + outlineOff, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, 0, fontSize * 0.8 - outlineOff, font, 'rgba(0,0,0,0.6)');
+        const off = 1;
+        renderer.fillText(text, off, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, -off, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, 0, fontSize * 0.8 + off, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, 0, fontSize * 0.8 - off, font, 'rgba(0,0,0,0.6)');
         renderer.fillText(text, 0, fontSize * 0.8, font, color);
       }
       if (effects.glow) {
-        renderer.fillText(text, 0, fontSize * 0.8, font, color); // draw twice for glow emphasis
+        renderer.fillText(text, 0, fontSize * 0.8, font, color);
       }
     }
 
@@ -75,7 +90,28 @@ export class DanmakuEntity extends Entity {
       return;
     }
 
+    if (this.hovered && this.interactive && s.active) {
+      this._renderActions(renderer, s, fontSize);
+    }
+
     renderer.restore();
+  }
+
+  private _renderActions(renderer: IRenderer, s: PoolSlot, fontSize: number): void {
+    const textEnd = s.width;
+    const btnFont = `${fontSize}px sans-serif`;
+    renderer.fillText(this.liked ? '❤️' : '🤍', textEnd + 4, fontSize * 0.8, btnFont, '#fff');
+    renderer.fillText('📋', textEnd + 24, fontSize * 0.8, btnFont, '#fff');
+  }
+
+  /** Hit-test the action button region at a known local-x. Returns the action kind or null. */
+  hitAction(localX: number): ActionKind | null {
+    const s = this.slot;
+    if (!s) return null;
+    const textEnd = s.width;
+    if (localX >= textEnd + 4 && localX < textEnd + 24) return 'like';
+    if (localX >= textEnd + 24 && localX < textEnd + 44) return 'copy';
+    return null;
   }
 
   private _renderGlitch(
@@ -86,27 +122,11 @@ export class DanmakuEntity extends Entity {
     fontSize: number,
   ): void {
     const t = s.age / 1000;
-    const jitterX = Math.sin(t * 47) * 3;
-    const jitterY = Math.cos(t * 53) * 2;
-
-    // Red channel offset
-    renderer.fillText(
-      s.params.text,
-      jitterX - 2,
-      fontSize * 0.8 + jitterY,
-      font,
-      'rgba(255,50,50,0.8)',
-    );
-    // Blue channel offset
-    renderer.fillText(
-      s.params.text,
-      jitterX + 2,
-      fontSize * 0.8 - jitterY,
-      font,
-      'rgba(50,50,255,0.8)',
-    );
-    // Main text
-    renderer.fillText(s.params.text, jitterX, fontSize * 0.8, font, color);
+    const jx = Math.sin(t * 47) * 3;
+    const jy = Math.cos(t * 53) * 2;
+    renderer.fillText(s.params.text, jx - 2, fontSize * 0.8 + jy, font, 'rgba(255,50,50,0.8)');
+    renderer.fillText(s.params.text, jx + 2, fontSize * 0.8 - jy, font, 'rgba(50,50,255,0.8)');
+    renderer.fillText(s.params.text, jx, fontSize * 0.8, font, color);
   }
 
   private _renderRainbow(renderer: IRenderer, s: PoolSlot, font: string): void {
@@ -116,8 +136,7 @@ export class DanmakuEntity extends Entity {
     for (let i = 0; i < chars.length; i++) {
       const hue = ((s.age / 50 + i * 30) % 360) | 0;
       renderer.fillText(chars[i], cx, fontSize * 0.8, font, `hsl(${hue}, 80%, 65%)`);
-      const ctx = getMeasureCtx(fontSize);
-      cx += ctx.measureText(chars[i]).width;
+      cx += getMeasureCtx(fontSize).measureText(chars[i]).width;
     }
   }
 

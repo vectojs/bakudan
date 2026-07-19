@@ -15,6 +15,7 @@ const MOBILE_BREAKPOINT = 768;
 const HUD_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
 const PANEL_WIDTH = 280;
+const INTERACTIVE_IDLE_MS = 1500;
 
 class Ticker extends Entity {
   constructor(private app: App) {
@@ -63,6 +64,12 @@ export class App {
   private pointerX = 0;
   private pointerY = 0;
   private pointerActive = false;
+
+  private _interactiveMode = false;
+  private _lastPointerMove = 0;
+  private _dragEntity: DanmakuEntity | null = null;
+  private _dragOffX = 0;
+  private _dragOffY = 0;
 
   private _frameAccumMs = 0;
   private _frameCount = 0;
@@ -181,6 +188,13 @@ export class App {
       this._lastA11y = Date.now();
     }
 
+    if (!this._dragEntity) {
+      const now = performance.now();
+      if (now - this._lastPointerMove > INTERACTIVE_IDLE_MS) {
+        this._interactiveMode = false;
+      }
+    }
+
     this.scheduler.tick(dt, this.activePreset, {
       cursorX: this.pointerX,
       cursorY: this.pointerY,
@@ -189,27 +203,57 @@ export class App {
 
     const measureCanvas = document.createElement('canvas');
     const mctx = measureCanvas.getContext('2d');
+
+    if (this._interactiveMode && !this._dragEntity) {
+      this._updateHover();
+    }
+
     for (let i = 0; i < this.pool.capacity; i++) {
       const slot = this.pool.slots[i];
       const de = this.danmakuEntities[i];
       if (slot.active) {
         if (!de.parent) {
           de.slot = slot;
+          de.interactive = true;
           this.scene.add(de);
           if (mctx) {
             mctx.font = `400 ${slot.params.fontSize}px system-ui, sans-serif`;
             slot.width = mctx.measureText(slot.params.text).width + 4;
           }
+        } else if (!this._dragEntity) {
+          de.x = slot.x;
+          de.y = slot.y;
         }
-        de.x = slot.x;
-        de.y = slot.y;
+        de.interactive = this._interactiveMode;
         slot.params.effects = { ...this.effects };
       } else {
         if (de.parent) {
           this.scene.remove(de);
           de.slot = null;
+          de.hovered = false;
+          de.interactive = false;
+          de.dragging = false;
         }
       }
+    }
+
+    if (!this._interactiveMode) {
+      for (const de of this.danmakuEntities) {
+        if (de.hovered) {
+          de.hovered = false;
+        }
+      }
+    }
+  }
+
+  private _updateHover(): void {
+    for (const de of this.danmakuEntities) {
+      if (!de.slot?.active || !de.interactive) continue;
+      const localX = this.pointerX - de.x;
+      const localY = this.pointerY - de.y;
+      const w = (de.slot.width || 80) + de.actionBtnWidth;
+      const h = (de.slot.params.fontSize || 24) * 1.4;
+      de.hovered = localX >= 0 && localX <= w && localY >= 0 && localY <= h;
     }
   }
 
@@ -269,22 +313,80 @@ export class App {
     }
   }
 
+  private _findEntityAtPointer(): DanmakuEntity | null {
+    for (const de of this.danmakuEntities) {
+      if (!de.slot?.active || !de.interactive) continue;
+      const localX = this.pointerX - de.x;
+      const localY = this.pointerY - de.y;
+      const w = (de.slot.width || 80) + de.actionBtnWidth;
+      const h = (de.slot.params.fontSize || 24) * 1.4;
+      if (localX >= 0 && localX <= w && localY >= 0 && localY <= h) {
+        return de;
+      }
+    }
+    return null;
+  }
+
   private _setupPointerTracking(): void {
     const canvas = (this.scene as any).canvas as HTMLCanvasElement | undefined;
     if (!canvas) return;
+
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       this.pointerX = e.clientX - rect.left;
       this.pointerY = e.clientY - rect.top;
+      this._lastPointerMove = performance.now();
+      if (!this._interactiveMode) {
+        this._interactiveMode = true;
+      }
+
+      if (this._dragEntity) {
+        this._dragEntity.x = this.pointerX - this._dragOffX;
+        this._dragEntity.y = this.pointerY - this._dragOffY;
+        this.scene.markDirty();
+      }
     });
-    canvas.addEventListener('pointerdown', () => {
+
+    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
       this.pointerActive = true;
+      if (!this._interactiveMode) return;
+
+      const de = this._findEntityAtPointer();
+      if (!de || !de.slot) return;
+
+      const localX = this.pointerX - de.x;
+      const action = de.hitAction(localX);
+      if (action === 'like') {
+        de.liked = !de.liked;
+        this.scene.markDirty();
+        return;
+      }
+      if (action === 'copy') {
+        navigator.clipboard.writeText(de.slot.params.text).catch(() => {});
+        return;
+      }
+
+      this._dragEntity = de;
+      this._dragOffX = this.pointerX - de.x;
+      this._dragOffY = this.pointerY - de.y;
+      de.dragging = true;
+      canvas.setPointerCapture(e.pointerId);
     });
+
     canvas.addEventListener('pointerup', () => {
       this.pointerActive = false;
+      if (this._dragEntity) {
+        this._dragEntity.dragging = false;
+        this._dragEntity = null;
+      }
     });
+
     canvas.addEventListener('pointerleave', () => {
       this.pointerActive = false;
+      if (this._dragEntity) {
+        this._dragEntity.dragging = false;
+        this._dragEntity = null;
+      }
     });
   }
 }
