@@ -21,7 +21,7 @@ describe('DanmakuPool', () => {
   it('activates slots up to capacity', () => {
     const pool = new DanmakuPool(5);
     const added = pool.activateBatch(makeSlot());
-    expect(added).toBe(5);
+    expect(added.length).toBe(5);
     expect(pool.activeCount).toBe(5);
   });
 
@@ -29,7 +29,7 @@ describe('DanmakuPool', () => {
     const pool = new DanmakuPool(3);
     pool.activateBatch(makeSlot()); // 3/3 filled
     const added = pool.activateBatch([makeParams('extra')]);
-    expect(added).toBe(0);
+    expect(added.length).toBe(0);
   });
 
   it('recycles slots on deactivate', () => {
@@ -40,7 +40,7 @@ describe('DanmakuPool', () => {
     pool.deactivate(ids[1]);
     expect(pool.activeCount).toBe(2);
     const added = pool.activateBatch([makeParams('recycled')]);
-    expect(added).toBe(1);
+    expect(added.length).toBe(1);
     expect(pool.activeCount).toBe(3);
   });
 
@@ -66,6 +66,22 @@ describe('DanmakuPool', () => {
     pool.activateBatch(makeSlot().slice(0, 5));
     pool.deactivateBatch([0, 2, 4]);
     expect(pool.activeCount).toBe(2);
+  });
+
+  it('activateBatch returns the exact recycled slot when a low index frees up while higher indices stay active', () => {
+    // Regression test: activateBatch must return the slot it actually wrote
+    // to, not force callers to guess via getActiveIds()[length-1]. _findFree
+    // scans from index 0, so freeing a low index while high indices remain
+    // active must return that low-index slot, not the highest active id.
+    const pool = new DanmakuPool(10);
+    pool.activateBatch(makeSlot()); // fills indices 0-9
+    pool.deactivate(3);
+    const [slot] = pool.activateBatch([makeParams('recycled-into-3')]);
+    expect(slot).toBeDefined();
+    expect(slot!.id).toBe(3);
+    expect(slot!.params.text).toBe('recycled-into-3');
+    // The highest-index slot must be untouched by the recycle.
+    expect(pool.slots[9].params.text).toBe('dmk-9');
   });
 
   it('reset clears all active slots', () => {

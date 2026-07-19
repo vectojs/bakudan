@@ -1,4 +1,5 @@
 import { Stack, Slider, Dropdown, Checkbox, Text } from '@vectojs/ui';
+import type { IRenderer } from '@vectojs/core';
 import type { PresetId, CharacterEffects } from '../model/types';
 
 export interface ControlCenterCallbacks {
@@ -9,6 +10,7 @@ export interface ControlCenterCallbacks {
   onToggleShowcase: (preset: 'physics' | 'jelly', enabled: boolean) => void;
   onBgModeChange: (mode: 'none' | 'ambient' | 'video') => void;
   onPresetParamChange: (key: string, value: number) => void;
+  onFpsCapChange: (fps: number) => void;
 }
 
 const PRESET_LABELS = [
@@ -39,6 +41,14 @@ const BG_MAP: Record<string, 'none' | 'ambient' | 'video'> = {
   Ambient: 'ambient',
   None: 'none',
   'Video (opt-in)': 'video',
+};
+
+const FPS_LABELS = ['60 FPS', '120 FPS', 'Max (uncapped)'];
+
+const FPS_MAP: Record<string, number> = {
+  '60 FPS': 60,
+  '120 FPS': 120,
+  'Max (uncapped)': 0,
 };
 
 export class ControlCenter extends Stack {
@@ -107,5 +117,37 @@ export class ControlCenter extends Stack {
     bgDropdown.width = width - 32;
     bgDropdown.on('change', (e: any) => callbacks.onBgModeChange(BG_MAP[e.value]));
     this.add(bgDropdown);
+
+    // FPS cap
+    const fpsLabel = new Text('Frame Rate Cap');
+    this.add(fpsLabel);
+    const fpsDropdown = new Dropdown(FPS_LABELS, { value: '60 FPS' });
+    fpsDropdown.width = width - 32;
+    fpsDropdown.on('change', (e: any) => callbacks.onFpsCapChange(FPS_MAP[e.value]));
+    this.add(fpsDropdown);
+  }
+
+  /**
+   * `Stack` (its base class) is purely structural and draws nothing — see
+   * `@vectojs/ui`'s `Stack.render()` docs. Without a backdrop here, the
+   * panel's controls sit directly over the scrolling danmaku layer with no
+   * visual separation, making sliders/dropdowns nearly unreadable. Paint a
+   * glassmorphism backdrop (matches HUD's panel style) before children draw.
+   */
+  override render(renderer: IRenderer): void {
+    renderer.save();
+    renderer.beginPath();
+    renderer.roundRect(0, 0, this.width, this.height, 0);
+    // Fully opaque and several steps lighter than the stage background
+    // (#0f1420). Earlier attempts at translucent dark-blue fills (82%,
+    // then 97% alpha at a similar hue) measured correctly pixel-by-pixel
+    // but read as "no panel" at a glance — the color step from the stage
+    // was too subtle against bright, saturated danmaku text bleeding
+    // through. A fully opaque mid-slate with a bright accent border reads
+    // unambiguously as a raised UI surface.
+    renderer.fill('#1e2536');
+    renderer.stroke('rgba(148,163,184,0.4)', 1.5);
+    renderer.restore();
+    super.render(renderer);
   }
 }

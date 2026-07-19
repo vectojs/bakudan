@@ -1,4 +1,5 @@
 import { Input, Button, Stack } from '@vectojs/ui';
+import type { IRenderer } from '@vectojs/core';
 
 export interface DockCallbacks {
   onSend: (text: string) => void;
@@ -42,5 +43,19 @@ export class Dock extends Stack {
 
   get inputValue(): string {
     return this._input.value;
+  }
+
+  /** `Stack` draws nothing itself — add a near-opaque backdrop so the send
+   * bar visually separates from the scrolling danmaku behind it. A low-alpha
+   * fill close in hue to the stage background lets bright danmaku text bleed
+   * through and read as "no backdrop at all" even when it renders correctly. */
+  override render(renderer: IRenderer): void {
+    renderer.save();
+    renderer.beginPath();
+    renderer.roundRect(0, 0, this.width, this.height, 12);
+    renderer.fill('#1e2536');
+    renderer.stroke('rgba(148,163,184,0.4)', 1.5);
+    renderer.restore();
+    super.render(renderer);
   }
 }

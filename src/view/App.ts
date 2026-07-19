@@ -115,6 +115,9 @@ export class App {
         }
       },
       onPresetParamChange: () => {},
+      onFpsCapChange: (fps) => {
+        this.scene.maxFPS = fps;
+      },
     });
 
     for (let i = 0; i < poolCap; i++) {
@@ -124,8 +127,14 @@ export class App {
 
     scene.add(this.bg);
     scene.add(this.announcer);
-    scene.add(this.hud);
-    scene.add(this.dock);
+    // UI chrome uses the overlay root, not the main tree: danmaku entities
+    // are continuously scene.add()-ed as new ones spawn, and each newly
+    // added entity draws AFTER (on top of) everything already in the main
+    // tree. A HUD/Dock/panel added once at startup would end up buried
+    // under every danmaku spawned afterward. showOverlay() bypasses main-
+    // tree ordering and clipping so UI chrome always stays on top.
+    scene.showOverlay(this.hud);
+    scene.showOverlay(this.dock);
   }
 
   onResize(width: number, height: number): void {
@@ -201,9 +210,6 @@ export class App {
       pointerActive: this.pointerActive,
     });
 
-    const measureCanvas = document.createElement('canvas');
-    const mctx = measureCanvas.getContext('2d');
-
     if (this._interactiveMode && !this._dragEntity) {
       this._updateHover();
     }
@@ -214,13 +220,21 @@ export class App {
       if (slot.active) {
         if (!de.parent) {
           de.slot = slot;
+          de.boundParams = slot.params;
           de.interactive = true;
           this.scene.add(de);
-          if (mctx) {
-            mctx.font = `400 ${slot.params.fontSize}px system-ui, sans-serif`;
-            slot.width = mctx.measureText(slot.params.text).width + 4;
-          }
-        } else if (!this._dragEntity) {
+        } else if (de.boundParams !== slot.params) {
+          // Same pool index recycled within the same tick (deactivate +
+          // reactivate before the view sync ran, e.g. a danmaku scrolled
+          // off-screen and a new one spawned into the same slot before
+          // App.frame() got to sync entities). Re-bind so hovered/liked
+          // state from the previous occupant doesn't leak onto new content.
+          de.slot = slot;
+          de.boundParams = slot.params;
+          de.hovered = false;
+          de.liked = false;
+        }
+        if (!this._dragEntity) {
           de.x = slot.x;
           de.y = slot.y;
         }
@@ -295,9 +309,9 @@ export class App {
         this.controlCenter.width = W;
         this.controlCenter.x = 0;
         this.controlCenter.y = H * 0.5;
-        if (!this.controlCenter.parent) this.scene.add(this.controlCenter);
+        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
       } else {
-        if (this.controlCenter.parent) this.scene.remove(this.controlCenter);
+        if (this.controlCenter.parent) this.scene.hideOverlay(this.controlCenter);
       }
     } else {
       this.controlCenter.height = H;
@@ -305,10 +319,10 @@ export class App {
       this.controlCenter.width = PANEL_WIDTH;
       if (this.panelOpen) {
         this.controlCenter.x = W - PANEL_WIDTH;
-        if (!this.controlCenter.parent) this.scene.add(this.controlCenter);
+        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
       } else {
         this.controlCenter.x = W;
-        if (!this.controlCenter.parent) this.scene.add(this.controlCenter);
+        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
       }
     }
   }

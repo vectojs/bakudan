@@ -18,11 +18,10 @@ export class HUD extends Entity {
 
   render(renderer: IRenderer): void {
     renderer.save();
-    // Glassmorphism panel
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 8);
-    renderer.fill('rgba(255,255,255,0.08)');
-    renderer.stroke('rgba(255,255,255,0.18)', 0.5);
+    renderer.fill('#1e2536');
+    renderer.stroke('rgba(148,163,184,0.4)', 1);
     renderer.restore();
 
     const y0 = 16;

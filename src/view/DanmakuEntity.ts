@@ -1,5 +1,5 @@
 import { Entity, type IRenderer } from '@vectojs/core';
-import type { PoolSlot } from '../model/types';
+import type { PoolSlot, DanmakuParams } from '../model/types';
 
 const fontCtxCache = new Map<string, CanvasRenderingContext2D>();
 
@@ -23,6 +23,15 @@ export class DanmakuEntity extends Entity {
   dragging = false;
   dragOffX = 0;
   dragOffY = 0;
+
+  /**
+   * Reference to the `slot.params` object we last bound to. `PoolSlot`
+   * objects are never re-allocated (fixed array reused in place), so
+   * comparing `slot` itself can never detect a recycle — but `params` IS a
+   * fresh object every `activateBatch()` call, so it's the right identity
+   * to watch for "this slot changed occupant since we last synced".
+   */
+  boundParams: DanmakuParams | null = null;
 
   onAction: ((kind: ActionKind) => void) | null = null;
   onDragStart: ((gx: number, gy: number) => void) | null = null;
@@ -162,6 +171,7 @@ export class DanmakuEntity extends Entity {
 
   override destroy(): void {
     this.slot = null;
+    this.boundParams = null;
     super.destroy();
   }
 }

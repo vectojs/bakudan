@@ -20,8 +20,18 @@ export class DanmakuPool {
     return c;
   }
 
-  activateBatch(params: DanmakuParams[]): number {
-    let activated = 0;
+  /**
+   * Activate up to `params.length` free slots and return the exact slots
+   * that were activated, in the same order as `params`.
+   *
+   * Callers must use this return value (not `getActiveIds()`) to find the
+   * newly-activated slot: `getActiveIds()` returns slots in ascending index
+   * order, which does not correspond to activation order once slots have
+   * been freed and recycled out of order (a low free index can be filled
+   * while high indices are still occupied by older, unrelated danmaku).
+   */
+  activateBatch(params: DanmakuParams[]): PoolSlot[] {
+    const activated: PoolSlot[] = [];
     for (const p of params) {
       const slot = this._findFree();
       if (!slot) break;
@@ -29,7 +39,7 @@ export class DanmakuPool {
       slot.active = true;
       slot.params = p;
       slot.age = 0;
-      activated++;
+      activated.push(slot);
     }
     return activated;
   }
