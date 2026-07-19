@@ -56,6 +56,8 @@ export interface HUDData {
   frameTime: number;
   entityCount: number;
   heapUsedMB: number | null;
+  gcSavedCount?: number;
+  measureTextHitRate?: number;
 }
 
 /** A single pre-authored danmaku pinned to a video timestamp (seconds). */

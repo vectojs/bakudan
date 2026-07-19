@@ -8,3 +8,5 @@ tmp/
 .env
 .env.*
 .wrangler/
+.superpowers/
+

@@ -75,6 +75,8 @@ export class App {
    * not the random-fill scheduler). */
   private _stressTargetBeforeVideo = 500;
   private _effectsDirty = true;
+  showcasePhysics = false;
+  showcaseJelly = false;
 
   /** True while a danmaku entity is being dragged. */
   get isDragging(): boolean {
@@ -154,7 +156,14 @@ export class App {
         this.effects[key] = !this.effects[key];
         this._effectsDirty = true;
       },
-      onToggleShowcase: () => {},
+      onToggleShowcase: (preset, enabled) => {
+        if (preset === 'physics') {
+          this.showcasePhysics = enabled;
+          this.scheduler.showcasePhysics = enabled;
+        } else if (preset === 'jelly') {
+          this.showcaseJelly = enabled;
+        }
+      },
       onBgModeChange: (mode) => {
         if (this.mode === 'video') return; // video mode owns bg.mode
         this.bg.mode = mode;
@@ -171,6 +180,7 @@ export class App {
 
     for (let i = 0; i < poolCap; i++) {
       const de = new DanmakuEntity();
+      de.app = this;
       this.danmakuEntities.push(de);
     }
 
@@ -224,6 +234,13 @@ export class App {
       this.hud.data.fps = this._lastFps;
       this.hud.data.frameTime = this._frameAccumMs / this._frameCount;
       this.hud.data.entityCount = this.pool.activeCount;
+
+      const hits = DanmakuEntity.cacheHits;
+      const misses = DanmakuEntity.cacheMisses;
+      const total = hits + misses;
+      this.hud.data.measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
+      this.hud.data.gcSavedCount = Math.round(this.pool.activeCount * this._lastFps);
+
       if (
         typeof performance !== 'undefined' &&
         'memory' in performance &&

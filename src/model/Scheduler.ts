@@ -55,6 +55,7 @@ export class Scheduler {
   private lanes: LaneState[] = [];
   private spawnAccumulator = 0;
   private _laneRoundRobin = 0;
+  showcasePhysics = false;
 
   constructor(pool: DanmakuPool, stageWidth: number, stageHeight: number, targetCount: number) {
     this.pool = pool;
@@ -110,6 +111,22 @@ export class Scheduler {
     for (const id of ids) {
       const slot = this.pool.slots[id];
       preset(slot, dt, state, W, H);
+
+      if (this.showcasePhysics) {
+        if (!slot.params.presetParams) slot.params.presetParams = {};
+        if (slot.params.presetParams.vy === undefined) {
+          slot.params.presetParams.vy = -100 - Math.random() * 200;
+          slot.params.presetParams.gravity = 600 + Math.random() * 400;
+        }
+        const seconds = dt / 1000;
+        slot.params.presetParams.vy += slot.params.presetParams.gravity * seconds;
+        slot.y += slot.params.presetParams.vy * seconds;
+        const ground = H - 80;
+        if (slot.y > ground) {
+          slot.y = ground;
+          slot.params.presetParams.vy = -Math.abs(slot.params.presetParams.vy) * 0.7;
+        }
+      }
 
       if (slot.x + slot.width < -CULL_MARGIN || slot.x > W + CULL_MARGIN) {
         this.pool.deactivate(id);
@@ -167,9 +184,20 @@ export class Scheduler {
   private _spawnOne(presetId: PresetId, lane: number): boolean {
     const text = ContentLibrary.sample();
     const fontSize = 16 + Math.random() * 20;
+    const slateColors = [
+      '#f8fafc',
+      '#cbd5e1',
+      '#94a3b8',
+      '#38bdf8',
+      '#60a5fa',
+      '#818cf8',
+      '#a78bfa',
+      '#34d399',
+    ];
+    const color = slateColors[Math.floor(Math.random() * slateColors.length)];
     const params: DanmakuParams = {
       text,
-      color: `hsl(${Math.random() * 360}, 60%, 80%)`,
+      color,
       fontSize,
       speed: 150 + Math.random() * 150,
       opacity: 0.8 + Math.random() * 0.2,

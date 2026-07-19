@@ -25,6 +25,9 @@ function getMeasureCtx(fontSize: number): { measureText(text: string): { width: 
 export type ActionKind = 'like' | 'copy';
 
 export class DanmakuEntity extends Entity {
+  public static cacheHits = 0;
+  public static cacheMisses = 0;
+  public app: any = null;
   slot: PoolSlot | null = null;
   liked = false;
   hovered = false;
@@ -66,9 +69,11 @@ export class DanmakuEntity extends Entity {
     if (!s) return [];
     const { text, fontSize } = s.params;
     if (this._cachedCharWidths && this._cachedText === text && this._cachedFontSize === fontSize) {
+      DanmakuEntity.cacheHits += [...text].length;
       return this._cachedCharWidths;
     }
     const chars = [...text];
+    DanmakuEntity.cacheMisses += chars.length;
     const ctx = getMeasureCtx(fontSize);
     const widths = chars.map((ch) => ctx.measureText(ch).width);
     this._cachedCharWidths = widths;
@@ -105,6 +110,15 @@ export class DanmakuEntity extends Entity {
 
     renderer.save();
     renderer.translate(s.x, s.y);
+
+    if (this.app?.showcaseJelly && s.age > 0) {
+      const freq = 12;
+      const decay = 2.5;
+      const time = s.age / 1000;
+      const wobble = Math.sin(time * freq) * Math.exp(-time * decay) * 0.35;
+      renderer.scale(1 + wobble, 1 - wobble);
+    }
+
     renderer.setGlobalAlpha(opacity);
 
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
