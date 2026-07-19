@@ -8,5 +8,6 @@ export const scroll: PresetFn = (slot, dt, _state, _stageWidth) => {
   slot.x -= slot.params.speed * seconds;
   slot.y = slot.lane * (LINE_HEIGHT + LANE_GAP) + LINE_HEIGHT;
   slot.rotation = 0;
+  slot.age += dt;
   slot.opacity = slot.params.opacity;
 };

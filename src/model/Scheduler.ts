@@ -97,7 +97,6 @@ export class Scheduler {
       pointerActive: boolean;
     },
   ): number {
-    const preset = PRESETS[presetId];
     const state: PresetState = {
       time: performance.now(),
       cursorX: cursorState.cursorX,
@@ -110,7 +109,10 @@ export class Scheduler {
 
     for (const id of ids) {
       const slot = this.pool.slots[id];
-      preset(slot, dt, state, W, H);
+
+      const slotPreset = slot.params.preset || presetId;
+      const presetFn = PRESETS[slotPreset] || PRESETS.scroll;
+      presetFn(slot, dt, state, W, H);
 
       if (this.showcasePhysics) {
         if (!slot.params.presetParams) slot.params.presetParams = {};

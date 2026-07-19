@@ -6,6 +6,7 @@ const REPULSE_RADIUS = 150;
 const REPULSE_STRENGTH = 200;
 
 export const repulsion: PresetFn = (slot, dt, state, _stageWidth) => {
+  slot.age += dt;
   if (!state.pointerActive) {
     const seconds = dt / 1000;
     slot.x -= slot.params.speed * seconds;
