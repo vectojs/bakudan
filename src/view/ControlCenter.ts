@@ -47,7 +47,7 @@ class SettingsCard extends Stack {
 
     const header = new Text(title.toUpperCase(), {
       font: '600 10px monospace',
-      color: '#d97706', // VectoJS Gallery Brand Orange
+      color: '#ff7e5f',
     });
     this.add(header);
   }
@@ -56,8 +56,8 @@ class SettingsCard extends Stack {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 6);
-    renderer.fill('#faf8f6'); // Warm cream matching gallery
-    renderer.stroke('rgba(69, 60, 56, 0.12)', 1); // warm-charcoal thin border
+    renderer.fill('rgba(250, 248, 246, 0.65)');
+    renderer.stroke('rgba(255, 126, 95, 0.2)', 1);
     renderer.restore();
     super.render(renderer);
   }
@@ -91,7 +91,12 @@ export class ControlCenter extends Stack {
     titleText.width = innerW - 32;
     headerStack.add(titleText);
 
-    const closeBtn = new Button('✕');
+    const closeBtn = new Button('✕', {
+      bg: 'transparent',
+      hoverBg: 'rgba(255, 126, 95, 0.15)',
+      color: '#ff7e5f',
+      radius: 12,
+    });
     closeBtn.width = 24;
     closeBtn.height = 24;
     closeBtn.on('click', callbacks.onTogglePanel);
@@ -106,8 +111,14 @@ export class ControlCenter extends Stack {
       [t('mode.stress', lang)]: 'stress' as const,
       [t('mode.video', lang)]: 'video' as const,
     };
-    const modeDropdown = new Dropdown(appModeLabels, { value: appModeLabels[0]! });
+    const modeDropdown = new Dropdown(appModeLabels, {
+      value: appModeLabels[0]!,
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     modeDropdown.width = cardContentW;
+    (modeDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     modeDropdown.on('change', (e: any) => callbacks.onAppModeChange(appModeMap[e.value]));
     sysCard.add(modeDropdown);
 
@@ -117,8 +128,14 @@ export class ControlCenter extends Stack {
       [t('bg.none', lang)]: 'none' as const,
       [t('bg.video', lang)]: 'video' as const,
     };
-    const bgDropdown = new Dropdown(bgLabels, { value: bgLabels[0]! });
+    const bgDropdown = new Dropdown(bgLabels, {
+      value: bgLabels[0]!,
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     bgDropdown.width = cardContentW;
+    (bgDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     bgDropdown.on('change', (e: any) => callbacks.onBgModeChange(bgMap[e.value]));
     sysCard.add(bgDropdown);
 
@@ -132,8 +149,14 @@ export class ControlCenter extends Stack {
       {} as Record<string, string>,
     );
     const initialVideo = VIDEO_SOURCES.find((v) => v.url === currentVideoUrl) || VIDEO_SOURCES[0]!;
-    const videoDropdown = new Dropdown(videoLabels, { value: initialVideo.label });
+    const videoDropdown = new Dropdown(videoLabels, {
+      value: initialVideo.label,
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     videoDropdown.width = cardContentW;
+    (videoDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     videoDropdown.on('change', (e: any) => callbacks.onVideoSourceChange(videoMap[e.value]));
     sysCard.add(videoDropdown);
 
@@ -142,13 +165,27 @@ export class ControlCenter extends Stack {
     // 3. Stress Simulator Card
     const stressCard = new SettingsCard(t('settings.stress', lang), innerW);
 
-    const countSlider = new Slider({ min: 100, max: 5000, value: 1000, step: 100 });
+    const countSlider = new Slider({
+      min: 100,
+      max: 5000,
+      value: 1000,
+      step: 100,
+      trackColor: 'rgba(69, 60, 56, 0.15)',
+      progressColor: '#ff7e5f',
+    });
     countSlider.width = cardContentW;
     countSlider.height = 18;
     countSlider.on('change', (e: any) => callbacks.onStressCountChange(e.value));
     stressCard.add(countSlider);
 
-    const rateSlider = new Slider({ min: 10, max: 500, value: 50, step: 10 });
+    const rateSlider = new Slider({
+      min: 10,
+      max: 500,
+      value: 50,
+      step: 10,
+      trackColor: 'rgba(69, 60, 56, 0.15)',
+      progressColor: '#ff7e5f',
+    });
     rateSlider.width = cardContentW;
     rateSlider.height = 18;
     rateSlider.on('change', (e: any) => callbacks.onStressRateChange(e.value));
@@ -169,8 +206,14 @@ export class ControlCenter extends Stack {
       {} as Record<string, PresetId>,
     );
 
-    const presetDropdown = new Dropdown(presetLabels, { value: presetLabels[0]! });
+    const presetDropdown = new Dropdown(presetLabels, {
+      value: presetLabels[0]!,
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     presetDropdown.width = cardContentW;
+    (presetDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     presetDropdown.on('change', (e: any) => callbacks.onPresetChange(presetMap[e.value]));
     presetCard.add(presetDropdown);
 
@@ -180,7 +223,13 @@ export class ControlCenter extends Stack {
     const fxCard = new SettingsCard(t('settings.fx', lang), innerW);
     const fxKeys: (keyof CharacterEffects)[] = ['glow', 'gradient', 'rainbow', 'outline'];
     for (const key of fxKeys) {
-      const cb = new Checkbox({ label: t(`fx.${key}`, lang), checked: false });
+      const cb = new Checkbox({
+        label: t(`fx.${key}`, lang),
+        checked: false,
+        color: '#453c38',
+        accent: '#ff7e5f',
+        border: 'rgba(255, 126, 95, 0.3)',
+      });
       cb.on('change', () => callbacks.onEffectToggle(key));
       fxCard.add(cb);
     }
@@ -188,11 +237,23 @@ export class ControlCenter extends Stack {
 
     // 6. Showcase Card
     const showcaseCard = new SettingsCard(t('settings.showcase', lang), innerW);
-    const physicsCb = new Checkbox({ label: t('showcase.physics', lang), checked: false });
+    const physicsCb = new Checkbox({
+      label: t('showcase.physics', lang),
+      checked: false,
+      color: '#453c38',
+      accent: '#ff7e5f',
+      border: 'rgba(255, 126, 95, 0.3)',
+    });
     physicsCb.on('change', () => callbacks.onToggleShowcase('physics', physicsCb.checked));
     showcaseCard.add(physicsCb);
 
-    const jellyCb = new Checkbox({ label: t('showcase.jelly', lang), checked: false });
+    const jellyCb = new Checkbox({
+      label: t('showcase.jelly', lang),
+      checked: false,
+      color: '#453c38',
+      accent: '#ff7e5f',
+      border: 'rgba(255, 126, 95, 0.3)',
+    });
     jellyCb.on('change', () => callbacks.onToggleShowcase('jelly', jellyCb.checked));
     showcaseCard.add(jellyCb);
     this.add(showcaseCard);
@@ -214,8 +275,14 @@ export class ControlCenter extends Stack {
       ja: '日本語',
       ko: '한국어',
     };
-    const langDropdown = new Dropdown(langLabels, { value: langReverseMap[lang] });
+    const langDropdown = new Dropdown(langLabels, {
+      value: langReverseMap[lang],
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     langDropdown.width = cardContentW;
+    (langDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     langDropdown.on('change', (e: any) => callbacks.onLanguageChange(langMap[e.value]));
     langCard.add(langDropdown);
     this.add(langCard);
@@ -225,8 +292,8 @@ export class ControlCenter extends Stack {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 0);
-    renderer.fill('#ffffff'); // Pure white panel backdrop matching gallery sidebar
-    renderer.stroke('rgba(69, 60, 56, 0.1)', 1.5);
+    renderer.fill('rgba(255, 255, 255, 0.85)');
+    renderer.stroke('rgba(255, 126, 95, 0.15)', 1.5);
     renderer.restore();
     super.render(renderer);
   }

@@ -1,8 +1,10 @@
 import { Scene } from '@vectojs/core';
 import { attachDevtools } from '@vectojs/devtools';
 import { App } from './view/App';
+import { patchDropdownTheme } from './view/DropdownPatch';
 
 function main(): void {
+  patchDropdownTheme();
   const canvas = document.getElementById('bakudan-canvas') as HTMLCanvasElement | null;
   if (!canvas) return;
 
