@@ -6,7 +6,8 @@ import { detectBrowserLanguage, type Language, t } from '../model/i18n';
 import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
-import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH, charWidthStats } from './DanmakuLayer';
+import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
+import { textBitmapStats } from './TextBitmapCache';
 import type { PoolSlot } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import { Dock } from './Dock';
@@ -369,8 +370,11 @@ export class App {
       this.hud.data.frameTime = this._frameAccumMs / this._frameCount;
       this.hud.data.entityCount = this.pool.activeCount;
 
-      const hits = charWidthStats.hits;
-      const misses = charWidthStats.misses;
+      // Glyph-bitmap cache hit rate: the ratio of danmaku drawn as a cached
+      // `drawImage` blit vs. re-rasterized this session. At steady state the
+      // fixed content library is fully cached, so this pins near 100%.
+      const hits = textBitmapStats.hits;
+      const misses = textBitmapStats.misses;
       const total = hits + misses;
       this.hud.data.measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
       this.hud.data.gcSavedCount = Math.round(this.pool.activeCount * this._lastFps);

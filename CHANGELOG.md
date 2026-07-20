@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0
+
+### Performance — glyph-bitmap cache (the 5,000-danmaku bottleneck)
+
+- **Text is now blitted, not re-shaped, every frame.** At 5,000 danmaku the
+  dominant cost was 5,000 native `ctx.fillText()` calls per frame — each one
+  re-shapes the string, re-parses the CSS color, and rasterizes glyphs on the
+  CPU main thread. A GPU profile showed the card starved and downclocked while
+  the main thread was pegged in native (`(program)`) code; a fixed-font
+  reference impl hit 58fps precisely because it avoided per-draw font/color
+  churn. The batched pass now rasterizes each distinct `(text, fontSize, color)`
+  run to a small offscreen canvas exactly once (`TextBitmapCache`), then every
+  subsequent frame draws it with a single GPU `drawImage`. This converts CPU
+  text shaping into a bitmap copy — exactly what a GPU-starved frame needs.
+- **Bounded, self-converging cache.** The stress pool samples a fixed ~177-string
+  library across 3 font tiers and 8 colors, so the key space is bounded
+  (~4.2k entries) and the steady-state hit rate approaches 100%. User-submitted
+  danmaku add unbounded keys, so an insertion-order eviction cap (6,000 entries)
+  keeps memory sane. Rasterization uses true glyph metrics
+  (`actualBoundingBox*`) so emoji/ascender/descender overshoot never clips.
+- **HUD now reports the glyph-cache hit rate** ("Glyph Cache … % hit") instead
+  of the old width-measure cache — the more meaningful signal for this workload.
+- Falls back to direct `fillText` when no bitmap can be produced (headless /
+  non-DOM context), so behavior is unchanged where canvas rasterization is
+  unavailable.
+
 ## 0.3.0
 
 ### Laboratory correctness + per-danmaku effects
