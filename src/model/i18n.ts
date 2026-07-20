@@ -22,6 +22,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'bg.ambient': 'Ambient Blend',
     'bg.none': 'Solid Backdrop',
     'bg.video': 'Video (opt-in)',
+    'field.mode': 'Mode',
+    'field.bg': 'Background',
+    'field.video': 'Video Source',
 
     'fps.max': 'Max (uncapped)',
 
@@ -78,6 +81,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'bg.ambient': '炫彩动态渐变',
     'bg.none': '纯黑色背景',
     'bg.video': '高清测试视频',
+    'field.mode': '运行模式',
+    'field.bg': '背景样式',
+    'field.video': '视频源',
 
     'fps.max': '最大 (无限制)',
 
@@ -134,6 +140,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'bg.ambient': '炫彩動態漸變',
     'bg.none': '純黑色背景',
     'bg.video': '高清測試視頻',
+    'field.mode': '運行模式',
+    'field.bg': '背景樣式',
+    'field.video': '視頻源',
 
     'fps.max': '最大 (無限制)',
 
@@ -190,6 +199,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'bg.ambient': 'グラデーション背景',
     'bg.none': 'ダーク背景',
     'bg.video': 'ビデオ (オプトイン)',
+    'field.mode': 'モード',
+    'field.bg': '背景',
+    'field.video': 'ビデオソース',
 
     'fps.max': '最大 (制限なし)',
 
@@ -246,6 +258,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'bg.ambient': '앰비언트 그라데이션',
     'bg.none': '다크 단색 배경',
     'bg.video': '테스트 비디오',
+    'field.mode': '모드',
+    'field.bg': '배경',
+    'field.video': '비디오 소스',
 
     'fps.max': '최대 (제한 없음)',
 

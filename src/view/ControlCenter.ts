@@ -44,17 +44,17 @@ class SettingsCard extends Stack {
   override layout(): void {
     super.layout();
     for (const c of this.children) {
-      c.x += 14;
-      c.y += 14;
+      c.x += 16;
+      c.y += 16;
     }
     this.width = this._cardWidth;
-    this.height += 28;
+    this.height += 32;
   }
   constructor(title: string, width: number, options: { gap?: number } = {}) {
-    super({ direction: 'vertical', gap: options.gap ?? 12 });
+    super({ direction: 'vertical', gap: options.gap ?? 14 });
     this._cardWidth = width;
     this.width = width;
-    this.padding = 14;
+    this.padding = 16;
 
     const header = new Text(title.toUpperCase(), {
       font: '600 10px monospace',
@@ -66,12 +66,30 @@ class SettingsCard extends Stack {
   override render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
-    renderer.roundRect(0, 0, this.width, this.height, 6);
-    renderer.fill('rgba(250, 248, 246, 0.65)');
-    renderer.stroke('rgba(255, 126, 95, 0.2)', 1);
+    renderer.roundRect(0, 0, this.width, this.height, 8);
+    // Near-opaque card so controls read as a clean surface, not text floating
+    // over the danmaku bleeding through from the layer behind the panel.
+    renderer.fill('rgba(252, 250, 249, 0.96)');
+    renderer.stroke('rgba(255, 126, 95, 0.25)', 1);
     renderer.restore();
     super.render(renderer);
   }
+}
+
+/**
+ * Wrap a control in a small vertical group with a muted caption above it, so a
+ * card holding several unrelated dropdowns (mode / background / video source)
+ * reads as labelled fields instead of a stack of anonymous buttons. The tight
+ * 6px inner gap keeps the label visually bound to its control, while the card's
+ * larger inter-child gap separates one field from the next.
+ */
+function labeledField(label: string, control: Text | Dropdown | Slider, width: number): Stack {
+  const group = new Stack({ direction: 'vertical', gap: 6 });
+  group.width = width;
+  const caption = new Text(label, { font: '600 10px sans-serif', color: '#8a7d76' });
+  group.add(caption);
+  group.add(control);
+  return group;
 }
 
 export class ControlCenter extends ScrollView {
@@ -134,7 +152,7 @@ export class ControlCenter extends ScrollView {
     modeDropdown.width = cardContentW;
     (modeDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     modeDropdown.on('change', (e: any) => callbacks.onAppModeChange(appModeMap[e.value]));
-    sysCard.add(modeDropdown);
+    sysCard.add(labeledField(t('field.mode', lang), modeDropdown, cardContentW));
 
     const bgLabels = [t('bg.ambient', lang), t('bg.none', lang), t('bg.video', lang)];
     const bgMap = {
@@ -151,7 +169,7 @@ export class ControlCenter extends ScrollView {
     bgDropdown.width = cardContentW;
     (bgDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     bgDropdown.on('change', (e: any) => callbacks.onBgModeChange(bgMap[e.value]));
-    sysCard.add(bgDropdown);
+    sysCard.add(labeledField(t('field.bg', lang), bgDropdown, cardContentW));
 
     // Video Source Dropdown
     const videoLabels = VIDEO_SOURCES.map((v) => v.label);
@@ -172,7 +190,7 @@ export class ControlCenter extends ScrollView {
     videoDropdown.width = cardContentW;
     (videoDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     videoDropdown.on('change', (e: any) => callbacks.onVideoSourceChange(videoMap[e.value]));
-    sysCard.add(videoDropdown);
+    sysCard.add(labeledField(t('field.video', lang), videoDropdown, cardContentW));
 
     this.stack.add(sysCard);
 
@@ -340,8 +358,10 @@ export class ControlCenter extends ScrollView {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 0);
-    renderer.fill('rgba(255, 255, 255, 0.85)');
-    renderer.stroke('rgba(255, 126, 95, 0.15)', 1.5);
+    // Near-solid panel: at 0.85 the 5,000-danmaku wall bled through and made
+    // the controls hard to read. A faint left edge keeps it feeling layered.
+    renderer.fill('rgba(255, 255, 255, 0.97)');
+    renderer.stroke('rgba(255, 126, 95, 0.25)', 1.5);
     renderer.restore();
     super.render(renderer);
   }
