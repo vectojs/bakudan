@@ -108,15 +108,33 @@ export class DanmakuEntity extends Entity {
     const { text, color, fontSize, opacity, effects } = s.params;
     if (!text) return;
 
-    renderer.save();
-    renderer.translate(Math.round(s.x), Math.round(s.y));
+    // Viewport frustum culling
+    const stageW = this.app?.scheduler?.stageW || 0;
+    const stageH = this.app?.scheduler?.stageH || 0;
+    if (stageW > 0 && stageH > 0) {
+      if (s.x > stageW || s.x + (s.width || 0) < 0 || s.y > stageH || s.y + fontSize * 1.5 < 0) {
+        return;
+      }
+    }
 
-    if (this.app?.showcaseJelly && s.age > 0) {
+    const rx = Math.round(s.x);
+    const ry = Math.round(s.y);
+
+    const isJelly = this.app?.showcaseJelly && s.age > 0;
+    const isGlitch = s.params.preset === 'glitch';
+    const isRotation = s.params.preset === 'rotation' && s.charAngles && s.charAngles.length > 0;
+    const hasSpecialTransform = isJelly || isRotation;
+
+    if (hasSpecialTransform) {
+      renderer.save();
+      renderer.translate(rx, ry);
+      if (isJelly) {
       const freq = 12;
       const decay = 2.5;
       const time = s.age / 1000;
       const wobble = Math.sin(time * freq) * Math.exp(-time * decay) * 0.35;
       renderer.scale(1 + wobble, 1 - wobble);
+      }
     }
 
     renderer.setGlobalAlpha(opacity);
@@ -129,44 +147,51 @@ export class DanmakuEntity extends Entity {
     }
 
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
+    const dx = hasSpecialTransform ? 0 : rx;
+    const dy = hasSpecialTransform ? 0 : ry;
+    const textY = dy + fontSize * 0.8;
 
-    if (s.params.preset === 'glitch') {
-      this._renderGlitch(renderer, s, font, color, fontSize);
+    if (isGlitch) {
+      this._renderGlitch(renderer, s, font, color, fontSize, dx, dy);
     } else if (effects.rainbow) {
-      this._renderRainbow(renderer, s, font);
+      this._renderRainbow(renderer, s, font, dx, dy);
     } else {
-      renderer.fillText(text, 0, fontSize * 0.8, font, color);
+      renderer.fillText(text, dx, textY, font, color);
       if (effects.outline) {
         const off = 1;
-        renderer.fillText(text, off, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, -off, fontSize * 0.8, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, 0, fontSize * 0.8 + off, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, 0, fontSize * 0.8 - off, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, 0, fontSize * 0.8, font, color);
+        renderer.fillText(text, dx + off, textY, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, dx - off, textY, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, dx, textY + off, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, dx, textY - off, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, dx, textY, font, color);
       }
       if (effects.glow) {
-        renderer.fillText(text, 0, fontSize * 0.8, font, color);
+        renderer.fillText(text, dx, textY, font, color);
       }
     }
 
-    if (s.params.preset === 'rotation' && s.charAngles && s.charAngles.length > 0) {
+    if (isRotation) {
       this._renderRotatedChars(renderer, s, font, color, fontSize);
       renderer.restore();
+      renderer.setGlobalAlpha(1);
       return;
     }
 
     if (this.hovered && this.interactive && s.active) {
-      this._renderActions(renderer, s, fontSize);
+      this._renderActions(renderer, s, fontSize, dx, dy);
     }
 
-    renderer.restore();
+    if (hasSpecialTransform) {
+      renderer.restore();
+    }
+    renderer.setGlobalAlpha(1);
   }
 
-  private _renderActions(renderer: IRenderer, s: PoolSlot, fontSize: number): void {
-    const textEnd = s.width;
+  private _renderActions(renderer: IRenderer, s: PoolSlot, fontSize: number, dx: number, dy: number): void {
+    const textEnd = dx + s.width;
     const btnFont = `${fontSize}px sans-serif`;
-    renderer.fillText(this.liked ? '❤️' : '🤍', textEnd + 4, fontSize * 0.8, btnFont, '#fff');
-    renderer.fillText('📋', textEnd + 24, fontSize * 0.8, btnFont, '#fff');
+    renderer.fillText(this.liked ? '❤️' : '🤍', textEnd + 4, dy + fontSize * 0.8, btnFont, '#fff');
+    renderer.fillText('📋', textEnd + 24, dy + fontSize * 0.8, btnFont, '#fff');
   }
 
   hitAction(localX: number): ActionKind | null {
@@ -185,23 +210,25 @@ export class DanmakuEntity extends Entity {
     font: string,
     color: string,
     fontSize: number,
+    dx: number,
+    dy: number,
   ): void {
     const t = s.age / 1000;
     const jx = Math.sin(t * 47) * 3;
     const jy = Math.cos(t * 53) * 2;
-    renderer.fillText(s.params.text, jx - 2, fontSize * 0.8 + jy, font, 'rgba(255,50,50,0.8)');
-    renderer.fillText(s.params.text, jx + 2, fontSize * 0.8 - jy, font, 'rgba(50,50,255,0.8)');
-    renderer.fillText(s.params.text, jx, fontSize * 0.8, font, color);
+    renderer.fillText(s.params.text, dx + jx - 2, dy + fontSize * 0.8 + jy, font, 'rgba(255,50,50,0.8)');
+    renderer.fillText(s.params.text, dx + jx + 2, dy + fontSize * 0.8 - jy, font, 'rgba(50,50,255,0.8)');
+    renderer.fillText(s.params.text, dx + jx, dy + fontSize * 0.8, font, color);
   }
 
-  private _renderRainbow(renderer: IRenderer, s: PoolSlot, font: string): void {
+  private _renderRainbow(renderer: IRenderer, s: PoolSlot, font: string, dx: number, dy: number): void {
     const chars = [...s.params.text];
     const fontSize = s.params.fontSize;
     const widths = this._getCharWidths();
-    let cx = 0;
+    let cx = dx;
     for (let i = 0; i < chars.length; i++) {
       const hue = ((s.age / 50 + i * 30) % 360) | 0;
-      renderer.fillText(chars[i], cx, fontSize * 0.8, font, `hsl(${hue}, 80%, 65%)`);
+      renderer.fillText(chars[i], cx, dy + fontSize * 0.8, font, `hsl(${hue}, 80%, 65%)`);
       cx += widths[i] ?? 0;
     }
   }
