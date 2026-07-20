@@ -112,7 +112,9 @@ export class Scheduler {
 
       const slotPreset = slot.params.preset || presetId;
       const presetFn = PRESETS[slotPreset] || PRESETS.scroll;
-      presetFn(slot, dt, state, W, H);
+      if (!slot.paused) {
+        presetFn(slot, dt, state, W, H);
+      }
 
       if (this.showcasePhysics) {
         if (!slot.params.presetParams) slot.params.presetParams = {};

@@ -40,16 +40,19 @@ export const VIDEO_SOURCES: VideoSourceEntry[] = [
 ];
 
 class SettingsCard extends Stack {
+  private _cardWidth: number;
   override layout(): void {
     super.layout();
     for (const c of this.children) {
       c.x += 12;
       c.y += 12;
     }
+    this.width = this._cardWidth;
     this.height += 24;
   }
   constructor(title: string, width: number, options: { gap?: number } = {}) {
     super({ direction: 'vertical', gap: options.gap ?? 8 });
+    this._cardWidth = width;
     this.width = width;
     this.padding = 12;
 
@@ -72,16 +75,15 @@ class SettingsCard extends Stack {
 }
 
 export class ControlCenter extends Stack {
+  private _panelWidth: number = 280;
   override layout(): void {
-    const w = this.width;
-    const oldH = this.height;
     super.layout();
     for (const c of this.children) {
       c.x += 16;
       c.y += 16;
     }
-    this.width = w;
-    this.height = Math.max(oldH, this.height + 32);
+    this.width = this._panelWidth;
+    this.height += 32;
   }
   constructor(
     width: number,
@@ -91,6 +93,7 @@ export class ControlCenter extends Stack {
     callbacks: ControlCenterCallbacks,
   ) {
     super({ direction: 'vertical', gap: 12 });
+    this._panelWidth = width;
     this.width = width;
     this.height = height;
     this.padding = 16;

@@ -428,7 +428,8 @@ export class App {
           de.liked = false;
           de.dragging = false;
         }
-        if (!this._dragEntity) {
+        slot.paused = de.hovered || de.dragging;
+        if (this._dragEntity !== de) {
           de.x = slot.x;
           de.y = slot.y;
         }

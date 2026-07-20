@@ -24,6 +24,7 @@ export interface CharacterEffects {
 export interface PoolSlot {
   id: number;
   active: boolean;
+  paused?: boolean;
   params: DanmakuParams;
   x: number;
   y: number;
