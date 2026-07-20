@@ -87,7 +87,6 @@ export class App {
   private videoLoading = false;
   private videoLoadFailed = false;
   private _stressTargetBeforeVideo = 500;
-  private _effectsDirty = true;
   showcasePhysics = false;
   showcaseJelly = false;
 
@@ -222,8 +221,12 @@ export class App {
         onStressCountChange: (n) => this.scheduler.setTargetCount(n),
         onStressRateChange: (r) => this.scheduler.setSpawnRate(r),
         onEffectToggle: (key) => {
+          // Brush semantics: the toggle changes what NEW danmaku are born
+          // with. Danmaku already on screen keep their own effects, so
+          // toggling rainbow, spawning some, then toggling glow yields a mix
+          // of effect types on screen at once (the "laboratory" behaviour).
           this.effects[key] = !this.effects[key];
-          this._effectsDirty = true;
+          this.scheduler.activeEffects = { ...this.effects };
         },
         onToggleShowcase: (preset, enabled) => {
           if (preset === 'physics') {
@@ -437,16 +440,7 @@ export class App {
       this._updateHover();
     }
 
-    // The dragged danmaku's position is driven by the pointer (below); mark it
-    // paused so the scheduler's preset motion doesn't fight the drag. A hovered
-    // danmaku is also paused so it holds still under the cursor for clicking.
     const slots = this.pool.slots;
-    if (this._effectsDirty) {
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i].active) slots[i].params.effects = { ...this.effects };
-      }
-      this._effectsDirty = false;
-    }
 
     if (!this._interactiveMode) {
       for (let i = 0; i < slots.length; i++) {
@@ -568,6 +562,9 @@ export class App {
   private _onSeek(t: number): void {
     this.bg.seek(t);
     this.danmakuTrack.seek(t);
+    // While paused the loop is idle (no pending animation), so the new video
+    // frame won't repaint on its own — force one.
+    this.scene.markDirty();
   }
 
   private _onUserSend(text: string): void {
@@ -584,7 +581,7 @@ export class App {
       effects: { ...this.effects },
       userSent: true,
     };
-    this.scheduler.userSpawn(entry);
+    this.scheduler.userSpawn(entry, true);
 
     if (this.mode === 'video') {
       saveUserDanmaku(entry);
