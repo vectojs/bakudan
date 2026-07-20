@@ -213,7 +213,7 @@ export class Scheduler {
 
   private _spawnOne(presetId: PresetId, lane: number): boolean {
     const text = ContentLibrary.sample();
-    const fontSize = 16 + Math.random() * 20;
+    const fontSize = Math.floor(16 + Math.random() * 21);
     const slateColors = [
       '#f8fafc',
       '#cbd5e1',

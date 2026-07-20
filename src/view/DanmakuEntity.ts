@@ -109,7 +109,7 @@ export class DanmakuEntity extends Entity {
     if (!text) return;
 
     renderer.save();
-    renderer.translate(s.x, s.y);
+    renderer.translate(Math.round(s.x), Math.round(s.y));
 
     if (this.app?.showcaseJelly && s.age > 0) {
       const freq = 12;
