@@ -21,9 +21,9 @@ export class HUD extends Entity {
   }
 
   /** Position at top-right by default. Caller sets x/y based on stage size. */
-  alignToStage(stageWidth: number): void {
-    this.x = stageWidth - this.width - 12;
-    this.y = 8;
+  alignToStage(_stageWidth: number): void {
+    this.x = 12;
+    this.y = 12;
   }
 
   render(renderer: IRenderer): void {

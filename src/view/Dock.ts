@@ -26,6 +26,16 @@ export class Dock extends Stack {
       selectionColor: 'rgba(255, 126, 95, 0.3)',
     });
     this._input.height = 32;
+    this._input.on('keydown', (e: any) => {
+      const key = e.nativeEvent?.key;
+      if (key === 'Enter') {
+        const text = this._input.value.trim();
+        if (text) {
+          opts.onSend(text);
+          this._input.value = '';
+        }
+      }
+    });
     this.add(this._input);
 
     const sendBtn = new Button(t('dock.send', lang), {
@@ -61,7 +71,18 @@ export class Dock extends Stack {
     return this._input.value;
   }
 
-  override render(renderer: IRenderer): void {
+  override layout(): void {
+    const w = this.width;
+    super.layout();
+    for (const c of this.children) {
+      c.x += 8;
+      c.y += 8;
+    }
+    this.width = w;
+    this.height = 48;
+  }
+
+  render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 12);

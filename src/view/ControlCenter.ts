@@ -40,6 +40,14 @@ export const VIDEO_SOURCES: VideoSourceEntry[] = [
 ];
 
 class SettingsCard extends Stack {
+  override layout(): void {
+    super.layout();
+    for (const c of this.children) {
+      c.x += 12;
+      c.y += 12;
+    }
+    this.height += 24;
+  }
   constructor(title: string, width: number, options: { gap?: number } = {}) {
     super({ direction: 'vertical', gap: options.gap ?? 8 });
     this.width = width;
@@ -64,6 +72,17 @@ class SettingsCard extends Stack {
 }
 
 export class ControlCenter extends Stack {
+  override layout(): void {
+    const w = this.width;
+    const oldH = this.height;
+    super.layout();
+    for (const c of this.children) {
+      c.x += 16;
+      c.y += 16;
+    }
+    this.width = w;
+    this.height = Math.max(oldH, this.height + 32);
+  }
   constructor(
     width: number,
     height: number,
@@ -165,30 +184,54 @@ export class ControlCenter extends Stack {
     // 3. Stress Simulator Card
     const stressCard = new SettingsCard(t('settings.stress', lang), innerW);
 
+    const countRow = new Stack({ direction: 'horizontal', gap: 8, align: 'center' });
+    countRow.width = cardContentW;
+    const countLabel = new Text(t('stress.count', lang) + ':', { font: '11px sans-serif', color: '#453c38' });
+    const countValue = new Text('500', { font: '600 11px monospace', color: '#ff7e5f' });
+    countRow.add(countLabel);
+    countRow.add(countValue);
+    stressCard.add(countRow);
+    
     const countSlider = new Slider({
-      min: 100,
+      min: 0,
       max: 5000,
-      value: 1000,
+      value: 500,
       step: 100,
-      trackColor: 'rgba(69, 60, 56, 0.15)',
+      width: cardContentW,
+      trackColor: 'rgba(255, 126, 95, 0.15)',
       progressColor: '#ff7e5f',
     });
     countSlider.width = cardContentW;
     countSlider.height = 18;
-    countSlider.on('change', (e: any) => callbacks.onStressCountChange(e.value));
+    countSlider.on('change', (e: any) => {
+      countValue.setText(String(e.value));
+      callbacks.onStressCountChange(e.value);
+    });
     stressCard.add(countSlider);
 
+    const rateRow = new Stack({ direction: 'horizontal', gap: 8, align: 'center' });
+    rateRow.width = cardContentW;
+    const rateLabel = new Text(t('stress.rate', lang) + ':', { font: '11px sans-serif', color: '#453c38' });
+    const rateValue = new Text('50', { font: '600 11px monospace', color: '#ff7e5f' });
+    rateRow.add(rateLabel);
+    rateRow.add(rateValue);
+    stressCard.add(rateRow);
+    
     const rateSlider = new Slider({
-      min: 10,
-      max: 500,
+      min: 1,
+      max: 200,
       value: 50,
-      step: 10,
-      trackColor: 'rgba(69, 60, 56, 0.15)',
+      step: 1,
+      width: cardContentW,
+      trackColor: 'rgba(255, 126, 95, 0.15)',
       progressColor: '#ff7e5f',
     });
     rateSlider.width = cardContentW;
     rateSlider.height = 18;
-    rateSlider.on('change', (e: any) => callbacks.onStressRateChange(e.value));
+    rateSlider.on('change', (e: any) => {
+      rateValue.setText(String(e.value));
+      callbacks.onStressRateChange(e.value);
+    });
     stressCard.add(rateSlider);
 
     this.add(stressCard);

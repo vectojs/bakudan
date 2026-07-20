@@ -417,11 +417,13 @@ export class App {
         if (!de.parent) {
           de.slot = slot;
           de.boundParams = slot.params;
+          (de as any).isUserSent = !!(slot.params as any).userSent;
           de.interactive = true;
           this.scene.add(de);
         } else if (de.boundParams !== slot.params) {
           de.slot = slot;
           de.boundParams = slot.params;
+          (de as any).isUserSent = !!(slot.params as any).userSent;
           de.hovered = false;
           de.liked = false;
           de.dragging = false;
@@ -563,8 +565,8 @@ export class App {
       preset: this.activePreset,
       presetParams: {},
       effects: { ...this.effects },
+      userSent: true,
     };
-
     this.scheduler.userSpawn(entry);
 
     if (this.mode === 'video') {
@@ -650,8 +652,10 @@ export class App {
 
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      this.pointerX = e.clientX - rect.left;
-      this.pointerY = e.clientY - rect.top;
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      this.pointerX = (e.clientX - rect.left) * scaleX;
+      this.pointerY = (e.clientY - rect.top) * scaleY;
       this._lastPointerMove = performance.now();
       if (!this._interactiveMode) {
         this._interactiveMode = true;
@@ -698,7 +702,7 @@ export class App {
       if (action === 'copy') {
         navigator.clipboard.writeText(de.slot.params.text).catch(() => {});
         // Spawn particle explosion!
-        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#d97706');
+        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#ff7e5f');
         return;
       }
 

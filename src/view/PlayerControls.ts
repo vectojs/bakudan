@@ -111,7 +111,18 @@ export class PlayerControls extends Stack {
     return this._duration;
   }
 
-  override render(renderer: IRenderer): void {
+  override layout(): void {
+    const w = this.width;
+    super.layout();
+    for (const c of this.children) {
+      c.x += 8;
+      c.y += 8;
+    }
+    this.width = w;
+    this.height = 44;
+  }
+
+  render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 10);

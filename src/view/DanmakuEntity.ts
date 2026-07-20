@@ -120,6 +120,13 @@ export class DanmakuEntity extends Entity {
     }
 
     renderer.setGlobalAlpha(opacity);
+    if ((this as any).isUserSent && s.width > 0) {
+      const pad = 4;
+      renderer.beginPath();
+      renderer.roundRect(-pad, -pad, s.width + pad * 2, fontSize * 1.2 + pad * 2, 4);
+      renderer.fill('rgba(255, 126, 95, 0.08)');
+      renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
+    }
 
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
 
