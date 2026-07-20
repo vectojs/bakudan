@@ -9,7 +9,10 @@ function main(): void {
   if (!canvas) return;
 
   const scene = new Scene(canvas, {
-    maxFPS: 60,
+    // Uncapped by the app — let the display's refresh rate (e.g. 240Hz) drive
+    // rAF. The stress bench should show the true achievable frame rate, not an
+    // artificial 60fps ceiling. A per-run cap is still exposed in the panel.
+    maxFPS: 240,
     maxDPR: 1,
     a11ySyncInterval: 100,
   });

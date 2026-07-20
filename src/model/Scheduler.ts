@@ -42,6 +42,15 @@ function measureWidth(text: string, fontSize: number): number {
 const CULL_MARGIN = 200;
 const MIN_SPAWN_GAP = 50;
 
+/**
+ * Discrete font sizes for stress-spawned danmaku. Kept small on purpose: each
+ * distinct size is a separate Canvas2D glyph-cache bucket and a separate
+ * `ctx.font` state change, so collapsing the old continuous 16..36 range into
+ * a few tiers keeps the glyph raster cache hot at 5,000+ concurrent danmaku
+ * while still showing near/far size variety.
+ */
+const FONT_TIERS = [18, 24, 30];
+
 function isScrollPreset(preset: PresetId): boolean {
   return preset === 'scroll' || preset === 'reverse' || preset === 'glitch' || preset === 'sine';
 }
@@ -86,6 +95,16 @@ export class Scheduler {
 
   get rate(): number {
     return this.spawnRate;
+  }
+
+  /** Current stage width in px (used by the render layer for frustum culling). */
+  get stageW(): number {
+    return this.stageWidth;
+  }
+
+  /** Current stage height in px. */
+  get stageH(): number {
+    return this.stageHeight;
   }
 
   tick(
@@ -148,7 +167,7 @@ export class Scheduler {
           const isRev = slot.params.preset === 'reverse';
           const rightEdge = slot.x + slot.width;
           const leftEdge = slot.x;
-          
+
           if (!ls.occupied) {
             ls.occupied = true;
             ls.isReverse = isRev;
@@ -213,7 +232,13 @@ export class Scheduler {
 
   private _spawnOne(presetId: PresetId, lane: number): boolean {
     const text = ContentLibrary.sample();
-    const fontSize = Math.floor(16 + Math.random() * 21);
+    // Quantize to a few discrete font tiers instead of a continuous 16..36
+    // range. Canvas2D re-shapes text on every `ctx.font` change and keeps a
+    // per-(glyph,font) raster cache; with ~21 distinct sizes almost every
+    // glyph is a cache miss, but with a handful of tiers the working set stays
+    // hot. The DanmakuLayer batches draws by tier so `ctx.font` is set only
+    // once per tier per frame. Visual size variety is preserved.
+    const fontSize = FONT_TIERS[Math.floor(Math.random() * FONT_TIERS.length)];
     const slateColors = [
       '#f8fafc',
       '#cbd5e1',
@@ -371,6 +396,4 @@ export class Scheduler {
     this._laneRoundRobin = (i + 1) % n;
     return i;
   }
-
-
 }

@@ -6,7 +6,8 @@ import { detectBrowserLanguage, type Language, t } from '../model/i18n';
 import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
-import { DanmakuEntity } from './DanmakuEntity';
+import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH, charWidthStats } from './DanmakuLayer';
+import type { PoolSlot } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import { Dock } from './Dock';
 import { ControlCenter } from './ControlCenter';
@@ -72,7 +73,7 @@ export class App {
   private isMobile = false;
 
   private bg!: StageBackground;
-  private danmakuEntities: DanmakuEntity[] = [];
+  private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
   private hud!: HUD;
   private dock!: Dock;
@@ -98,9 +99,9 @@ export class App {
   private _panelX = 0;
   private _particlesActive = false;
 
-  /** True while a danmaku entity is being dragged. */
+  /** True while a danmaku is being dragged. */
   get isDragging(): boolean {
-    return this._dragEntity !== null;
+    return this._dragSlot !== null;
   }
 
   /** True while a background video is actively playing. */
@@ -131,7 +132,7 @@ export class App {
 
   private _interactiveMode = false;
   private _lastPointerMove = 0;
-  private _dragEntity: DanmakuEntity | null = null;
+  private _dragSlot: PoolSlot | null = null;
   private _dragOffX = 0;
   private _dragOffY = 0;
 
@@ -168,13 +169,15 @@ export class App {
     // Initial build of UI controls
     this._buildUI();
 
-    for (let i = 0; i < poolCap; i++) {
-      const de = new DanmakuEntity();
-      de.app = this;
-      this.danmakuEntities.push(de);
-    }
+    // One batch-painting node for the entire stress pool (see DanmakuLayer).
+    this.danmakuLayer = new DanmakuLayer(this.pool, () => ({
+      w: this.stageW,
+      h: this.stageH,
+      interactive: this._interactiveMode,
+    }));
 
     scene.add(this.bg);
+    scene.add(this.danmakuLayer);
     scene.add(this.announcer);
     scene.showOverlay(new ParticleOverlay());
   }
@@ -323,7 +326,7 @@ export class App {
     this.bg.width = width;
     this.bg.height = height;
     this.hud.alignToStage(width);
-    
+
     if (this.helpBtn) {
       this.helpBtn.x = 24;
       this.helpBtn.y = height - 24 - 36;
@@ -363,8 +366,8 @@ export class App {
       this.hud.data.frameTime = this._frameAccumMs / this._frameCount;
       this.hud.data.entityCount = this.pool.activeCount;
 
-      const hits = DanmakuEntity.cacheHits;
-      const misses = DanmakuEntity.cacheMisses;
+      const hits = charWidthStats.hits;
+      const misses = charWidthStats.misses;
       const total = hits + misses;
       this.hud.data.measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
       this.hud.data.gcSavedCount = Math.round(this.pool.activeCount * this._lastFps);
@@ -413,7 +416,7 @@ export class App {
       this.scene.markDirty();
     }
 
-    if (!this._dragEntity) {
+    if (!this._dragSlot) {
       const now = performance.now();
       if (now - this._lastPointerMove > INTERACTIVE_IDLE_MS) {
         this._interactiveMode = false;
@@ -430,56 +433,27 @@ export class App {
       pointerActive: this.pointerActive,
     });
 
-    if (this._interactiveMode && !this._dragEntity) {
+    if (this._interactiveMode && !this._dragSlot) {
       this._updateHover();
     }
 
-    for (let i = 0; i < this.pool.capacity; i++) {
-      const slot = this.pool.slots[i];
-      const de = this.danmakuEntities[i];
-      if (slot.active) {
-        if (!de.parent) {
-          de.slot = slot;
-          de.boundParams = slot.params;
-          (de as any).isUserSent = !!(slot.params as any).userSent;
-          de.interactive = true;
-          this.scene.add(de);
-        } else if (de.boundParams !== slot.params) {
-          de.slot = slot;
-          de.boundParams = slot.params;
-          (de as any).isUserSent = !!(slot.params as any).userSent;
-          de.hovered = false;
-          de.liked = false;
-          de.dragging = false;
-        }
-        slot.paused = de.hovered || de.dragging;
-        if (this._dragEntity !== de) {
-          de.x = slot.x;
-          de.y = slot.y;
-        }
-        de.interactive = this._interactiveMode;
-        if (this._effectsDirty) {
-          slot.params.effects = { ...this.effects };
-        }
-      } else {
-        if (de.parent) {
-          this.scene.remove(de);
-          de.slot = null;
-          de.hovered = false;
-          de.interactive = false;
-          de.dragging = false;
-          if (this._dragEntity === de) {
-            this._dragEntity = null;
-          }
-        }
+    // The dragged danmaku's position is driven by the pointer (below); mark it
+    // paused so the scheduler's preset motion doesn't fight the drag. A hovered
+    // danmaku is also paused so it holds still under the cursor for clicking.
+    const slots = this.pool.slots;
+    if (this._effectsDirty) {
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i].active) slots[i].params.effects = { ...this.effects };
       }
+      this._effectsDirty = false;
     }
-    this._effectsDirty = false;
 
     if (!this._interactiveMode) {
-      for (const de of this.danmakuEntities) {
-        if (de.hovered) {
-          de.hovered = false;
+      for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        if (s.hovered) {
+          s.hovered = false;
+          s.paused = s.dragging;
         }
       }
     }
@@ -487,27 +461,30 @@ export class App {
 
   private _updateHover(): void {
     let foundTop = false;
-    for (let i = this.danmakuEntities.length - 1; i >= 0; i--) {
-      const de = this.danmakuEntities[i];
-      if (!de.slot?.active || !de.interactive) {
-        if (de.hovered) de.hovered = false;
-        continue;
-      }
-      
+    const slots = this.pool.slots;
+    for (let i = slots.length - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (!s.active) continue;
       if (!foundTop) {
-        const localX = this.pointerX - de.x;
-        const localY = this.pointerY - de.y;
+        const localX = this.pointerX - s.x;
+        const localY = this.pointerY - s.y;
         if (localX >= 0 && localY >= 0) {
-          const w = (de.slot.width || 80) + (de.hovered ? de.actionBtnWidth : 0);
-          const h = (de.slot.params.fontSize || 24) * 1.4;
+          const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
+          const h = (s.params.fontSize || 24) * 1.4;
           if (localX <= w && localY <= h) {
-            de.hovered = true;
+            if (!s.hovered) {
+              s.hovered = true;
+              s.paused = true;
+            }
             foundTop = true;
             continue;
           }
         }
       }
-      if (de.hovered) de.hovered = false;
+      if (s.hovered) {
+        s.hovered = false;
+        s.paused = s.dragging;
+      }
     }
   }
 
@@ -672,17 +649,20 @@ export class App {
     }
   }
 
-  private _findEntityAtPointer(): DanmakuEntity | null {
-    for (let i = this.danmakuEntities.length - 1; i >= 0; i--) {
-      const de = this.danmakuEntities[i];
-      if (!de.slot?.active || !de.interactive) continue;
-      const localX = this.pointerX - de.x;
-      const localY = this.pointerY - de.y;
+  /** Topmost active danmaku slot whose box (plus action strip) is under the
+   *  pointer. Scans back-to-front so the most-recently-drawn wins. */
+  private _findSlotAtPointer(): PoolSlot | null {
+    const slots = this.pool.slots;
+    for (let i = slots.length - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (!s.active) continue;
+      const localX = this.pointerX - s.x;
+      const localY = this.pointerY - s.y;
       if (localX >= 0 && localY >= 0) {
-        const w = (de.slot.width || 80) + (de.hovered ? de.actionBtnWidth : 0);
-        const h = (de.slot.params.fontSize || 24) * 1.4;
+        const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
+        const h = (s.params.fontSize || 24) * 1.4;
         if (localX <= w && localY <= h) {
-          return de;
+          return s;
         }
       }
     }
@@ -704,9 +684,9 @@ export class App {
         this._interactiveMode = true;
       }
 
-      if (this._dragEntity) {
-        this._dragEntity.x = this.pointerX - this._dragOffX;
-        this._dragEntity.y = this.pointerY - this._dragOffY;
+      if (this._dragSlot) {
+        this._dragSlot.x = this.pointerX - this._dragOffX;
+        this._dragSlot.y = this.pointerY - this._dragOffY;
         this.scene.markDirty();
       }
     });
@@ -730,46 +710,40 @@ export class App {
         }
       }
 
-      const de = this._findEntityAtPointer();
-      if (!de || !de.slot) return;
+      const slot = this._findSlotAtPointer();
+      if (!slot) return;
 
-      const localX = this.pointerX - de.x;
-      const action = de.hitAction(localX);
+      const localX = this.pointerX - slot.x;
+      const action = slot.hovered ? hitAction(slot, localX) : null;
       if (action === 'like') {
-        de.liked = !de.liked;
-        // Spawn particle explosion!
-        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, de.slot.params.color);
+        slot.liked = !slot.liked;
+        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, slot.params.color);
         this.scene.markDirty();
         return;
       }
       if (action === 'copy') {
-        navigator.clipboard.writeText(de.slot.params.text).catch(() => {});
-        // Spawn particle explosion!
+        navigator.clipboard.writeText(slot.params.text).catch(() => {});
         ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#ff7e5f');
         return;
       }
 
-      this._dragEntity = de;
-      this._dragOffX = this.pointerX - de.x;
-      this._dragOffY = this.pointerY - de.y;
-      de.dragging = true;
+      this._dragSlot = slot;
+      slot.dragging = true;
+      slot.paused = true;
+      this._dragOffX = this.pointerX - slot.x;
+      this._dragOffY = this.pointerY - slot.y;
       canvas.setPointerCapture(e.pointerId);
     });
 
-    canvas.addEventListener('pointerup', () => {
+    const endDrag = (): void => {
       this.pointerActive = false;
-      if (this._dragEntity) {
-        this._dragEntity.dragging = false;
-        this._dragEntity = null;
+      if (this._dragSlot) {
+        this._dragSlot.dragging = false;
+        this._dragSlot.paused = this._dragSlot.hovered;
+        this._dragSlot = null;
       }
-    });
-
-    canvas.addEventListener('pointerleave', () => {
-      this.pointerActive = false;
-      if (this._dragEntity) {
-        this._dragEntity.dragging = false;
-        this._dragEntity = null;
-      }
-    });
+    };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointerleave', endDrag);
   }
 }
