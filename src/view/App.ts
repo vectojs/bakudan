@@ -486,13 +486,28 @@ export class App {
   }
 
   private _updateHover(): void {
-    for (const de of this.danmakuEntities) {
-      if (!de.slot?.active || !de.interactive) continue;
-      const localX = this.pointerX - de.x;
-      const localY = this.pointerY - de.y;
-      const w = (de.slot.width || 80) + de.actionBtnWidth;
-      const h = (de.slot.params.fontSize || 24) * 1.4;
-      de.hovered = localX >= 0 && localX <= w && localY >= 0 && localY <= h;
+    let foundTop = false;
+    for (let i = this.danmakuEntities.length - 1; i >= 0; i--) {
+      const de = this.danmakuEntities[i];
+      if (!de.slot?.active || !de.interactive) {
+        if (de.hovered) de.hovered = false;
+        continue;
+      }
+      
+      if (!foundTop) {
+        const localX = this.pointerX - de.x;
+        const localY = this.pointerY - de.y;
+        if (localX >= 0 && localY >= 0) {
+          const w = (de.slot.width || 80) + de.actionBtnWidth;
+          const h = (de.slot.params.fontSize || 24) * 1.4;
+          if (localX <= w && localY <= h) {
+            de.hovered = true;
+            foundTop = true;
+            continue;
+          }
+        }
+      }
+      if (de.hovered) de.hovered = false;
     }
   }
 
@@ -658,14 +673,17 @@ export class App {
   }
 
   private _findEntityAtPointer(): DanmakuEntity | null {
-    for (const de of this.danmakuEntities) {
+    for (let i = this.danmakuEntities.length - 1; i >= 0; i--) {
+      const de = this.danmakuEntities[i];
       if (!de.slot?.active || !de.interactive) continue;
       const localX = this.pointerX - de.x;
       const localY = this.pointerY - de.y;
-      const w = (de.slot.width || 80) + de.actionBtnWidth;
-      const h = (de.slot.params.fontSize || 24) * 1.4;
-      if (localX >= 0 && localX <= w && localY >= 0 && localY <= h) {
-        return de;
+      if (localX >= 0 && localY >= 0) {
+        const w = (de.slot.width || 80) + de.actionBtnWidth;
+        const h = (de.slot.params.fontSize || 24) * 1.4;
+        if (localX <= w && localY <= h) {
+          return de;
+        }
       }
     }
     return null;

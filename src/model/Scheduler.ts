@@ -105,14 +105,15 @@ export class Scheduler {
     };
     const W = this.stageWidth;
     const H = this.stageHeight;
-    const ids = this.pool.getActiveIds();
+    const poolSlots = this.pool.slots;
 
     for (const ls of this.lanes) {
       ls.occupied = false;
     }
 
-    for (const id of ids) {
-      const slot = this.pool.slots[id];
+    for (let i = 0; i < poolSlots.length; i++) {
+      const slot = poolSlots[i];
+      if (!slot.active) continue;
 
       const slotPreset = slot.params.preset || presetId;
       const presetFn = PRESETS[slotPreset] || PRESETS.scroll;
@@ -137,7 +138,7 @@ export class Scheduler {
       }
 
       if (slot.x + slot.width < -CULL_MARGIN || slot.x > W + CULL_MARGIN) {
-        this.pool.deactivate(id);
+        this.pool.deactivate(i);
         continue;
       }
 
