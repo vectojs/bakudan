@@ -107,6 +107,10 @@ export class Scheduler {
     const H = this.stageHeight;
     const ids = this.pool.getActiveIds();
 
+    for (const ls of this.lanes) {
+      ls.occupied = false;
+    }
+
     for (const id of ids) {
       const slot = this.pool.slots[id];
 
@@ -134,16 +138,37 @@ export class Scheduler {
 
       if (slot.x + slot.width < -CULL_MARGIN || slot.x > W + CULL_MARGIN) {
         this.pool.deactivate(id);
-        this._releaseLane(slot.lane);
         continue;
       }
 
       if (isScrollPreset(slot.params.preset)) {
         const ls = this.lanes[slot.lane];
         if (ls) {
-          ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
-          ls.width = slot.width;
-          ls.speed = slot.params.speed;
+          const isRev = slot.params.preset === 'reverse';
+          const rightEdge = slot.x + slot.width;
+          const leftEdge = slot.x;
+          
+          if (!ls.occupied) {
+            ls.occupied = true;
+            ls.isReverse = isRev;
+            ls.trailingX = isRev ? leftEdge : rightEdge;
+            ls.width = slot.width;
+            ls.speed = slot.params.speed;
+          } else {
+            if (isRev) {
+              if (leftEdge < ls.trailingX) {
+                ls.trailingX = leftEdge;
+                ls.width = slot.width;
+                ls.speed = slot.params.speed;
+              }
+            } else {
+              if (rightEdge > ls.trailingX) {
+                ls.trailingX = rightEdge;
+                ls.width = slot.width;
+                ls.speed = slot.params.speed;
+              }
+            }
+          }
         }
       }
     }
@@ -231,7 +256,7 @@ export class Scheduler {
     if (!ls) return;
     ls.occupied = true;
     if (isScrollPreset(slot.params.preset)) {
-      ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
+      ls.trailingX = slot.params.preset === 'reverse' ? slot.x : slot.x + slot.width;
       ls.width = slot.width;
       ls.speed = slot.params.speed;
       ls.isReverse = slot.params.preset === 'reverse';
@@ -346,9 +371,5 @@ export class Scheduler {
     return i;
   }
 
-  private _releaseLane(lane: number): void {
-    if (lane >= 0 && lane < this.lanes.length) {
-      this.lanes[lane].occupied = false;
-    }
-  }
+
 }
