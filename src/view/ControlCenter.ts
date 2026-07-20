@@ -1,4 +1,4 @@
-import { Stack, Button, Slider, Dropdown, Checkbox, Text } from '@vectojs/ui';
+import { Stack, Button, Slider, Dropdown, Checkbox, Text, ScrollView } from '@vectojs/ui';
 import type { IRenderer } from '@vectojs/core';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { t, PRESET_TRANSLATIONS, type Language } from '../model/i18n';
@@ -74,17 +74,9 @@ class SettingsCard extends Stack {
   }
 }
 
-export class ControlCenter extends Stack {
-  private _panelWidth: number = 280;
-  override layout(): void {
-    super.layout();
-    for (const c of this.children) {
-      c.x += 16;
-      c.y += 16;
-    }
-    this.width = this._panelWidth;
-    this.height += 32;
-  }
+export class ControlCenter extends ScrollView {
+  private stack: Stack;
+  
   constructor(
     width: number,
     height: number,
@@ -92,11 +84,11 @@ export class ControlCenter extends Stack {
     currentVideoUrl: string,
     callbacks: ControlCenterCallbacks,
   ) {
-    super({ direction: 'vertical', gap: 12 });
-    this._panelWidth = width;
-    this.width = width;
-    this.height = height;
-    this.padding = 16;
+    super({ width, height });
+
+    this.stack = new Stack({ direction: 'vertical', gap: 12 });
+    this.stack.padding = 16;
+    this.add(this.stack);
 
     const innerW = width - 32;
     const cardContentW = innerW - 24;
@@ -123,7 +115,7 @@ export class ControlCenter extends Stack {
     closeBtn.height = 24;
     closeBtn.on('click', callbacks.onTogglePanel);
     headerStack.add(closeBtn);
-    this.add(headerStack);
+    this.stack.add(headerStack);
 
     // 2. System Settings Card
     const sysCard = new SettingsCard(t('settings.mode', lang), innerW);
@@ -182,7 +174,7 @@ export class ControlCenter extends Stack {
     videoDropdown.on('change', (e: any) => callbacks.onVideoSourceChange(videoMap[e.value]));
     sysCard.add(videoDropdown);
 
-    this.add(sysCard);
+    this.stack.add(sysCard);
 
     // 3. Stress Simulator Card
     const stressCard = new SettingsCard(t('settings.stress', lang), innerW);
@@ -237,7 +229,7 @@ export class ControlCenter extends Stack {
     });
     stressCard.add(rateSlider);
 
-    this.add(stressCard);
+    this.stack.add(stressCard);
 
     // 4. Motion Preset Card
     const presetCard = new SettingsCard(t('settings.preset', lang), innerW);
@@ -263,7 +255,7 @@ export class ControlCenter extends Stack {
     presetDropdown.on('change', (e: any) => callbacks.onPresetChange(presetMap[e.value]));
     presetCard.add(presetDropdown);
 
-    this.add(presetCard);
+    this.stack.add(presetCard);
 
     // 5. Visual Effects Card
     const fxCard = new SettingsCard(t('settings.fx', lang), innerW);
@@ -279,7 +271,7 @@ export class ControlCenter extends Stack {
       cb.on('change', () => callbacks.onEffectToggle(key));
       fxCard.add(cb);
     }
-    this.add(fxCard);
+    this.stack.add(fxCard);
 
     // 6. Showcase Card
     const showcaseCard = new SettingsCard(t('settings.showcase', lang), innerW);
@@ -302,7 +294,7 @@ export class ControlCenter extends Stack {
     });
     jellyCb.on('change', () => callbacks.onToggleShowcase('jelly', jellyCb.checked));
     showcaseCard.add(jellyCb);
-    this.add(showcaseCard);
+    this.stack.add(showcaseCard);
 
     // 7. Language Selector Card
     const langCard = new SettingsCard(t('settings.lang', lang), innerW);
@@ -331,7 +323,11 @@ export class ControlCenter extends Stack {
     (langDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     langDropdown.on('change', (e: any) => callbacks.onLanguageChange(langMap[e.value]));
     langCard.add(langDropdown);
-    this.add(langCard);
+    this.stack.add(langCard);
+    
+    // Ensure scrollview knows its content size after adding all cards
+    this.stack.layout();
+    this.updateContentSize();
   }
 
   override render(renderer: IRenderer): void {
