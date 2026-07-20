@@ -1,6 +1,7 @@
 import { Entity, type IRenderer } from '@vectojs/core';
 import type { PoolSlot } from '../model/types';
 import type { DanmakuPool } from '../model/DanmakuPool';
+import { getTextBitmap } from './TextBitmapCache';
 
 /**
  * Shared per-(fontSize,char) width cache for the rare rainbow/rotation
@@ -126,7 +127,15 @@ export class DanmakuLayer extends Entity {
         if (s.userSent && s.width > 0) {
           this._drawUserBox(renderer, rx, ry, s.width, fs);
         }
-        renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+        // Blit the pre-rasterized run instead of re-shaping text every frame:
+        // one GPU drawImage vs. a CPU fillText (shape + color parse + raster).
+        // Falls back to fillText only if the bitmap can't be produced.
+        const bmp = getTextBitmap(s.params.text, fs, font, s.params.color);
+        if (bmp) {
+          renderer.drawImage(bmp.canvas, rx - bmp.offsetX, textY - bmp.offsetY, bmp.w, bmp.h);
+        } else {
+          renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+        }
         if (s.hovered && interactive) {
           this._drawActions(renderer, s, fs, rx, ry);
         }
