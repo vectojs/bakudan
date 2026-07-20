@@ -2,7 +2,7 @@ import { Scene, Entity, type IRenderer } from '@vectojs/core';
 import { DanmakuPool } from '../model/DanmakuPool';
 import { Scheduler } from '../model/Scheduler';
 import { DanmakuTrack } from '../model/DanmakuTrack';
-import { detectBrowserLanguage, type Language } from '../model/i18n';
+import { detectBrowserLanguage, type Language, t } from '../model/i18n';
 import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
@@ -13,6 +13,8 @@ import { ControlCenter } from './ControlCenter';
 import { HUD } from './HUD';
 import { PlayerControls } from './PlayerControls';
 import { ParticleSystem } from './ParticleSystem';
+import { HelpModal } from './HelpModal';
+import { Button } from '@vectojs/ui';
 
 const DESKTOP_POOL = 5000;
 const MOBILE_POOL = 1000;
@@ -76,6 +78,7 @@ export class App {
   private dock!: Dock;
   private controlCenter!: ControlCenter;
   private playerControls!: PlayerControls;
+  private helpBtn!: Button;
   private panelOpen = false;
 
   private mode: AppMode = 'stress';
@@ -182,6 +185,7 @@ export class App {
     if (this.dock?.parent) this.scene.hideOverlay(this.dock);
     if (this.controlCenter?.parent) this.scene.hideOverlay(this.controlCenter);
     if (this.playerControls?.parent) this.scene.hideOverlay(this.playerControls);
+    if (this.helpBtn?.parent) this.scene.hideOverlay(this.helpBtn);
 
     this.hud = new HUD();
     this.hud.lang = this.currentLang;
@@ -247,9 +251,24 @@ export class App {
     // Sync position coordinate
     this.controlCenter.x = this._panelX;
 
+    this.helpBtn = new Button(t('help.btn', this.currentLang), {
+      bg: 'rgba(255, 255, 255, 0.85)',
+      hoverBg: 'rgba(255, 126, 95, 0.1)',
+      color: '#ff7e5f',
+      radius: 18,
+      font: '700 16px sans-serif',
+    });
+    this.helpBtn.width = 36;
+    this.helpBtn.height = 36;
+    this.helpBtn.on('click', () => {
+      const modal = new HelpModal(this.currentLang, this.stageW, this.stageH);
+      this.scene.showOverlay(modal);
+    });
+
     this.scene.showOverlay(this.hud);
     this.scene.showOverlay(this.dock);
     this.scene.showOverlay(this.controlCenter);
+    this.scene.showOverlay(this.helpBtn);
 
     if (this.mode === 'video') {
       this.scene.showOverlay(this.playerControls);
@@ -304,6 +323,11 @@ export class App {
     this.bg.width = width;
     this.bg.height = height;
     this.hud.alignToStage(width);
+    
+    if (this.helpBtn) {
+      this.helpBtn.x = 24;
+      this.helpBtn.y = height - 24 - 36;
+    }
 
     // Recalculate offscreen coordinate targets
     const targetPanelX = this.panelOpen ? width - PANEL_WIDTH : width;
