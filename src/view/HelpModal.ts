@@ -66,7 +66,11 @@ export class HelpModal extends UIComponent {
 
     for (const item of helpItems) {
       const itemTitle = new Text(item.title, { font: '600 14px sans-serif', color: '#ff7e5f' });
-      const itemDesc = new Text(item.desc, { font: '400 13px sans-serif', color: '#453c38', maxWidth: modalW - 64 });
+      const itemDesc = new Text(item.desc, {
+        font: '400 13px sans-serif',
+        color: '#453c38',
+        maxWidth: modalW - 64,
+      });
       stack.add(itemTitle);
       stack.add(itemDesc);
     }
@@ -75,15 +79,19 @@ export class HelpModal extends UIComponent {
 
     this.card.scaleX = 0;
     this.card.scaleY = 0;
-    
+
     this.on('click', (e: VectoJSEvent) => {
-        const localX = e.localX ?? 0;
-        const localY = e.localY ?? 0;
-        if (localX < this.card.x || localX > this.card.x + modalW ||
-            localY < this.card.y || localY > this.card.y + modalH) {
-            void this.close();
-        }
-        e.stopPropagation();
+      const localX = e.localX ?? 0;
+      const localY = e.localY ?? 0;
+      if (
+        localX < this.card.x ||
+        localX > this.card.x + modalW ||
+        localY < this.card.y ||
+        localY > this.card.y + modalH
+      ) {
+        void this.close();
+      }
+      e.stopPropagation();
     });
     this.on('pointerdown', (e: VectoJSEvent) => e.stopPropagation());
   }

@@ -48,13 +48,16 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'help.btn': '?',
     'help.title': 'How to use Bakudan',
     'help.item1.title': '1. Interact with Danmaku',
-    'help.item1.desc': 'Hover over a flying danmaku to pause it! You can click the ❤️ to like it or 📝 to copy its content.',
+    'help.item1.desc':
+      'Hover over a flying danmaku to pause it! You can click the ❤️ to like it or 📝 to copy its content.',
     'help.item2.title': '2. Drag and Drop',
     'help.item2.desc': 'Click and drag any danmaku to move it around the screen freely.',
     'help.item3.title': '3. Video Playback Mode',
-    'help.item3.desc': 'Open the right panel to switch to Video Mode. Send danmaku at specific timestamps and watch them replay perfectly in sync!',
+    'help.item3.desc':
+      'Open the right panel to switch to Video Mode. Send danmaku at specific timestamps and watch them replay perfectly in sync!',
     'help.item4.title': '4. Performance Showcase',
-    'help.item4.desc': 'Turn on "Physics Gravity Bounce" in the right panel to see 5,000+ entities calculate physics simultaneously at 60FPS with zero DOM overhead.'
+    'help.item4.desc':
+      'Turn on "Physics Gravity Bounce" in the right panel to see 5,000+ entities calculate physics simultaneously at 60FPS with zero DOM overhead.',
   },
   'zh-CN': {
     'settings.title': '控制台面版',
@@ -101,13 +104,16 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'help.btn': '?',
     'help.title': '使用说明',
     'help.item1.title': '1. 与弹幕互动',
-    'help.item1.desc': '将鼠标悬停在飞行的弹幕上，它会瞬间静止！你可以点击 ❤️ 点赞，或者点击 📝 复制弹幕内容。',
+    'help.item1.desc':
+      '将鼠标悬停在飞行的弹幕上，它会瞬间静止！你可以点击 ❤️ 点赞，或者点击 📝 复制弹幕内容。',
     'help.item2.title': '2. 拖拽把玩',
     'help.item2.desc': '按住任意弹幕不放，你可以在全屏幕自由拖拽把玩它。',
     'help.item3.title': '3. 视频轨迹回放',
-    'help.item3.desc': '在右侧控制台切换到“视频轨迹回放”模式，你可以给视频发送弹幕。它们会被记录在时间轴上，随视频精准回放！',
+    'help.item3.desc':
+      '在右侧控制台切换到“视频轨迹回放”模式，你可以给视频发送弹幕。它们会被记录在时间轴上，随视频精准回放！',
     'help.item4.title': '4. 性能极限挑战',
-    'help.item4.desc': '在右侧控制台开启“重力弹性反弹”特效，体验 5,000+ 弹幕在零 DOM 开销下满 60 帧率计算物理碰撞的震撼引擎性能。'
+    'help.item4.desc':
+      '在右侧控制台开启“重力弹性反弹”特效，体验 5,000+ 弹幕在零 DOM 开销下满 60 帧率计算物理碰撞的震撼引擎性能。',
   },
   'zh-TW': {
     'settings.title': '控制台面版',
@@ -154,13 +160,16 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'help.btn': '?',
     'help.title': '使用說明',
     'help.item1.title': '1. 與彈幕互動',
-    'help.item1.desc': '將鼠標懸停在飛行的彈幕上，它會瞬間靜止！你可以點擊 ❤️ 點贊，或者點擊 📝 複製彈幕內容。',
+    'help.item1.desc':
+      '將鼠標懸停在飛行的彈幕上，它會瞬間靜止！你可以點擊 ❤️ 點贊，或者點擊 📝 複製彈幕內容。',
     'help.item2.title': '2. 拖拽把玩',
     'help.item2.desc': '按住任意彈幕不放，你可以在全屏幕自由拖拽把玩它。',
     'help.item3.title': '3. 視頻軌跡回放',
-    'help.item3.desc': '在右側控制台切換到“視頻軌跡回放”模式，你可以給視頻發送彈幕。它們會被記錄在時間軸上，隨視頻精準回放！',
+    'help.item3.desc':
+      '在右側控制台切換到“視頻軌跡回放”模式，你可以給視頻發送彈幕。它們會被記錄在時間軸上，隨視頻精準回放！',
     'help.item4.title': '4. 性能極限挑戰',
-    'help.item4.desc': '在右側控制台開啟“重力彈性反彈”特效，體驗 5,000+ 彈幕在零 DOM 開銷下滿 60 幀率計算物理碰撞的震撼引擎性能。'
+    'help.item4.desc':
+      '在右側控制台開啟“重力彈性反彈”特效，體驗 5,000+ 彈幕在零 DOM 開銷下滿 60 幀率計算物理碰撞的震撼引擎性能。',
   },
   ja: {
     'settings.title': 'コントロールパネル',
@@ -207,13 +216,16 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'help.btn': '?',
     'help.title': '使い方',
     'help.item1.title': '1. 弾幕とのインタラクション',
-    'help.item1.desc': '流れる弾幕にマウスを乗せると一時停止します！❤️ でいいねしたり、📝 でテキストをコピーできます。',
+    'help.item1.desc':
+      '流れる弾幕にマウスを乗せると一時停止します！❤️ でいいねしたり、📝 でテキストをコピーできます。',
     'help.item2.title': '2. ドラッグ＆ドロップ',
     'help.item2.desc': '任意の弾幕をドラッグして、画面中を自由に動かせます。',
     'help.item3.title': '3. ビデオ再生モード',
-    'help.item3.desc': '右パネルで「ビデオ再生」に切り替え、動画にコメントを投稿できます。シークバーと完璧に同期します。',
+    'help.item3.desc':
+      '右パネルで「ビデオ再生」に切り替え、動画にコメントを投稿できます。シークバーと完璧に同期します。',
     'help.item4.title': '4. パフォーマンスの限界',
-    'help.item4.desc': '右パネルで「重力バウンス物理」をオンにして、DOMゼロで毎秒60fpsで計算される5000以上の物理エンティティを体験してください。'
+    'help.item4.desc':
+      '右パネルで「重力バウンス物理」をオンにして、DOMゼロで毎秒60fpsで計算される5000以上の物理エンティティを体験してください。',
   },
   ko: {
     'settings.title': '제어 콘솔',
@@ -260,13 +272,16 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'help.btn': '?',
     'help.title': '사용 방법',
     'help.item1.title': '1. 단막과 상호작용',
-    'help.item1.desc': '흐르는 단막에 마우스를 올리면 정지합니다! ❤️ 로 좋아요를 누르거나 📝 로 텍스트를 복사할 수 있습니다.',
+    'help.item1.desc':
+      '흐르는 단막에 마우스를 올리면 정지합니다! ❤️ 로 좋아요를 누르거나 📝 로 텍스트를 복사할 수 있습니다.',
     'help.item2.title': '2. 드래그 앤 드롭',
     'help.item2.desc': '어떤 단막이든 클릭하여 화면 어디로든 자유롭게 드래그할 수 있습니다.',
     'help.item3.title': '3. 비디오 재생 모드',
-    'help.item3.desc': '오른쪽 패널에서 비디오 모드로 전환하고 특정 시간에 단막을 보내보세요. 영상과 완벽하게 동기화되어 재생됩니다!',
+    'help.item3.desc':
+      '오른쪽 패널에서 비디오 모드로 전환하고 특정 시간에 단막을 보내보세요. 영상과 완벽하게 동기화되어 재생됩니다!',
     'help.item4.title': '4. 성능 쇼케이스',
-    'help.item4.desc': '오른쪽 패널에서 "중력 탄성 바운스"를 켜고, DOM 부하 없이 60FPS로 물리 연산되는 5,000개 이상의 개체를 경험하세요.'
+    'help.item4.desc':
+      '오른쪽 패널에서 "중력 탄성 바운스"를 켜고, DOM 부하 없이 60FPS로 물리 연산되는 5,000개 이상의 개체를 경험하세요.',
   },
 };
 

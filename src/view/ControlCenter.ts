@@ -76,7 +76,7 @@ class SettingsCard extends Stack {
 
 export class ControlCenter extends ScrollView {
   private stack: Stack;
-  
+
   constructor(
     width: number,
     height: number,
@@ -181,12 +181,15 @@ export class ControlCenter extends ScrollView {
 
     const countRow = new Stack({ direction: 'horizontal', gap: 8, align: 'center' });
     countRow.width = cardContentW;
-    const countLabel = new Text(t('stress.count', lang) + ':', { font: '11px sans-serif', color: '#453c38' });
+    const countLabel = new Text(t('stress.count', lang) + ':', {
+      font: '11px sans-serif',
+      color: '#453c38',
+    });
     const countValue = new Text('500', { font: '600 11px monospace', color: '#ff7e5f' });
     countRow.add(countLabel);
     countRow.add(countValue);
     stressCard.add(countRow);
-    
+
     const countSlider = new Slider({
       min: 0,
       max: 5000,
@@ -206,12 +209,15 @@ export class ControlCenter extends ScrollView {
 
     const rateRow = new Stack({ direction: 'horizontal', gap: 8, align: 'center' });
     rateRow.width = cardContentW;
-    const rateLabel = new Text(t('stress.rate', lang) + ':', { font: '11px sans-serif', color: '#453c38' });
+    const rateLabel = new Text(t('stress.rate', lang) + ':', {
+      font: '11px sans-serif',
+      color: '#453c38',
+    });
     const rateValue = new Text('50', { font: '600 11px monospace', color: '#ff7e5f' });
     rateRow.add(rateLabel);
     rateRow.add(rateValue);
     stressCard.add(rateRow);
-    
+
     const rateSlider = new Slider({
       min: 1,
       max: 1000,
@@ -324,7 +330,7 @@ export class ControlCenter extends ScrollView {
     langDropdown.on('change', (e: any) => callbacks.onLanguageChange(langMap[e.value]));
     langCard.add(langDropdown);
     this.stack.add(langCard);
-    
+
     // Ensure scrollview knows its content size after adding all cards
     this.stack.layout();
     this.updateContentSize();
