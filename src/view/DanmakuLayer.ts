@@ -96,7 +96,8 @@ export class DanmakuLayer extends Entity {
         s.params.preset === 'rotation' ||
         eff.rainbow ||
         eff.outline ||
-        eff.glow;
+        eff.glow ||
+        eff.gradient;
       if (isSpecial) {
         (special ||= []).push(s);
         continue;
@@ -192,7 +193,16 @@ export class DanmakuLayer extends Entity {
         renderer.fillText(text, rx, textY + 1, font, 'rgba(0,0,0,0.6)');
         renderer.fillText(text, rx, textY - 1, font, 'rgba(0,0,0,0.6)');
       }
-      renderer.fillText(text, rx, textY, font, color);
+      let paint: string | unknown = color;
+      if (effects.gradient) {
+        // Vertical two-stop gradient across the glyph band: the danmaku's own
+        // color at the top fading to warm gold at the baseline.
+        paint = renderer.createLinearGradient(rx, ry, rx, ry + fontSize, [
+          { stop: 0, color },
+          { stop: 1, color: '#ffd36e' },
+        ]);
+      }
+      renderer.fillText(text, rx, textY, font, paint);
       if (effects.glow) renderer.fillText(text, rx, textY, font, color);
     }
 

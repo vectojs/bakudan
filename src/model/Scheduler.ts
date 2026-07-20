@@ -1,4 +1,4 @@
-import type { PresetId, PresetState, DanmakuParams } from './types';
+import type { PresetId, PresetState, DanmakuParams, CharacterEffects } from './types';
 import { DanmakuPool } from './DanmakuPool';
 import { PRESETS } from './presets';
 import { ContentLibrary } from './ContentLibrary';
@@ -65,6 +65,18 @@ export class Scheduler {
   private spawnAccumulator = 0;
   private _laneRoundRobin = 0;
   showcasePhysics = false;
+  /**
+   * "Brush" effects stamped onto each stress-spawned danmaku at creation.
+   * Acts like a paint brush: toggling an effect in the panel changes what
+   * NEW danmaku are born with; danmaku already on screen keep the effects
+   * they were spawned with, so different effects coexist (per-danmaku).
+   */
+  activeEffects: CharacterEffects = {
+    glow: false,
+    gradient: false,
+    rainbow: false,
+    outline: false,
+  };
 
   constructor(pool: DanmakuPool, stageWidth: number, stageHeight: number, targetCount: number) {
     this.pool = pool;
@@ -209,12 +221,13 @@ export class Scheduler {
     return spawned;
   }
 
-  userSpawn(params: DanmakuParams): boolean {
+  userSpawn(params: DanmakuParams, userSent = false): boolean {
     const lane = this._assignLane(params.preset);
     if (lane < 0) return false;
     const [slot] = this.pool.activateBatch([params]);
     if (!slot) return false;
     slot.lane = lane;
+    slot.userSent = userSent;
     slot.width = measureWidth(params.text, params.fontSize);
     switch (params.preset) {
       case 'scroll':
@@ -255,15 +268,14 @@ export class Scheduler {
       color,
       fontSize,
       speed: 150 + Math.random() * 150,
-      opacity: 0.8 + Math.random() * 0.2,
+      // Uniform opacity for stress spawns: a per-danmaku random alpha forces a
+      // `ctx.globalAlpha` change before nearly every fillText in the batch
+      // loop, which breaks the Canvas2D text fast path. Fade-out (top/bottom)
+      // still varies alpha, but those run in the low-count special pass.
+      opacity: 1,
       preset: presetId,
       presetParams: {},
-      effects: {
-        glow: false,
-        gradient: false,
-        rainbow: false,
-        outline: false,
-      },
+      effects: { ...this.activeEffects },
     };
     const [slot] = this.pool.activateBatch([params]);
     if (!slot) return false;

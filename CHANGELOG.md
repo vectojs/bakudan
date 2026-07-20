@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.0
+
+### Laboratory correctness + per-danmaku effects
+
+- **Per-danmaku effects (brush model)**: toggling an effect in the panel now
+  changes what NEW danmaku are born with; danmaku already on screen keep the
+  effects they spawned with. Different effect types coexist on screen instead
+  of a single global flag retro-applied to everything. Effects are stamped at
+  spawn via `Scheduler.activeEffects`.
+- **`gradient` effect implemented**: was a no-op (UI toggle did nothing).
+  Danmaku now render with a vertical two-stop gradient (own color → warm gold).
+- **`top`/`bottom` danmaku no longer immortal**: both presets omitted
+  `slot.age += dt`, so their fade/exit logic never triggered and they piled up
+  forever at screen center. Fixed — they now fade and cull like every preset.
+- **User-sent highlight box restored**: the `userSent` flag rode on `params`
+  but the batch layer reads `slot.userSent`, which was never set, so the
+  highlight box never drew. `userSpawn` now propagates it onto the slot.
+- **Paused seek repaints**: scrubbing the video timeline while paused left a
+  stale frame (idle loop never redrew). `_onSeek` now marks the scene dirty.
+
+### Performance
+
+- **Uniform stress-spawn opacity**: stress danmaku spawned with a per-danmaku
+  random alpha (0.8–1.0), forcing a `ctx.globalAlpha` change before nearly
+  every `fillText` in the batch loop and breaking the Canvas2D text fast path.
+  Stress danmaku now use opacity 1; fade-driven alpha (top/bottom) still runs
+  in the low-count special pass.
+
+### UI
+
+- **Control panel spacing**: larger card padding/gaps (8→12, 12→16) and content
+  insets so labels, sliders, dropdowns, and checkboxes have breathing room at
+  100% zoom.
+- **Honest HUD**: the engine-state line no longer hard-codes "(60fps)" — the
+  real frame rate is already shown on the FPS line above it.
+
 ## 0.2.0
 
 ### Rendering architecture: single batch-painting danmaku layer

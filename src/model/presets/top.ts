@@ -1,6 +1,7 @@
 import type { PresetFn } from '../types';
 
-export const top: PresetFn = (slot, _dt, _state, stageWidth) => {
+export const top: PresetFn = (slot, dt, _state, stageWidth) => {
+  slot.age += dt;
   slot.x = (stageWidth - slot.width) / 2;
   slot.y = 24;
   slot.rotation = 0;

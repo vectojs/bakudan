@@ -44,17 +44,17 @@ class SettingsCard extends Stack {
   override layout(): void {
     super.layout();
     for (const c of this.children) {
-      c.x += 12;
-      c.y += 12;
+      c.x += 14;
+      c.y += 14;
     }
     this.width = this._cardWidth;
-    this.height += 24;
+    this.height += 28;
   }
   constructor(title: string, width: number, options: { gap?: number } = {}) {
-    super({ direction: 'vertical', gap: options.gap ?? 8 });
+    super({ direction: 'vertical', gap: options.gap ?? 12 });
     this._cardWidth = width;
     this.width = width;
-    this.padding = 12;
+    this.padding = 14;
 
     const header = new Text(title.toUpperCase(), {
       font: '600 10px monospace',
@@ -86,12 +86,12 @@ export class ControlCenter extends ScrollView {
   ) {
     super({ width, height });
 
-    this.stack = new Stack({ direction: 'vertical', gap: 12 });
+    this.stack = new Stack({ direction: 'vertical', gap: 16 });
     this.stack.padding = 16;
     this.add(this.stack);
 
     const innerW = width - 32;
-    const cardContentW = innerW - 24;
+    const cardContentW = innerW - 28;
 
     // 1. Header Bar with Close Button
     const headerStack = new Stack({ direction: 'horizontal', gap: 8 });
