@@ -1,0 +1,4 @@
+# Generated MSDF atlas assets (produced by scripts/gen-msdf-atlas.mjs).
+# Machine-generated layout JSON + charset — never hand-edited or reformatted.
+public/msdf/atlas.json
+public/msdf/charset.txt
