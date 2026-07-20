@@ -54,7 +54,7 @@ export class HelpModal extends UIComponent {
     this.card.add(scrollView.setPosition(24, 60));
 
     const stack = new Stack({ direction: 'vertical', gap: 16 });
-    scrollView.content = stack;
+    scrollView.add(stack);
 
     // Build the help text blocks
     const helpItems = [
