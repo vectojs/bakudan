@@ -8,6 +8,7 @@ import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
 import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
 import { textBitmapStats } from './TextBitmapCache';
+import { loadMSDFAtlas } from './MSDFAtlas';
 import type { PoolSlot } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import { Dock } from './Dock';
@@ -359,6 +360,16 @@ export class App {
   start(): void {
     this._setupPointerTracking();
     this.scene.add(new Ticker(this));
+    // Load the MSDF atlas and hand it to the danmaku layer so plain text draws
+    // through the batched WebGL glyph path. Async + best-effort: until it
+    // resolves (or if it fails / WebGL is unavailable) the layer stays on the
+    // Canvas2D glyph-bitmap fallback, so nothing blocks startup.
+    void loadMSDFAtlas().then((atlas) => {
+      if (atlas) {
+        this.danmakuLayer.setMSDF(atlas);
+        this.scene.markDirty();
+      }
+    });
   }
 
   frame(dt: number): void {
