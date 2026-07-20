@@ -498,7 +498,7 @@ export class App {
         const localX = this.pointerX - de.x;
         const localY = this.pointerY - de.y;
         if (localX >= 0 && localY >= 0) {
-          const w = (de.slot.width || 80) + de.actionBtnWidth;
+          const w = (de.slot.width || 80) + (de.hovered ? de.actionBtnWidth : 0);
           const h = (de.slot.params.fontSize || 24) * 1.4;
           if (localX <= w && localY <= h) {
             de.hovered = true;
@@ -679,7 +679,7 @@ export class App {
       const localX = this.pointerX - de.x;
       const localY = this.pointerY - de.y;
       if (localX >= 0 && localY >= 0) {
-        const w = (de.slot.width || 80) + de.actionBtnWidth;
+        const w = (de.slot.width || 80) + (de.hovered ? de.actionBtnWidth : 0);
         const h = (de.slot.params.fontSize || 24) * 1.4;
         if (localX <= w && localY <= h) {
           return de;

@@ -86,7 +86,7 @@ export class DanmakuEntity extends Entity {
     if (!this.interactive || !this.slot) return false;
     const local = this.worldToLocal(globalX, globalY);
     if (!local) return false;
-    const w = (this.slot.width || 80) + this._actionBtnW;
+    const w = (this.slot.width || 80) + (this.hovered ? this._actionBtnW : 0);
     const h = (this.slot.params.fontSize || 24) * 1.4;
     return local.x >= 0 && local.x <= w && local.y >= 0 && local.y <= h;
   }
@@ -169,8 +169,8 @@ export class DanmakuEntity extends Entity {
     renderer.fillText('📋', textEnd + 24, fontSize * 0.8, btnFont, '#fff');
   }
 
-  /** Hit-test the action button region at a known local-x. Returns the action kind or null. */
   hitAction(localX: number): ActionKind | null {
+    if (!this.hovered) return null;
     const s = this.slot;
     if (!s) return null;
     const textEnd = s.width;
