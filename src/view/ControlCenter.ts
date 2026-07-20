@@ -222,7 +222,7 @@ export class ControlCenter extends Stack {
     
     const rateSlider = new Slider({
       min: 1,
-      max: 200,
+      max: 1000,
       value: 50,
       step: 1,
       width: cardContentW,
