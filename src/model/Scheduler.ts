@@ -42,6 +42,15 @@ function measureWidth(text: string, fontSize: number): number {
 const CULL_MARGIN = 200;
 const MIN_SPAWN_GAP = 50;
 
+/**
+ * Discrete font sizes for stress-spawned danmaku. Kept small on purpose: each
+ * distinct size is a separate Canvas2D glyph-cache bucket and a separate
+ * `ctx.font` state change, so collapsing the old continuous 16..36 range into
+ * a few tiers keeps the glyph raster cache hot at 5,000+ concurrent danmaku
+ * while still showing near/far size variety.
+ */
+const FONT_TIERS = [18, 24, 30];
+
 function isScrollPreset(preset: PresetId): boolean {
   return preset === 'scroll' || preset === 'reverse' || preset === 'glitch' || preset === 'sine';
 }
@@ -88,6 +97,16 @@ export class Scheduler {
     return this.spawnRate;
   }
 
+  /** Current stage width in px (used by the render layer for frustum culling). */
+  get stageW(): number {
+    return this.stageWidth;
+  }
+
+  /** Current stage height in px. */
+  get stageH(): number {
+    return this.stageHeight;
+  }
+
   tick(
     dt: number,
     presetId: PresetId,
@@ -105,14 +124,21 @@ export class Scheduler {
     };
     const W = this.stageWidth;
     const H = this.stageHeight;
-    const ids = this.pool.getActiveIds();
+    const poolSlots = this.pool.slots;
 
-    for (const id of ids) {
-      const slot = this.pool.slots[id];
+    for (const ls of this.lanes) {
+      ls.occupied = false;
+    }
+
+    for (let i = 0; i < poolSlots.length; i++) {
+      const slot = poolSlots[i];
+      if (!slot.active) continue;
 
       const slotPreset = slot.params.preset || presetId;
       const presetFn = PRESETS[slotPreset] || PRESETS.scroll;
-      presetFn(slot, dt, state, W, H);
+      if (!slot.paused) {
+        presetFn(slot, dt, state, W, H);
+      }
 
       if (this.showcasePhysics) {
         if (!slot.params.presetParams) slot.params.presetParams = {};
@@ -131,17 +157,38 @@ export class Scheduler {
       }
 
       if (slot.x + slot.width < -CULL_MARGIN || slot.x > W + CULL_MARGIN) {
-        this.pool.deactivate(id);
-        this._releaseLane(slot.lane);
+        this.pool.deactivate(i);
         continue;
       }
 
       if (isScrollPreset(slot.params.preset)) {
         const ls = this.lanes[slot.lane];
         if (ls) {
-          ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
-          ls.width = slot.width;
-          ls.speed = slot.params.speed;
+          const isRev = slot.params.preset === 'reverse';
+          const rightEdge = slot.x + slot.width;
+          const leftEdge = slot.x;
+
+          if (!ls.occupied) {
+            ls.occupied = true;
+            ls.isReverse = isRev;
+            ls.trailingX = isRev ? leftEdge : rightEdge;
+            ls.width = slot.width;
+            ls.speed = slot.params.speed;
+          } else {
+            if (isRev) {
+              if (leftEdge < ls.trailingX) {
+                ls.trailingX = leftEdge;
+                ls.width = slot.width;
+                ls.speed = slot.params.speed;
+              }
+            } else {
+              if (rightEdge > ls.trailingX) {
+                ls.trailingX = rightEdge;
+                ls.width = slot.width;
+                ls.speed = slot.params.speed;
+              }
+            }
+          }
         }
       }
     }
@@ -185,7 +232,13 @@ export class Scheduler {
 
   private _spawnOne(presetId: PresetId, lane: number): boolean {
     const text = ContentLibrary.sample();
-    const fontSize = 16 + Math.random() * 20;
+    // Quantize to a few discrete font tiers instead of a continuous 16..36
+    // range. Canvas2D re-shapes text on every `ctx.font` change and keeps a
+    // per-(glyph,font) raster cache; with ~21 distinct sizes almost every
+    // glyph is a cache miss, but with a handful of tiers the working set stays
+    // hot. The DanmakuLayer batches draws by tier so `ctx.font` is set only
+    // once per tier per frame. Visual size variety is preserved.
+    const fontSize = FONT_TIERS[Math.floor(Math.random() * FONT_TIERS.length)];
     const slateColors = [
       '#f8fafc',
       '#cbd5e1',
@@ -229,7 +282,7 @@ export class Scheduler {
     if (!ls) return;
     ls.occupied = true;
     if (isScrollPreset(slot.params.preset)) {
-      ls.trailingX = slot.params.preset === 'reverse' ? slot.x + slot.width : slot.x;
+      ls.trailingX = slot.params.preset === 'reverse' ? slot.x : slot.x + slot.width;
       ls.width = slot.width;
       ls.speed = slot.params.speed;
       ls.isReverse = slot.params.preset === 'reverse';
@@ -342,11 +395,5 @@ export class Scheduler {
     const i = this._laneRoundRobin % n;
     this._laneRoundRobin = (i + 1) % n;
     return i;
-  }
-
-  private _releaseLane(lane: number): void {
-    if (lane >= 0 && lane < this.lanes.length) {
-      this.lanes[lane].occupied = false;
-    }
   }
 }

@@ -1,0 +1,262 @@
+import { Entity, type IRenderer } from '@vectojs/core';
+import type { PoolSlot } from '../model/types';
+import type { DanmakuPool } from '../model/DanmakuPool';
+
+/**
+ * Shared per-(fontSize,char) width cache for the rare rainbow/rotation
+ * presets, which draw character-by-character and need per-glyph advances.
+ * fontSize is an integer (Scheduler floors it), so the key space is bounded
+ * (~21 sizes × the small CJK/ASCII working set) and never leaks.
+ */
+const charWidthCache = new Map<string, number>();
+let measureCanvasCtx: CanvasRenderingContext2D | null = null;
+
+/** Cache instrumentation for the HUD (measureText avoided vs. performed). */
+export const charWidthStats = { hits: 0, misses: 0 };
+
+function charWidth(ch: string, fontSize: number): number {
+  const key = fontSize + ch;
+  const cached = charWidthCache.get(key);
+  if (cached !== undefined) {
+    charWidthStats.hits++;
+    return cached;
+  }
+  charWidthStats.misses++;
+  if (!measureCanvasCtx) {
+    const c = document.createElement('canvas');
+    measureCanvasCtx = c.getContext('2d');
+  }
+  if (!measureCanvasCtx) return fontSize * 0.6;
+  measureCanvasCtx.font = `400 ${fontSize}px system-ui, sans-serif`;
+  const w = measureCanvasCtx.measureText(ch).width;
+  charWidthCache.set(key, w);
+  return w;
+}
+
+export type ActionKind = 'like' | 'copy';
+
+/**
+ * A single scene node that batch-paints the ENTIRE danmaku stress pool.
+ *
+ * The old design gave every danmaku its own `Entity` added to the scene, so
+ * the engine walked, transformed, culled, and `save()/restore()`-wrapped
+ * thousands of nodes per frame — the dominant cost at 5,000 danmaku (~12fps).
+ * This layer is one node: the scene walk visits it once, and its `render()`
+ * runs a tight immediate-mode loop over `pool.slots`, doing its own frustum
+ * culling and font-tier batching. Per-danmaku interaction state lives on the
+ * slots (`hovered`/`liked`/`dragging`/`userSent`); the App owns hit-testing.
+ */
+export class DanmakuLayer extends Entity {
+  /** Font-size buckets: index = fontSize, value = list of slots to draw. */
+  private _buckets: PoolSlot[][] = [];
+
+  constructor(
+    private pool: DanmakuPool,
+    private getStage: () => { w: number; h: number; interactive: boolean },
+  ) {
+    super();
+    this.interactive = false;
+    // Pre-size buckets for integer font sizes 0..63 (Scheduler emits 16..36).
+    for (let i = 0; i < 64; i++) this._buckets.push([]);
+  }
+
+  /** The layer itself is never the pointer target; App does manual hit-tests. */
+  isPointInside(): boolean {
+    return false;
+  }
+
+  /** Fills the whole viewport, so the engine must not frustum-cull it. */
+  getBounds(): null {
+    return null;
+  }
+
+  render(renderer: IRenderer): void {
+    const { w: stageW, h: stageH, interactive } = this.getStage();
+    const slots = this.pool.slots;
+    const buckets = this._buckets;
+
+    // Reset buckets (keep arrays, just zero their length — no per-frame alloc).
+    for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+
+    // Slots that need their own transform/effect pass (drawn after the plain
+    // batched text so their glyphs sit on top and each gets isolated state).
+    let special: PoolSlot[] | null = null;
+
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      if (!s.active) continue;
+      const fontSize = s.params.fontSize;
+      // Inline frustum cull — skip anything fully off-screen.
+      if (s.x > stageW || s.x + s.width < 0 || s.y > stageH || s.y + fontSize * 1.5 < 0) {
+        continue;
+      }
+      const eff = s.params.effects;
+      const isSpecial =
+        s.params.preset === 'glitch' ||
+        s.params.preset === 'rotation' ||
+        eff.rainbow ||
+        eff.outline ||
+        eff.glow;
+      if (isSpecial) {
+        (special ||= []).push(s);
+        continue;
+      }
+      const fs = fontSize | 0;
+      (buckets[fs] || buckets[buckets.length - 1]).push(s);
+    }
+
+    // --- Plain batched pass: group by font size so ctx.font changes ~21x, not
+    //     once per danmaku (the single biggest Canvas2D text cost). ---
+    let curAlpha = -1;
+    for (let fs = 0; fs < buckets.length; fs++) {
+      const bucket = buckets[fs];
+      if (bucket.length === 0) continue;
+      const font = `400 ${fs}px system-ui, -apple-system, sans-serif`;
+      for (let j = 0; j < bucket.length; j++) {
+        const s = bucket[j];
+        const a = s.params.opacity;
+        if (a !== curAlpha) {
+          renderer.setGlobalAlpha(a);
+          curAlpha = a;
+        }
+        const rx = Math.round(s.x);
+        const ry = Math.round(s.y);
+        const textY = ry + fs * 0.8;
+        if (s.userSent && s.width > 0) {
+          this._drawUserBox(renderer, rx, ry, s.width, fs);
+        }
+        renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+        if (s.hovered && interactive) {
+          this._drawActions(renderer, s, fs, rx, ry);
+        }
+      }
+    }
+
+    // --- Special pass: glitch / rotation / rainbow / outline / glow ---
+    if (special) {
+      for (let i = 0; i < special.length; i++) {
+        this._renderSpecial(renderer, special[i], stageW, stageH, interactive);
+      }
+    }
+
+    if (curAlpha !== 1) renderer.setGlobalAlpha(1);
+  }
+
+  private _renderSpecial(
+    renderer: IRenderer,
+    s: PoolSlot,
+    _stageW: number,
+    _stageH: number,
+    interactive: boolean,
+  ): void {
+    const { text, color, fontSize, opacity, effects, preset } = s.params;
+    const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
+    renderer.setGlobalAlpha(opacity);
+
+    const isRotation = preset === 'rotation' && s.charAngles && s.charAngles.length > 0;
+
+    if (isRotation) {
+      renderer.save();
+      renderer.translate(Math.round(s.x), Math.round(s.y));
+      this._renderRotatedChars(renderer, s, font, color, fontSize);
+      renderer.restore();
+      renderer.setGlobalAlpha(1);
+      return;
+    }
+
+    const rx = Math.round(s.x);
+    const ry = Math.round(s.y);
+    const textY = ry + fontSize * 0.8;
+
+    if (s.userSent && s.width > 0) this._drawUserBox(renderer, rx, ry, s.width, fontSize);
+
+    if (preset === 'glitch') {
+      const t = s.age / 1000;
+      const jx = Math.sin(t * 47) * 3;
+      const jy = Math.cos(t * 53) * 2;
+      renderer.fillText(text, rx + jx - 2, textY + jy, font, 'rgba(255,50,50,0.8)');
+      renderer.fillText(text, rx + jx + 2, textY - jy, font, 'rgba(50,50,255,0.8)');
+      renderer.fillText(text, rx + jx, textY, font, color);
+    } else if (effects.rainbow) {
+      let cx = rx;
+      const chars = [...text];
+      for (let i = 0; i < chars.length; i++) {
+        const hue = ((s.age / 50 + i * 30) % 360) | 0;
+        renderer.fillText(chars[i], cx, textY, font, `hsl(${hue}, 80%, 65%)`);
+        cx += charWidth(chars[i], fontSize);
+      }
+    } else {
+      if (effects.outline) {
+        renderer.fillText(text, rx + 1, textY, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, rx - 1, textY, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, rx, textY + 1, font, 'rgba(0,0,0,0.6)');
+        renderer.fillText(text, rx, textY - 1, font, 'rgba(0,0,0,0.6)');
+      }
+      renderer.fillText(text, rx, textY, font, color);
+      if (effects.glow) renderer.fillText(text, rx, textY, font, color);
+    }
+
+    if (s.hovered && interactive) this._drawActions(renderer, s, fontSize, rx, ry);
+    renderer.setGlobalAlpha(1);
+  }
+
+  private _renderRotatedChars(
+    renderer: IRenderer,
+    s: PoolSlot,
+    font: string,
+    color: string,
+    fontSize: number,
+  ): void {
+    const chars = [...s.params.text];
+    let cx = 0;
+    for (let i = 0; i < chars.length; i++) {
+      renderer.save();
+      renderer.translate(cx, fontSize * 0.8);
+      renderer.rotate(s.charAngles[i] ?? 0);
+      renderer.fillText(chars[i], 0, 0, font, color);
+      renderer.restore();
+      cx += charWidth(chars[i], fontSize);
+    }
+  }
+
+  private _drawUserBox(
+    renderer: IRenderer,
+    rx: number,
+    ry: number,
+    width: number,
+    fontSize: number,
+  ): void {
+    const pad = 4;
+    renderer.beginPath();
+    renderer.roundRect(rx - pad, ry - pad, width + pad * 2, fontSize * 1.2 + pad * 2, 4);
+    renderer.fill('rgba(255, 126, 95, 0.08)');
+    renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
+  }
+
+  private _drawActions(
+    renderer: IRenderer,
+    s: PoolSlot,
+    fontSize: number,
+    rx: number,
+    ry: number,
+  ): void {
+    const textEnd = rx + s.width;
+    const btnFont = `${fontSize}px sans-serif`;
+    renderer.fillText(s.liked ? '❤️' : '🤍', textEnd + 4, ry + fontSize * 0.8, btnFont, '#fff');
+    renderer.fillText('📋', textEnd + 24, ry + fontSize * 0.8, btnFont, '#fff');
+  }
+}
+
+/** Action-button hit region width (like + copy buttons past the text). */
+export const ACTION_BTN_WIDTH = 44;
+
+/**
+ * Hit-test the action button strip at a local-x offset past the text.
+ * Mirrors the layout drawn in `_drawActions`. Only valid while hovered.
+ */
+export function hitAction(slot: PoolSlot, localX: number): ActionKind | null {
+  const textEnd = slot.width;
+  if (localX >= textEnd + 4 && localX < textEnd + 24) return 'like';
+  if (localX >= textEnd + 24 && localX < textEnd + 44) return 'copy';
+  return null;
+}

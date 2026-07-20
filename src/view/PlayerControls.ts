@@ -38,13 +38,25 @@ export class PlayerControls extends Stack {
     this.height = 44;
     this.padding = 8;
 
-    this._playBtn = new Button('▶');
+    this._playBtn = new Button('▶', {
+      bg: 'rgba(255, 126, 95, 0.1)',
+      hoverBg: 'rgba(255, 126, 95, 0.25)',
+      color: '#ff7e5f',
+    });
     this._playBtn.width = 36;
     this._playBtn.height = 28;
     this._playBtn.on('click', callbacks.onPlayPause);
     this.add(this._playBtn);
 
-    this._progress = new Slider({ min: 0, max: 1, value: 0, step: 0.01 });
+    this._progress = new Slider({
+      min: 0,
+      max: 1,
+      value: 0,
+      step: 0.01,
+      trackColor: 'rgba(69, 60, 56, 0.15)',
+      progressColor: '#ff7e5f',
+      handleColor: '#ffffff',
+    });
     this._progress.width = 340;
     this._progress.height = 20;
 
@@ -60,8 +72,14 @@ export class PlayerControls extends Stack {
     this._timeLabel = new Text('0:00 / 0:00', { font: '12px monospace', color: '#453c38' });
     this.add(this._timeLabel);
 
-    const rateDropdown = new Dropdown(RATE_LABELS, { value: '1x' });
+    const rateDropdown = new Dropdown(RATE_LABELS, {
+      value: '1x',
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
     rateDropdown.width = 64;
+    (rateDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     rateDropdown.on('change', (e: any) => callbacks.onRateChange(RATE_MAP[e.value]));
     this.add(rateDropdown);
   }
@@ -93,18 +111,29 @@ export class PlayerControls extends Stack {
     return this._duration;
   }
 
-  override render(renderer: IRenderer): void {
+  override layout(): void {
+    const w = this.width;
+    super.layout();
+    for (const c of this.children) {
+      c.x += 8;
+      c.y += 8;
+    }
+    this.width = w;
+    this.height = 44;
+  }
+
+  render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 10);
-    renderer.fill('#ffffff'); // White panel matching gallery
-    renderer.stroke('rgba(69, 60, 56, 0.15)', 1.5);
+    renderer.fill('rgba(255, 255, 255, 0.85)');
+    renderer.stroke('rgba(255, 126, 95, 0.2)', 1.5);
     renderer.restore();
 
     // Draw the high-heat danmaku density wave behind the slider
     if (this._densityBuckets.length > 0) {
       renderer.save();
-      renderer.setGlobalAlpha(0.2);
+      renderer.setGlobalAlpha(0.35);
       const sliderX = 54;
       const sliderY = 12;
       const sliderW = 340;
@@ -119,7 +148,7 @@ export class PlayerControls extends Stack {
       }
       renderer.lineTo(sliderX + sliderW, sliderY + sliderH);
       renderer.closePath();
-      renderer.fill('#d97706');
+      renderer.fill('#ff7e5f');
       renderer.restore();
     }
 

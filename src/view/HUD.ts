@@ -21,17 +21,17 @@ export class HUD extends Entity {
   }
 
   /** Position at top-right by default. Caller sets x/y based on stage size. */
-  alignToStage(stageWidth: number): void {
-    this.x = stageWidth - this.width - 12;
-    this.y = 8;
+  alignToStage(_stageWidth: number): void {
+    this.x = 12;
+    this.y = 12;
   }
 
   render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
     renderer.roundRect(0, 0, this.width, this.height, 6);
-    renderer.fill('#ffffff'); // Pure white panel background matching gallery!
-    renderer.stroke('rgba(69, 60, 56, 0.15)', 1); // thin warm grey stroke
+    renderer.fill('rgba(255, 255, 255, 0.85)');
+    renderer.stroke('rgba(255, 126, 95, 0.2)', 1);
     renderer.restore();
 
     const y0 = 18;
@@ -61,11 +61,11 @@ export class HUD extends Entity {
 
       let valColor = '#453c38';
       if (label === t('hud.state', this.lang)) {
-        valColor = isThrottled ? '#d97706' : '#2563eb'; // brand orange vs blue
+        valColor = isThrottled ? '#ff9a9e' : '#ff7e5f';
       } else if (label === t('hud.cache', this.lang)) {
-        valColor = '#16a34a'; // green
+        valColor = '#feb47b';
       } else if (label === t('hud.gc', this.lang) && gcSaved > 0) {
-        valColor = '#d97706'; // VectoJS Gallery Orange
+        valColor = '#ff7e5f';
       }
       renderer.fillText(val, 115, y, font, valColor);
     }

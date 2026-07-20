@@ -83,6 +83,7 @@ export class DanmakuPool {
 
   private _resetSlot(s: PoolSlot): void {
     s.active = false;
+    s.paused = false;
     s.params = createDefaultParams();
     s.x = 0;
     s.y = 0;
@@ -91,6 +92,10 @@ export class DanmakuPool {
     s.opacity = 1;
     s.age = 0;
     s.lane = 0;
+    s.hovered = false;
+    s.liked = false;
+    s.dragging = false;
+    s.userSent = false;
     for (let i = 0; i < s.charAngles.length; i++) s.charAngles[i] = 0;
   }
 

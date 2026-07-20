@@ -24,6 +24,7 @@ export interface CharacterEffects {
 export interface PoolSlot {
   id: number;
   active: boolean;
+  paused?: boolean;
   params: DanmakuParams;
   x: number;
   y: number;
@@ -34,6 +35,17 @@ export interface PoolSlot {
   lane: number;
   /** Per-character rotation offsets for the `rotation` preset. */
   charAngles: Float64Array;
+  /**
+   * Per-danmaku interaction state. Lives on the slot (not on a scene Entity)
+   * so the whole stress pool renders through a single batch-painting
+   * `DanmakuLayer` node instead of one Entity per danmaku — the pointer
+   * hit-test in `App` reads/writes these directly.
+   */
+  hovered?: boolean;
+  liked?: boolean;
+  dragging?: boolean;
+  /** True for danmaku the user typed (rendered with a highlight box). */
+  userSent?: boolean;
 }
 
 export interface PresetState {

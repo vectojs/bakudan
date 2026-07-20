@@ -138,10 +138,11 @@ export class StageBackground extends Entity {
       const grad = renderer.createLinearGradient(0, 0, this.width, this.height, [
         { stop: 0, color: '#faf8f6' },
         {
-          stop: 0.5,
-          color: `hsl(${34 + Math.sin(this._t) * 3}, 15%, ${95 + Math.cos(this._t * 1.3) * 1.5}%)`,
+          stop: 0.4,
+          color: `hsl(${18 + Math.sin(this._t) * 2}, 30%, ${96 + Math.cos(this._t * 1.3) * 1}%)`,
         },
-        { stop: 1, color: '#f3eee6' },
+        { stop: 0.7, color: '#fdf6f0' },
+        { stop: 1, color: '#fef0e8' },
       ]);
       renderer.beginPath();
       renderer.moveTo(0, 0);

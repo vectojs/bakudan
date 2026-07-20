@@ -17,13 +17,13 @@ export class ParticleSystem {
     const count = 15 + Math.floor(Math.random() * 10);
     let spawned = 0;
 
-    // Gallery theme colors matching card headers
+    // Glassmorphic Peach theme colors
     const colors = [
       baseColor,
-      '#d97706', // warm coral orange
-      '#f59e0b', // amber
-      '#38bdf8', // sky blue
-      '#818cf8', // indigo
+      '#ff7e5f', // peach
+      '#feb47b', // warm peach-orange
+      '#ff9a9e', // pink-peach
+      '#ffffff', // white spark
     ];
 
     for (let i = 0; i < ParticleSystem.MAX && spawned < count; i++) {
