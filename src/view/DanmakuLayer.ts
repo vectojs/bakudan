@@ -1,7 +1,46 @@
-import { Entity, type IRenderer } from '@vectojs/core';
+import { Entity, type IRenderer, type MSDFFont } from '@vectojs/core';
 import type { PoolSlot } from '../model/types';
 import type { DanmakuPool } from '../model/DanmakuPool';
 import { getTextBitmap } from './TextBitmapCache';
+import type { LoadedAtlas } from './MSDFAtlas';
+
+/**
+ * Minimal structural view of the WebGL point layer the Scene owns (typed
+ * `private` in core, but reachable at runtime — this is exactly how core's own
+ * `MSDFTextEntity` renders). We only need the MSDF glyph-batch entry points.
+ */
+interface GLPointRenderer {
+  setMSDFTexture(source: TexImageSource, distanceRange: number): void;
+  addGlyph(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    u0: number,
+    v0: number,
+    u1: number,
+    v1: number,
+    color?: string,
+    alpha?: number,
+    rotation?: number,
+  ): void;
+}
+
+/** A laid-out glyph run cached per (fontSize, text): quads ready to blit. */
+interface GlyphRun {
+  quads: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    u0: number;
+    v0: number;
+    u1: number;
+    v1: number;
+  }[];
+}
+
+const emojiRe = /\p{Extended_Pictographic}/u;
 
 /**
  * Shared per-(fontSize,char) width cache for the rare rainbow/rotation
@@ -51,6 +90,15 @@ export class DanmakuLayer extends Entity {
   /** Font-size buckets: index = fontSize, value = list of slots to draw. */
   private _buckets: PoolSlot[][] = [];
 
+  // --- WebGL/MSDF text path (set once the atlas loads; null → Canvas2D) ---
+  private _font: MSDFFont | null = null;
+  private _texture: TexImageSource | null = null;
+  private _distanceRange = 0;
+  /** Cached laid-out glyph quads per `fontSize\u0000text` (bounded working set). */
+  private _runCache = new Map<string, GlyphRun>();
+  /** Cached "every glyph is in the atlas & no emoji" per text. */
+  private _glSafe = new Map<string, boolean>();
+
   constructor(
     private pool: DanmakuPool,
     private getStage: () => { w: number; h: number; interactive: boolean },
@@ -59,6 +107,62 @@ export class DanmakuLayer extends Entity {
     this.interactive = false;
     // Pre-size buckets for integer font sizes 0..63 (Scheduler emits 16..36).
     for (let i = 0; i < 64; i++) this._buckets.push([]);
+  }
+
+  /**
+   * Supply the loaded MSDF atlas to switch the plain text pass onto the GPU
+   * glyph-batch path. Safe to call after construction (atlas loads async).
+   */
+  setMSDF(atlas: LoadedAtlas): void {
+    this._font = atlas.font;
+    this._texture = atlas.texture;
+    this._distanceRange = atlas.font.distanceRange;
+  }
+
+  /** Is `text` fully representable by the MSDF atlas (no emoji, all glyphs present)? */
+  private _isGLSafe(text: string): boolean {
+    const hit = this._glSafe.get(text);
+    if (hit !== undefined) return hit;
+    let safe = true;
+    for (const ch of text) {
+      const cp = ch.codePointAt(0)!;
+      if (emojiRe.test(ch) || !this._font!.getGlyph(cp)) {
+        safe = false;
+        break;
+      }
+    }
+    this._glSafe.set(text, safe);
+    return safe;
+  }
+
+  /**
+   * Lay out (once, cached) a text run's glyph quads in local pixels, with the
+   * baseline shifted so the visual position matches the Canvas2D path
+   * (baseline at ~0.8×fontSize below the slot's top-left `y`). `MSDFFont.layout`
+   * puts the line-0 baseline at `ascender×fontSize`, so we offset by the
+   * difference to keep GL and Canvas2D danmaku vertically identical.
+   */
+  private _glyphRun(text: string, fs: number): GlyphRun {
+    const key = fs + '\u0000' + text;
+    const hit = this._runCache.get(key);
+    if (hit) return hit;
+    const font = this._font!;
+    const ascender = font.data.metrics.ascender;
+    const yOffset = 0.8 * fs - ascender * fs; // align baseline to Canvas2D
+    const laid = font.layout(text, fs, { x: 0, y: yOffset });
+    const quads = laid.glyphs.map((g) => ({
+      x: g.x,
+      y: g.y,
+      w: g.w,
+      h: g.h,
+      u0: g.u0,
+      v0: g.v0,
+      u1: g.u1,
+      v1: g.v1,
+    }));
+    const run: GlyphRun = { quads };
+    this._runCache.set(key, run);
+    return run;
   }
 
   /** The layer itself is never the pointer target; App does manual hit-tests. */
@@ -107,8 +211,18 @@ export class DanmakuLayer extends Entity {
       (buckets[fs] || buckets[buckets.length - 1]).push(s);
     }
 
-    // --- Plain batched pass: group by font size so ctx.font changes ~21x, not
-    //     once per danmaku (the single biggest Canvas2D text cost). ---
+    // GL glyph batch layer (stacked WebGL canvas the Scene owns). When present
+    // and the atlas is loaded, plain danmaku draw their glyphs through it — the
+    // whole frame's glyphs batch into ~1 GPU draw call, which is the only way
+    // past the Canvas2D per-glyph draw + overdraw fill-rate wall at 5,000.
+    const gl = this._font
+      ? (this.scene as unknown as { pointRenderer?: GLPointRenderer } | null)
+      : null;
+    const glr = gl?.pointRenderer ?? null;
+    if (glr && this._texture) glr.setMSDFTexture(this._texture, this._distanceRange);
+
+    // --- Plain batched pass. GL path: one addGlyph per glyph (no ctx.font /
+    //     fillStyle churn). Canvas2D fallback: font-size buckets + bitmap cache. ---
     let curAlpha = -1;
     for (let fs = 0; fs < buckets.length; fs++) {
       const bucket = buckets[fs];
@@ -116,27 +230,51 @@ export class DanmakuLayer extends Entity {
       const font = `400 ${fs}px system-ui, -apple-system, sans-serif`;
       for (let j = 0; j < bucket.length; j++) {
         const s = bucket[j];
-        const a = s.params.opacity;
-        if (a !== curAlpha) {
-          renderer.setGlobalAlpha(a);
-          curAlpha = a;
-        }
         const rx = Math.round(s.x);
         const ry = Math.round(s.y);
         const textY = ry + fs * 0.8;
+        // Interaction chrome (user-sent box) stays on Canvas2D, behind glyphs.
         if (s.userSent && s.width > 0) {
+          if (curAlpha !== s.params.opacity) {
+            renderer.setGlobalAlpha(s.params.opacity);
+            curAlpha = s.params.opacity;
+          }
           this._drawUserBox(renderer, rx, ry, s.width, fs);
         }
-        // Blit the pre-rasterized run instead of re-shaping text every frame:
-        // one GPU drawImage vs. a CPU fillText (shape + color parse + raster).
-        // Falls back to fillText only if the bitmap can't be produced.
-        const bmp = getTextBitmap(s.params.text, fs, font, s.params.color);
-        if (bmp) {
-          renderer.drawImage(bmp.canvas, rx - bmp.offsetX, textY - bmp.offsetY, bmp.w, bmp.h);
+
+        // User-sent danmaku keep their highlight box + text together on the 2D
+        // canvas (z2) so the box stays behind the glyphs; the GL glyph layer is
+        // z1 (below the 2D canvas), which would otherwise put the box on top.
+        // They're rare (hand-typed), so the Canvas2D path costs nothing here.
+        if (glr && !s.userSent && this._isGLSafe(s.params.text)) {
+          // GPU path: push this run's glyph quads to the batch.
+          const run = this._glyphRun(s.params.text, fs);
+          const color = s.params.color;
+          const alpha = s.params.opacity;
+          const quads = run.quads;
+          for (let q = 0; q < quads.length; q++) {
+            const g = quads[q];
+            glr.addGlyph(rx + g.x, ry + g.y, g.w, g.h, g.u0, g.v0, g.u1, g.v1, color, alpha);
+          }
         } else {
-          renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+          // Canvas2D fallback (emoji / out-of-atlas glyphs, or no WebGL).
+          if (curAlpha !== s.params.opacity) {
+            renderer.setGlobalAlpha(s.params.opacity);
+            curAlpha = s.params.opacity;
+          }
+          const bmp = getTextBitmap(s.params.text, fs, font, s.params.color);
+          if (bmp) {
+            renderer.drawImage(bmp.canvas, rx - bmp.offsetX, textY - bmp.offsetY, bmp.w, bmp.h);
+          } else {
+            renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+          }
         }
+
         if (s.hovered && interactive) {
+          if (curAlpha !== 1) {
+            renderer.setGlobalAlpha(1);
+            curAlpha = 1;
+          }
           this._drawActions(renderer, s, fs, rx, ry);
         }
       }

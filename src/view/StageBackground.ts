@@ -2,14 +2,29 @@ import { Entity, type IRenderer } from '@vectojs/core';
 
 type BgMode = 'none' | 'ambient' | 'video';
 
+/**
+ * The stage background layer.
+ *
+ * This is a DOM layer (`#bakudan-bg`, z-index 0), NOT canvas-painted: the
+ * danmaku moved to a stacked WebGL canvas (z1) that must sit ABOVE the
+ * background but BELOW the Canvas2D UI (z2), and the 2D canvas can't hold the
+ * background without covering the GL danmaku. Ambient mode is a CSS gradient
+ * (class `ambient`); video mode attaches a real `<video>` element the browser
+ * composites directly (also removes a full-screen per-frame `drawImage`).
+ *
+ * It remains an `Entity` (added to the scene) purely for lifecycle symmetry;
+ * `render()` is a no-op. The video-track sync still reads `currentTime`/
+ * `seek()`/`play()`/`pause()` exactly as before — those work identically on a
+ * DOM `<video>`.
+ */
 export class StageBackground extends Entity {
   width = 1920;
   height = 1080;
-  mode: BgMode = 'ambient';
+  private _mode: BgMode = 'ambient';
   private _video: HTMLVideoElement | null = null;
   private _videoSrc: string | null = null;
-  private _t = 0;
   private _endedCallback: (() => void) | null = null;
+  private readonly _host: HTMLElement | null;
 
   isPointInside(_globalX: number, _globalY: number): boolean {
     return false;
@@ -18,6 +33,25 @@ export class StageBackground extends Entity {
   constructor() {
     super();
     void this._videoSrc;
+    this._host = typeof document !== 'undefined' ? document.getElementById('bakudan-bg') : null;
+    this._applyModeClass();
+  }
+
+  /** Background mode. Setting it toggles the DOM host's CSS + video visibility. */
+  get mode(): BgMode {
+    return this._mode;
+  }
+  set mode(m: BgMode) {
+    if (this._mode === m) return;
+    this._mode = m;
+    this._applyModeClass();
+  }
+
+  /** Reflect the current mode onto the DOM host (gradient vs. video vs. blank). */
+  private _applyModeClass(): void {
+    if (!this._host) return;
+    this._host.classList.toggle('ambient', this._mode === 'ambient');
+    if (this._video) this._video.style.display = this._mode === 'video' ? 'block' : 'none';
   }
 
   /**
@@ -54,6 +88,10 @@ export class StageBackground extends Entity {
     });
     this._video = video;
     this._videoSrc = src;
+    // Mount into the DOM background layer so the browser composites it directly
+    // (z0, beneath the GL danmaku). Visible only while mode === 'video'.
+    video.style.display = this._mode === 'video' ? 'block' : 'none';
+    this._host?.appendChild(video);
   }
 
   stopVideo(): void {
@@ -62,6 +100,7 @@ export class StageBackground extends Entity {
       this._video.pause();
       this._video.removeAttribute('src');
       this._video.load();
+      this._video.remove();
       this._video = null;
       this._videoSrc = null;
     }
@@ -126,42 +165,13 @@ export class StageBackground extends Entity {
     this._endedCallback = null;
   }
 
-  render(renderer: IRenderer): void {
-    if (this.mode === 'video' && this._video && this._video.readyState >= 2) {
-      renderer.drawImage(this._video, 0, 0, this.width, this.height);
-      return;
-    }
-
-    if (this.mode === 'ambient') {
-      this._t += 0.005;
-      // Subtle light warm cream gradient animation matching gallery
-      const grad = renderer.createLinearGradient(0, 0, this.width, this.height, [
-        { stop: 0, color: '#faf8f6' },
-        {
-          stop: 0.4,
-          color: `hsl(${18 + Math.sin(this._t) * 2}, 30%, ${96 + Math.cos(this._t * 1.3) * 1}%)`,
-        },
-        { stop: 0.7, color: '#fdf6f0' },
-        { stop: 1, color: '#fef0e8' },
-      ]);
-      renderer.beginPath();
-      renderer.moveTo(0, 0);
-      renderer.lineTo(this.width, 0);
-      renderer.lineTo(this.width, this.height);
-      renderer.lineTo(0, this.height);
-      renderer.closePath();
-      renderer.fill(grad);
-      return;
-    }
-
-    // "none" mode — flat warm cream background
-    renderer.beginPath();
-    renderer.moveTo(0, 0);
-    renderer.lineTo(this.width, 0);
-    renderer.lineTo(this.width, this.height);
-    renderer.lineTo(0, this.height);
-    renderer.closePath();
-    renderer.fill('#faf8f6');
+  /**
+   * No-op: the background is a DOM layer (CSS gradient + `<video>`), composited
+   * beneath the GL danmaku canvas. Kept so `StageBackground` stays a valid
+   * scene `Entity` for lifecycle/resize symmetry.
+   */
+  render(_renderer: IRenderer): void {
+    // intentionally empty — see class docstring
   }
 
   override destroy(): void {
