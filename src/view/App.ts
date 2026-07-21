@@ -6,7 +6,6 @@ import { ContentLibrary } from '../model/ContentLibrary';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
 import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
-import { textBitmapStats } from './TextBitmapCache';
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { PoolSlot } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
@@ -382,11 +381,11 @@ export class App {
       this.hud.data.frameTime = this._frameAccumMs / this._frameCount;
       this.hud.data.entityCount = this.pool.activeCount;
 
-      // Glyph-bitmap cache hit rate: the ratio of danmaku drawn as a cached
-      // `drawImage` blit vs. re-rasterized this session. At steady state the
-      // fixed content library is fully cached, so this pins near 100%.
-      const hits = textBitmapStats.hits;
-      const misses = textBitmapStats.misses;
+      // Glyph cache hit rate: the ratio of Canvas2D-fallback danmaku drawn as a
+      // cached `drawImage` blit vs. re-rasterized this session (core's
+      // TextRasterCache). At steady state the fixed content library is fully
+      // cached, so this pins near 100%.
+      const { hits, misses } = this.danmakuLayer.rasterStats;
       const total = hits + misses;
       this.hud.data.measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
       this.hud.data.gcSavedCount = Math.round(this.pool.activeCount * this._lastFps);

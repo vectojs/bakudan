@@ -5,7 +5,7 @@
     "": {
       "name": "bakudan",
       "dependencies": {
-        "@vectojs/core": "1.11.3",
+        "@vectojs/core": "1.12.0",
         "@vectojs/danmaku-core": "0.1.0",
         "@vectojs/ui": "1.11.4",
       },
@@ -199,7 +199,7 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@vectojs/core": ["@vectojs/core@1.11.3", "", {}, "sha512-DsYDyzOpnQEhy8tsHxSIW/K0JkI6h4gt7GpTRl9dwFu5p/K0j+hF9VuRveenE5HGxEyGRhQwr7lckPDtff+N+A=="],
+    "@vectojs/core": ["@vectojs/core@1.12.0", "", {}, "sha512-PMr5lsK9vevaNrhWPzrNu55L/iMaC6PPI3dNl4c84DVPh1GzpMdVHt16yha1nUrfcBYAxLhT7f54gRVbQu81vg=="],
 
     "@vectojs/danmaku-core": ["@vectojs/danmaku-core@0.1.0", "", {}, "sha512-OHnqDdZKDMcZyTpBjCLCfQeW4K+44RUvoVOHGFYXCc6U2p54C+Ey+ePVNwDvqhcJlhUdHxZXwym+oekycxigJw=="],
 
