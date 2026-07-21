@@ -1,4 +1,5 @@
-import type { TimedDanmakuEntry, PresetId } from './types';
+import type { TimedDanmakuEntry } from './types';
+import { generateTimedTrack } from '@vectojs/danmaku-core';
 import { ContentLibrary } from './ContentLibrary';
 
 /**
@@ -87,58 +88,15 @@ export function clearUserDanmakus(): void {
 }
 
 /**
- * Dynamically generate a large localized TimedDanmakuEntry dataset.
- * Uses Box-Muller Gaussian algorithm to cluster 70% of comments around 5 peak
- * points.
+ * Generate a large localized demo track: the engine's Gaussian-clustered
+ * generator (`@vectojs/danmaku-core`) supplies the timing/preset distribution,
+ * this app injects the localized meme content and merges the user's saved
+ * danmaku that fall within the clip.
  */
 export function generateLargeTimedTrack(duration: number): TimedDanmakuEntry[] {
-  const list: TimedDanmakuEntry[] = [];
-  const peakInterval = Math.max(15, Math.floor(duration * 0.15));
-  const numPeaks = Math.floor(duration / peakInterval);
-  const peaks: number[] = [];
+  const list = generateTimedTrack(duration, { textSampler: () => ContentLibrary.sample() });
 
-  for (let i = 1; i <= numPeaks; i++) {
-    peaks.push(i * peakInterval);
-  }
-
-  const presets: PresetId[] = [
-    'scroll',
-    'reverse',
-    'top',
-    'bottom',
-    'sine',
-    'rotation',
-    'glitch',
-    'repulsion',
-  ];
-  // ~4.5 danmakus per second average, capped at 2500 to keep it lightweight but dense
-  const textCount = Math.min(2500, Math.floor(duration * 4.5));
-
-  for (let i = 0; i < textCount; i++) {
-    let time = 0;
-    if (Math.random() < 0.7 && peaks.length > 0) {
-      // Cluster around one of the peaks
-      const peak = peaks[Math.floor(Math.random() * peaks.length)];
-      const u = Math.random() || 0.0001;
-      const v = Math.random() || 0.0001;
-      const spread = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * 3.5;
-      time = Math.max(0.1, Math.min(duration - 0.5, peak + spread));
-    } else {
-      time = 0.1 + Math.random() * (duration - 0.6);
-    }
-
-    const text = ContentLibrary.sample();
-    const preset = presets[Math.floor(Math.random() * presets.length)];
-    list.push({
-      time: Math.round(time * 10) / 10,
-      text,
-      preset,
-      fontSize: 16 + Math.random() * 16,
-      speed: 120 + Math.random() * 120,
-    });
-  }
-
-  // Load custom user danmakus and filter to ones within this duration
+  // Merge custom user danmakus that fall within this duration.
   const userList = loadUserDanmakus();
   for (const entry of userList) {
     if (entry.time <= duration) {

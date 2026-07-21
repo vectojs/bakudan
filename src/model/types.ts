@@ -1,68 +1,20 @@
-export type PresetId =
-  'scroll' | 'reverse' | 'top' | 'bottom' | 'sine' | 'rotation' | 'glitch' | 'repulsion';
+// The danmaku engine types now live in the published @vectojs/danmaku-core
+// package (pool, scheduler, presets, track). Re-export them so existing app
+// imports (`../model/types`) keep working, and add the view-only types that
+// belong to the app rather than the renderer-agnostic engine.
+export type {
+  PresetId,
+  ShowcasePresetId,
+  DanmakuParams,
+  CharacterEffects,
+  PoolSlot,
+  PresetState,
+  PresetFn,
+  TimedDanmakuEntry,
+} from '@vectojs/danmaku-core';
+export { DEFAULT_EFFECTS, createDefaultParams, PRESET_COLORS } from '@vectojs/danmaku-core';
 
-export type ShowcasePresetId = 'physics' | 'jelly';
-
-export interface DanmakuParams {
-  text: string;
-  color: string;
-  fontSize: number;
-  speed: number;
-  opacity: number;
-  preset: PresetId;
-  presetParams: Record<string, number>;
-  effects: CharacterEffects;
-}
-
-export interface CharacterEffects {
-  glow: boolean;
-  gradient: boolean;
-  rainbow: boolean;
-  outline: boolean;
-}
-
-export interface PoolSlot {
-  id: number;
-  active: boolean;
-  paused?: boolean;
-  params: DanmakuParams;
-  x: number;
-  y: number;
-  width: number;
-  rotation: number;
-  opacity: number;
-  age: number;
-  lane: number;
-  /** Per-character rotation offsets for the `rotation` preset. */
-  charAngles: Float64Array;
-  /**
-   * Per-danmaku interaction state. Lives on the slot (not on a scene Entity)
-   * so the whole stress pool renders through a single batch-painting
-   * `DanmakuLayer` node instead of one Entity per danmaku — the pointer
-   * hit-test in `App` reads/writes these directly.
-   */
-  hovered?: boolean;
-  liked?: boolean;
-  dragging?: boolean;
-  /** True for danmaku the user typed (rendered with a highlight box). */
-  userSent?: boolean;
-}
-
-export interface PresetState {
-  time: number;
-  cursorX: number;
-  cursorY: number;
-  pointerActive: boolean;
-}
-
-export type PresetFn = (
-  slot: PoolSlot,
-  dt: number,
-  state: PresetState,
-  stageWidth: number,
-  stageHeight: number,
-) => void;
-
+/** Heads-up-display metrics — a view concern, kept in the app. */
 export interface HUDData {
   fps: number;
   frameTime: number;
@@ -71,47 +23,3 @@ export interface HUDData {
   gcSavedCount?: number;
   measureTextHitRate?: number;
 }
-
-/** A single pre-authored danmaku pinned to a video timestamp (seconds). */
-export interface TimedDanmakuEntry {
-  /** Video time in seconds at which this danmaku should appear. */
-  time: number;
-  text: string;
-  color?: string;
-  fontSize?: number;
-  speed?: number;
-  preset?: PresetId;
-}
-
-export const DEFAULT_EFFECTS: CharacterEffects = {
-  glow: false,
-  gradient: false,
-  rainbow: false,
-  outline: false,
-};
-
-export function createDefaultParams(): DanmakuParams {
-  return {
-    text: '',
-    color: '#f1f5f9',
-    fontSize: 24,
-    speed: 200,
-    opacity: 0.9,
-    preset: 'scroll',
-    presetParams: {},
-    effects: { ...DEFAULT_EFFECTS },
-  };
-}
-
-export const PRESET_COLORS: Record<PresetId | ShowcasePresetId, string> = {
-  scroll: '#f1f5f9',
-  reverse: '#60a5fa',
-  top: '#fbbf24',
-  bottom: '#34d399',
-  sine: '#a78bfa',
-  rotation: '#f472b6',
-  glitch: 'rgba(255,100,100,0.9)',
-  repulsion: '#22d3ee',
-  physics: '#fb923c',
-  jelly: '#c084fc',
-};
