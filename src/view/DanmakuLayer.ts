@@ -1,6 +1,5 @@
 import { Entity, type IRenderer, type MSDFFont } from '@vectojs/core';
-import type { PoolSlot } from '../model/types';
-import type { DanmakuPool } from '../model/DanmakuPool';
+import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
 import { getTextBitmap } from './TextBitmapCache';
 import type { LoadedAtlas } from './MSDFAtlas';
 

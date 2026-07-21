@@ -1,9 +1,8 @@
 import { Scene, Entity, type IRenderer } from '@vectojs/core';
-import { DanmakuPool } from '../model/DanmakuPool';
-import { Scheduler } from '../model/Scheduler';
-import { DanmakuTrack } from '../model/DanmakuTrack';
+import { DanmakuPool, Scheduler, DanmakuTrack } from '@vectojs/danmaku-core';
 import { detectBrowserLanguage, type Language, t } from '../model/i18n';
 import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
+import { ContentLibrary } from '../model/ContentLibrary';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground } from './StageBackground';
 import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
@@ -157,6 +156,8 @@ export class App {
       window.innerWidth,
       window.innerHeight,
       isMobileInit ? 200 : 500,
+      // Inject the localized meme content — the engine ships no wording.
+      { textSampler: () => ContentLibrary.sample() },
     );
 
     this.bg = new StageBackground();
