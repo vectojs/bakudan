@@ -1,6 +1,5 @@
-import { Entity, type IRenderer, type MSDFFont } from '@vectojs/core';
+import { Entity, type IRenderer, type MSDFFont, TextRasterCache } from '@vectojs/core';
 import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
-import { getTextBitmap } from './TextBitmapCache';
 import type { LoadedAtlas } from './MSDFAtlas';
 
 /**
@@ -97,6 +96,20 @@ export class DanmakuLayer extends Entity {
   private _runCache = new Map<string, GlyphRun>();
   /** Cached "every glyph is in the atlas & no emoji" per text. */
   private _glSafe = new Map<string, boolean>();
+
+  /**
+   * Canvas2D fallback text cache (emoji / out-of-atlas glyphs / no WebGL2).
+   * Pre-rasterizes each `(font, color, text)` run once and blits it, instead of
+   * re-shaping with `fillText` every frame. The fixed stress library (~177
+   * strings × 3 tiers × 8 colors) stays well under the eviction cap, so the
+   * steady-state hit rate is ~100%. Provided by `@vectojs/core` since 1.12.0.
+   */
+  private _rasterCache = new TextRasterCache({ maxEntries: 6000 });
+
+  /** Fallback-cache hit/miss/size, surfaced on the HUD. */
+  get rasterStats(): { hits: number; misses: number; size: number } {
+    return this._rasterCache.stats;
+  }
 
   constructor(
     private pool: DanmakuPool,
@@ -261,9 +274,9 @@ export class DanmakuLayer extends Entity {
             renderer.setGlobalAlpha(s.params.opacity);
             curAlpha = s.params.opacity;
           }
-          const bmp = getTextBitmap(s.params.text, fs, font, s.params.color);
-          if (bmp) {
-            renderer.drawImage(bmp.canvas, rx - bmp.offsetX, textY - bmp.offsetY, bmp.w, bmp.h);
+          const r = this._rasterCache.get(font, s.params.color, s.params.text);
+          if (r) {
+            renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
           } else {
             renderer.fillText(s.params.text, rx, textY, font, s.params.color);
           }
