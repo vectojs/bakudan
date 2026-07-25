@@ -21,16 +21,16 @@
     "deploy": "bash scripts/deploy-pages.sh dist bakudan main"
   },
   "dependencies": {
-    "@vectojs/core": "1.12.0",
+    "@vectojs/core": "1.16.0",
     "@vectojs/danmaku-core": "0.1.0",
-    "@vectojs/ui": "1.11.4"
+    "@vectojs/ui": "2.1.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@happy-dom/global-registrator": "^20.11.0",
-    "@vectojs/devtools": "0.4.3",
-    "oxlint": "^1.71.0",
-    "prettier": "^3.9.1",
+    "@happy-dom/global-registrator": "^20.11.1",
+    "@vectojs/devtools": "0.6.0",
+    "oxlint": "^1.75.0",
+    "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vite": "^8.1.5"
   }
