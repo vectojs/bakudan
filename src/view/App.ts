@@ -12,6 +12,7 @@ import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import { Dock } from './Dock';
 import { ControlCenter } from './ControlCenter';
 import { HUD } from './HUD';
+import { FrameProfiler } from '../model/FrameProfiler';
 import { PlayerControls } from './PlayerControls';
 import { ParticleSystem } from './ParticleSystem';
 import { HelpModal } from './HelpModal';
@@ -76,6 +77,21 @@ export class App {
   private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
   private hud!: HUD;
+  /** On-demand per-frame time-series recorder (see FrameProfiler). */
+  /** Mirrors of control-panel state, so a profile report is self-describing. */
+  private _profSpawnRate: number | null = null;
+  private _profTargetCount: number | null = null;
+  private _profMode: string | null = null;
+
+  private profiler = new FrameProfiler(() => ({
+    activeDanmaku: this.pool.activeCount,
+    ratePerSec: this._profSpawnRate,
+    targetCount: this._profTargetCount,
+    mode: this._profMode,
+    glyphCacheHitPct: Math.round((this.hud?.data.measureTextHitRate ?? 100) * 10) / 10,
+    heapUsedMB: this.hud?.data.heapUsedMB ?? null,
+    userAgent: navigator.userAgent,
+  }));
   private dock!: Dock;
   private controlCenter!: ControlCenter;
   private playerControls!: PlayerControls;
@@ -220,8 +236,14 @@ export class App {
         onPresetChange: (p) => {
           this.activePreset = p;
         },
-        onStressCountChange: (n) => this.scheduler.setTargetCount(n),
-        onStressRateChange: (r) => this.scheduler.setSpawnRate(r),
+        onStressCountChange: (n) => {
+          this._profTargetCount = n;
+          this.scheduler.setTargetCount(n);
+        },
+        onStressRateChange: (r) => {
+          this._profSpawnRate = r;
+          this.scheduler.setSpawnRate(r);
+        },
         onEffectToggle: (key) => {
           // Brush semantics: the toggle changes what NEW danmaku are born
           // with. Danmaku already on screen keep their own effects, so
@@ -250,9 +272,13 @@ export class App {
         onFpsCapChange: (fps) => {
           this.scene.maxFPS = fps;
         },
-        onAppModeChange: (m) => this._setAppMode(m),
+        onAppModeChange: (m) => {
+          this._profMode = m;
+          this._setAppMode(m);
+        },
         onLanguageChange: (lang) => this._changeLanguage(lang),
         onTogglePanel: () => this._togglePanel(),
+        onToggleProfiler: () => this._toggleProfiler(),
       },
     );
 
@@ -372,7 +398,58 @@ export class App {
     });
   }
 
+  /**
+   * Start a ~5s frame recording, or stop one early. On completion the JSON
+   * report is copied to the clipboard AND logged, because a canvas app has no
+   * DOM text field to select — clipboard is the only reliable way to get it out.
+   */
+  private _toggleProfiler(): string {
+    if (this.profiler.isRunning) {
+      return this._finishProfile();
+    }
+    this.profiler.start();
+    // Auto-stop so the user does not have to time it by hand.
+    window.setTimeout(() => {
+      if (this.profiler.isRunning) {
+        this.controlCenter?.setProfilerStatus(this._finishProfile());
+        this.scene.markDirty();
+      }
+    }, 5000);
+    return 'Recording… 0 frames';
+  }
+
+  private _finishProfile(): string {
+    const report = this.profiler.stop();
+    if (!report) return 'Too few frames — try again';
+    const json = JSON.stringify(report, null, 2);
+    // Always log: the clipboard can be denied, the console cannot.
+    console.log('[bakudan] frame profile\n' + json);
+    const summary =
+      `${report.frames} frames · p50 ${report.frameTimeMs.p50}ms · ` +
+      `p95 ${report.frameTimeMs.p95}ms · jitter ±${report.frameTimeMs.stdDev}ms` +
+      (report.screenHz ? ` · ${report.screenHz}Hz` : '') +
+      (report.overBudget ? ` · ${report.overBudget.pct}% over budget` : '');
+    void navigator.clipboard
+      ?.writeText(json)
+      .then(() => {
+        this.controlCenter?.setProfilerStatus('Copied to clipboard! ' + summary);
+        this.scene.markDirty();
+      })
+      .catch(() => {
+        this.controlCenter?.setProfilerStatus('See console (clipboard denied). ' + summary);
+        this.scene.markDirty();
+      });
+    return summary;
+  }
+
   frame(dt: number): void {
+    if (this.profiler.isRunning) {
+      this.profiler.record(dt);
+      // Refresh the card roughly every 30 frames so it reads as "recording".
+      if (this.profiler.captured % 30 === 0) {
+        this.controlCenter?.setProfilerStatus(`Recording… ${this.profiler.captured} frames`);
+      }
+    }
     this._frameAccumMs += dt;
     this._frameCount++;
     if (this._frameAccumMs >= HUD_UPDATE_INTERVAL_MS) {

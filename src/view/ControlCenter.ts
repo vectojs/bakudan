@@ -16,6 +16,8 @@ export interface ControlCenterCallbacks {
   onAppModeChange: (mode: 'stress' | 'video') => void;
   onLanguageChange: (lang: Language) => void;
   onTogglePanel: () => void;
+  /** Start/stop the frame profiler; returns a status line to show in the card. */
+  onToggleProfiler: () => string;
 }
 
 export interface VideoSourceEntry {
@@ -94,6 +96,13 @@ function labeledField(label: string, control: Text | Dropdown | Slider, width: n
 
 export class ControlCenter extends ScrollView {
   private stack: Stack;
+  /** Status line of the frame-profiler card, so the app can update it live. */
+  private profilerStatus?: Text;
+
+  /** Update the profiler card's status text (e.g. a live frame count). */
+  setProfilerStatus(text: string): void {
+    this.profilerStatus?.setText(text);
+  }
 
   constructor(
     width: number,
@@ -348,6 +357,34 @@ export class ControlCenter extends ScrollView {
     langDropdown.on('change', (e: any) => callbacks.onLanguageChange(langMap[e.value]));
     langCard.add(langDropdown);
     this.stack.add(langCard);
+
+    // 8. Frame Profiler — records a per-frame time series and prints a JSON
+    // report to the console. The HUD's FPS is a 500ms rolling average, which
+    // hides jitter; on a 240Hz panel (4.17ms budget) "117 FPS" can mean steady
+    // over-budget frames or frames swinging 7-10ms, and those have different
+    // causes. This gives percentiles, the worst frames, and a histogram.
+    const profCard = new SettingsCard('FRAME PROFILER', innerW);
+    const profStatus = new Text('Idle — click to record ~5s', {
+      font: '11px sans-serif',
+      color: '#6d645d',
+      maxWidth: cardContentW,
+    });
+    profCard.add(profStatus);
+    const profBtn = new Button('● Record frames', {
+      width: cardContentW,
+      height: 28,
+      bg: 'rgba(255, 126, 95, 0.15)',
+      hoverBg: 'rgba(255, 126, 95, 0.3)',
+      color: '#453c38',
+      font: '600 11px sans-serif',
+    });
+    profBtn.on('click', () => {
+      const status = callbacks.onToggleProfiler();
+      profStatus.setText(status);
+    });
+    profCard.add(profBtn);
+    this.stack.add(profCard);
+    this.profilerStatus = profStatus;
 
     // Ensure scrollview knows its content size after adding all cards
     this.stack.layout();
