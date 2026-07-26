@@ -83,6 +83,9 @@ export class App {
   private _profTargetCount: number | null = null;
   private _profMode: string | null = null;
 
+  /** Exposed so render-heavy nodes can mark their own phases. */
+  readonly profilerRef = () => this.profiler;
+
   private profiler = new FrameProfiler(() => ({
     activeDanmaku: this.pool.activeCount,
     ratePerSec: this._profSpawnRate,
@@ -192,6 +195,7 @@ export class App {
       h: this.stageH,
       interactive: this._interactiveMode,
     }));
+    this.danmakuLayer.profiler = this.profiler;
 
     scene.add(this.bg);
     scene.add(this.danmakuLayer);
@@ -443,6 +447,7 @@ export class App {
   }
 
   frame(dt: number): void {
+    this.profiler.beginPhase('app.frame(js)');
     if (this.profiler.isRunning) {
       this.profiler.record(dt);
       // Refresh the card roughly every 30 frames so it reads as "recording".
@@ -491,7 +496,9 @@ export class App {
     }
 
     // 1. Update Particle Physics
+    this.profiler.beginPhase('particles.update');
     this._particlesActive = ParticleSystem.update(dt);
+    this.profiler.endPhase('particles.update');
 
     // 2. Interpolate Panel Slide Transition
     const targetPanelX = this.panelOpen ? this.stageW - PANEL_WIDTH : this.stageW;
@@ -522,11 +529,13 @@ export class App {
       this._frameVideo();
     }
 
+    this.profiler.beginPhase('scheduler.tick');
     this.scheduler.tick(dt, this.activePreset, {
       cursorX: this.pointerX,
       cursorY: this.pointerY,
       pointerActive: this.pointerActive,
     });
+    this.profiler.endPhase('scheduler.tick');
 
     if (this._interactiveMode && !this._dragSlot) {
       this._updateHover();
@@ -543,6 +552,7 @@ export class App {
         }
       }
     }
+    this.profiler.endPhase('app.frame(js)');
   }
 
   private _updateHover(): void {

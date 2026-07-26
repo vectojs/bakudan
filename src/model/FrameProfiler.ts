@@ -54,6 +54,12 @@ export interface FrameProfileReport {
   worstFramesMs: number[];
   /** Frame-time histogram: label → count. */
   histogram: Record<string, number>;
+  /**
+   * Per-phase medians in ms, for the phases the app chose to instrument via
+   * `mark()`. This is what localises the cost: a frame time alone cannot say
+   * whether the budget went to the cull walk, the draw batch, or the scheduler.
+   */
+  phasesMs: Record<string, { p50: number; p95: number; max: number }>;
 }
 
 const MAX_FRAMES = 4000;
@@ -61,6 +67,11 @@ const MAX_FRAMES = 4000;
 export class FrameProfiler {
   private samples = new Float64Array(MAX_FRAMES);
   private count = 0;
+  /** phase name → per-frame durations. Allocated lazily on first mark(). */
+  private phases = new Map<string, Float64Array>();
+  private phaseCount = new Map<string, number>();
+  /** Open phase start times, keyed by name. */
+  private open = new Map<string, number>();
   private startedAt = 0;
   private running = false;
 
@@ -76,8 +87,36 @@ export class FrameProfiler {
     return this.count;
   }
 
+  /** Begin timing a named phase for this frame. No-op when not recording. */
+  beginPhase(name: string): void {
+    if (!this.running) return;
+    this.open.set(name, performance.now());
+  }
+
+  /** End a named phase and record its duration. */
+  endPhase(name: string): void {
+    if (!this.running) return;
+    const t0 = this.open.get(name);
+    if (t0 === undefined) return;
+    this.open.delete(name);
+    let arr = this.phases.get(name);
+    if (!arr) {
+      arr = new Float64Array(MAX_FRAMES);
+      this.phases.set(name, arr);
+      this.phaseCount.set(name, 0);
+    }
+    const n = this.phaseCount.get(name) ?? 0;
+    if (n < MAX_FRAMES) {
+      arr[n] = performance.now() - t0;
+      this.phaseCount.set(name, n + 1);
+    }
+  }
+
   start(): void {
     this.count = 0;
+    this.phases.clear();
+    this.phaseCount.clear();
+    this.open.clear();
     this.startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
     this.running = true;
   }
@@ -166,7 +205,25 @@ export class FrameProfiler {
       overBudget: over === null ? null : { count: over, pct: round((over / n) * 100) },
       worstFramesMs: sorted.slice(-10).reverse().map(round),
       histogram,
+      phasesMs: this.summarisePhases(round),
     };
+  }
+
+  private summarisePhases(
+    round: (v: number) => number,
+  ): Record<string, { p50: number; p95: number; max: number }> {
+    const out: Record<string, { p50: number; p95: number; max: number }> = {};
+    for (const [name, arr] of this.phases) {
+      const n = this.phaseCount.get(name) ?? 0;
+      if (n < 10) continue;
+      const sorted = Array.from(arr.subarray(0, n)).sort((a, b) => a - b);
+      out[name] = {
+        p50: round(sorted[Math.floor(0.5 * n)]!),
+        p95: round(sorted[Math.floor(0.95 * n)]!),
+        max: round(sorted[n - 1]!),
+      };
+    }
+    return out;
   }
 
   /**

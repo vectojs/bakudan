@@ -1,4 +1,5 @@
 import { Entity, type IRenderer, type MSDFFont, TextRasterCache } from '@vectojs/core';
+import type { FrameProfiler } from '../model/FrameProfiler';
 import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
 import type { LoadedAtlas } from './MSDFAtlas';
 
@@ -187,7 +188,11 @@ export class DanmakuLayer extends Entity {
     return null;
   }
 
+  /** Optional profiler, injected by the app so this hot path can be localised. */
+  profiler?: FrameProfiler;
+
   render(renderer: IRenderer): void {
+    this.profiler?.beginPhase('layer.cullBucket');
     const { w: stageW, h: stageH, interactive } = this.getStage();
     const slots = this.pool.slots;
     const buckets = this._buckets;
@@ -222,6 +227,8 @@ export class DanmakuLayer extends Entity {
       const fs = fontSize | 0;
       (buckets[fs] || buckets[buckets.length - 1]).push(s);
     }
+    this.profiler?.endPhase('layer.cullBucket');
+    this.profiler?.beginPhase('layer.draw');
 
     // GL glyph batch layer (stacked WebGL canvas the Scene owns). When present
     // and the atlas is loaded, plain danmaku draw their glyphs through it — the
@@ -300,6 +307,7 @@ export class DanmakuLayer extends Entity {
     }
 
     if (curAlpha !== 1) renderer.setGlobalAlpha(1);
+    this.profiler?.endPhase('layer.draw');
   }
 
   private _renderSpecial(
