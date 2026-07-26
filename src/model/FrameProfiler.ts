@@ -34,6 +34,14 @@ export interface FrameProfileReport {
     targetCount: number | null;
     mode: string | null;
     glyphCacheHitPct: number | null;
+    /** Draw-path split for the last recorded frame (see DanmakuLayer.drawStats). */
+    drawPath?: {
+      glRuns: number;
+      glGlyphs: number;
+      c2dBlits: number;
+      c2dFillText: number;
+      special: number;
+    };
     heapUsedMB: number | null;
     userAgent: string;
   };

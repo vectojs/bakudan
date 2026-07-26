@@ -92,6 +92,7 @@ export class App {
     targetCount: this._profTargetCount,
     mode: this._profMode,
     glyphCacheHitPct: Math.round((this.hud?.data.measureTextHitRate ?? 100) * 10) / 10,
+    drawPath: this.danmakuLayer ? { ...this.danmakuLayer.drawStats } : undefined,
     heapUsedMB: this.hud?.data.heapUsedMB ?? null,
     userAgent: navigator.userAgent,
   }));

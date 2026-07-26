@@ -190,8 +190,20 @@ export class DanmakuLayer extends Entity {
 
   /** Optional profiler, injected by the app so this hot path can be localised. */
   profiler?: FrameProfiler;
+  /**
+   * Per-frame draw-path split, reset each render. `layer.draw` dominating the
+   * frame is only actionable once we know WHICH path it went down: the GL batch
+   * (one addGlyph per glyph, ~1 GPU draw call) or the Canvas2D fallback (one
+   * drawImage per danmaku, taken for emoji / out-of-atlas text).
+   */
+  readonly drawStats = { glRuns: 0, glGlyphs: 0, c2dBlits: 0, c2dFillText: 0, special: 0 };
 
   render(renderer: IRenderer): void {
+    this.drawStats.glRuns = 0;
+    this.drawStats.glGlyphs = 0;
+    this.drawStats.c2dBlits = 0;
+    this.drawStats.c2dFillText = 0;
+    this.drawStats.special = 0;
     this.profiler?.beginPhase('layer.cullBucket');
     const { w: stageW, h: stageH, interactive } = this.getStage();
     const slots = this.pool.slots;
@@ -221,6 +233,7 @@ export class DanmakuLayer extends Entity {
         eff.glow ||
         eff.gradient;
       if (isSpecial) {
+        this.drawStats.special++;
         (special ||= []).push(s);
         continue;
       }
@@ -267,6 +280,7 @@ export class DanmakuLayer extends Entity {
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
         if (glr && !s.userSent && this._isGLSafe(s.params.text)) {
           // GPU path: push this run's glyph quads to the batch.
+          this.drawStats.glRuns++;
           const run = this._glyphRun(s.params.text, fs);
           const color = s.params.color;
           const alpha = s.params.opacity;
@@ -274,6 +288,7 @@ export class DanmakuLayer extends Entity {
           for (let q = 0; q < quads.length; q++) {
             const g = quads[q];
             glr.addGlyph(rx + g.x, ry + g.y, g.w, g.h, g.u0, g.v0, g.u1, g.v1, color, alpha);
+            this.drawStats.glGlyphs++;
           }
         } else {
           // Canvas2D fallback (emoji / out-of-atlas glyphs, or no WebGL).
@@ -283,8 +298,10 @@ export class DanmakuLayer extends Entity {
           }
           const r = this._rasterCache.get(font, s.params.color, s.params.text);
           if (r) {
+            this.drawStats.c2dBlits++;
             renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
           } else {
+            this.drawStats.c2dFillText++;
             renderer.fillText(s.params.text, rx, textY, font, s.params.color);
           }
         }
