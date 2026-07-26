@@ -197,6 +197,19 @@ export class App {
       interactive: this._interactiveMode,
     }));
     this.danmakuLayer.profiler = this.profiler;
+    // Wrap the GL renderer's flush() so the GPU submit is timed separately from
+    // the JS batching loop. Scene calls flush() once per render pass, after every
+    // node has pushed its quads — so this isolates drawArrays + buffer upload.
+    const pr = (this.scene as unknown as { pointRenderer?: { flush: () => void } }).pointRenderer;
+    if (pr && !(pr as { __profWrapped?: boolean }).__profWrapped) {
+      const orig = pr.flush.bind(pr);
+      pr.flush = () => {
+        this.profiler.beginPhase('gpu.flush');
+        orig();
+        this.profiler.endPhase('gpu.flush');
+      };
+      (pr as { __profWrapped?: boolean }).__profWrapped = true;
+    }
 
     scene.add(this.bg);
     scene.add(this.danmakuLayer);

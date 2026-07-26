@@ -242,6 +242,7 @@ export class DanmakuLayer extends Entity {
     }
     this.profiler?.endPhase('layer.cullBucket');
     this.profiler?.beginPhase('layer.draw');
+    this.profiler?.beginPhase('draw.jsBatch');
 
     // GL glyph batch layer (stacked WebGL canvas the Scene owns). When present
     // and the atlas is loaded, plain danmaku draw their glyphs through it — the
@@ -324,6 +325,11 @@ export class DanmakuLayer extends Entity {
     }
 
     if (curAlpha !== 1) renderer.setGlobalAlpha(1);
+    // Ends here rather than at the GPU submit: everything above is JS work
+    // (glyph-run lookup + addGlyph pushes into the vertex buffer). The actual
+    // drawArrays happens later in the renderer's flush/present, so a large
+    // jsBatch vs a small one tells us whether 218ns/glyph is our loop or the GPU.
+    this.profiler?.endPhase('draw.jsBatch');
     this.profiler?.endPhase('layer.draw');
   }
 
