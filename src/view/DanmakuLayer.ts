@@ -74,6 +74,19 @@ function charWidth(ch: string, fontSize: number): number {
 
 export type ActionKind = 'like' | 'copy';
 
+const FONT_STRINGS = Array.from(
+  { length: 64 },
+  (_, fs) => `400 ${fs}px system-ui, -apple-system, sans-serif`,
+);
+
+interface SlotCache {
+  lastText?: string;
+  lastFS?: number;
+  glRun?: GlyphRun;
+  glSafe?: boolean;
+  isSpecial?: boolean;
+}
+
 /**
  * A single scene node that batch-paints the ENTIRE danmaku stress pool.
  *
@@ -88,6 +101,16 @@ export type ActionKind = 'like' | 'copy';
 export class DanmakuLayer extends Entity {
   /** Font-size buckets: index = fontSize, value = list of slots to draw. */
   private _buckets: PoolSlot[][] = [];
+  private _slotCaches = new WeakMap<PoolSlot, SlotCache>();
+
+  private _getSlotCache(s: PoolSlot): SlotCache {
+    let c = this._slotCaches.get(s);
+    if (!c) {
+      c = {};
+      this._slotCaches.set(s, c);
+    }
+    return c;
+  }
 
   // --- WebGL/MSDF text path (set once the atlas loads; null → Canvas2D) ---
   private _font: MSDFFont | null = null;
@@ -224,15 +247,18 @@ export class DanmakuLayer extends Entity {
       if (s.x > stageW || s.x + s.width < 0 || s.y > stageH || s.y + fontSize * 1.5 < 0) {
         continue;
       }
-      const eff = s.params.effects;
-      const isSpecial =
-        s.params.preset === 'glitch' ||
-        s.params.preset === 'rotation' ||
-        eff.rainbow ||
-        eff.outline ||
-        eff.glow ||
-        eff.gradient;
-      if (isSpecial) {
+      const cache = this._getSlotCache(s);
+      if (cache.isSpecial === undefined || cache.lastText !== s.params.text) {
+        const eff = s.params.effects;
+        cache.isSpecial =
+          s.params.preset === 'glitch' ||
+          s.params.preset === 'rotation' ||
+          eff.rainbow ||
+          eff.outline ||
+          eff.glow ||
+          eff.gradient;
+      }
+      if (cache.isSpecial) {
         this.drawStats.special++;
         (special ||= []).push(s);
         continue;
@@ -260,11 +286,11 @@ export class DanmakuLayer extends Entity {
     for (let fs = 0; fs < buckets.length; fs++) {
       const bucket = buckets[fs];
       if (bucket.length === 0) continue;
-      const font = `400 ${fs}px system-ui, -apple-system, sans-serif`;
+      const font = FONT_STRINGS[fs] || FONT_STRINGS[63];
       for (let j = 0; j < bucket.length; j++) {
         const s = bucket[j];
-        const rx = Math.round(s.x);
-        const ry = Math.round(s.y);
+        const rx = (s.x + 0.5) | 0;
+        const ry = (s.y + 0.5) | 0;
         const textY = ry + fs * 0.8;
         // Interaction chrome (user-sent box) stays on Canvas2D, behind glyphs.
         if (s.userSent && s.width > 0) {
@@ -275,14 +301,25 @@ export class DanmakuLayer extends Entity {
           this._drawUserBox(renderer, rx, ry, s.width, fs);
         }
 
+        const cache = this._getSlotCache(s);
+        if (cache.glSafe === undefined || cache.lastText !== s.params.text) {
+          cache.glSafe = this._isGLSafe(s.params.text);
+          cache.lastText = s.params.text;
+          cache.glRun = undefined;
+        }
+
         // User-sent danmaku keep their highlight box + text together on the 2D
         // canvas (z2) so the box stays behind the glyphs; the GL glyph layer is
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
-        if (glr && !s.userSent && this._isGLSafe(s.params.text)) {
+        if (glr && !s.userSent && cache.glSafe) {
           // GPU path: push this run's glyph quads to the batch.
           this.drawStats.glRuns++;
-          const run = this._glyphRun(s.params.text, fs);
+          if (!cache.glRun || cache.lastFS !== fs) {
+            cache.glRun = this._glyphRun(s.params.text, fs);
+            cache.lastFS = fs;
+          }
+          const run = cache.glRun!;
           const color = s.params.color;
           const alpha = s.params.opacity;
           const quads = run.quads;
