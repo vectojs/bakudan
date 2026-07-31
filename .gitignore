@@ -10,3 +10,5 @@ tmp/
 .wrangler/
 .superpowers/
 
+.carryctx/config.local.toml
+.worktrees/
