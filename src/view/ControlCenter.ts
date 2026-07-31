@@ -63,8 +63,8 @@ class SettingsCard extends Stack {
     this.padding = 16;
 
     const header = new Text(title.toUpperCase(), {
-      font: '600 10px monospace',
-      color: '#ff7e5f',
+      font: "700 10px 'Outfit', 'Inter', sans-serif",
+      color: '#ea580c',
     });
     this.add(header);
   }
@@ -72,11 +72,11 @@ class SettingsCard extends Stack {
   override render(renderer: IRenderer): void {
     renderer.save();
     renderer.beginPath();
-    renderer.roundRect(0, 0, this.width, this.height, 8);
+    renderer.roundRect(0, 0, this.width, this.height, 10);
     // Near-opaque card so controls read as a clean surface, not text floating
     // over the danmaku bleeding through from the layer behind the panel.
-    renderer.fill('rgba(252, 250, 249, 0.96)');
-    renderer.stroke('rgba(255, 126, 95, 0.25)', 1);
+    renderer.fill('rgba(255, 255, 255, 0.96)');
+    renderer.stroke('rgba(255, 126, 95, 0.2)', 1);
     renderer.restore();
     super.render(renderer);
   }
@@ -92,7 +92,7 @@ class SettingsCard extends Stack {
 function labeledField(label: string, control: Text | Dropdown | Slider, width: number): Stack {
   const group = new Stack({ direction: 'vertical', gap: 6 });
   group.width = width;
-  const caption = new Text(label, { font: '600 10px sans-serif', color: '#8a7d76' });
+  const caption = new Text(label, { font: "600 11px 'Inter', sans-serif", color: '#71625a' });
   group.add(caption);
   group.add(control);
   return group;
@@ -130,8 +130,8 @@ export class ControlCenter extends ScrollView {
     headerStack.height = 24;
 
     const titleText = new Text(t('settings.title', lang), {
-      font: '700 11px monospace',
-      color: '#453c38',
+      font: "700 12px 'Outfit', 'Inter', sans-serif",
+      color: '#332a26',
     });
     titleText.width = innerW - 32;
     headerStack.add(titleText);

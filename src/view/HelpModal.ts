@@ -18,17 +18,17 @@ export class HelpModal extends UIComponent {
     this.card = new Card({
       width: modalW,
       height: modalH,
-      bg: 'rgba(255, 255, 255, 0.95)',
-      border: 'rgba(255, 126, 95, 0.2)',
-      radius: 12,
+      bg: 'rgba(255, 255, 255, 0.96)',
+      border: 'rgba(255, 126, 95, 0.25)',
+      radius: 14,
     });
 
     this.card.x = (this.width - modalW) / 2;
     this.card.y = (this.height - modalH) / 2;
 
     const titleText = new Text(t('help.title', lang), {
-      font: '700 18px sans-serif',
-      color: '#453c38',
+      font: "700 18px 'Outfit', 'Inter', sans-serif",
+      color: '#332a26',
     });
     this.card.add(titleText.setPosition(24, 24));
 
@@ -65,10 +65,13 @@ export class HelpModal extends UIComponent {
     ];
 
     for (const item of helpItems) {
-      const itemTitle = new Text(item.title, { font: '600 14px sans-serif', color: '#ff7e5f' });
+      const itemTitle = new Text(item.title, {
+        font: "600 14px 'Outfit', 'Inter', sans-serif",
+        color: '#ea580c',
+      });
       const itemDesc = new Text(item.desc, {
-        font: '400 13px sans-serif',
-        color: '#453c38',
+        font: "400 13px 'Inter', sans-serif",
+        color: '#4b3d36',
         maxWidth: modalW - 64,
       });
       stack.add(itemTitle);
