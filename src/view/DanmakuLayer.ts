@@ -153,16 +153,19 @@ export class DanmakuLayer extends Entity {
     this._font = atlas.font;
     this._texture = atlas.texture;
     this._distanceRange = atlas.font.distanceRange;
+    this._glSafe.clear();
+    this._runCache.clear();
   }
 
   /** Is `text` fully representable by the MSDF atlas (no emoji, all glyphs present)? */
   private _isGLSafe(text: string): boolean {
+    if (!this._font) return false;
     const hit = this._glSafe.get(text);
     if (hit !== undefined) return hit;
     let safe = true;
     for (const ch of text) {
       const cp = ch.codePointAt(0)!;
-      if (emojiRe.test(ch) || !this._font!.getGlyph(cp)) {
+      if (emojiRe.test(ch) || !this._font.getGlyph(cp)) {
         safe = false;
         break;
       }
@@ -302,7 +305,7 @@ export class DanmakuLayer extends Entity {
         }
 
         const cache = this._getSlotCache(s);
-        if (cache.glSafe === undefined || cache.lastText !== s.params.text) {
+        if (glr && this._font && (cache.glSafe === undefined || cache.lastText !== s.params.text)) {
           cache.glSafe = this._isGLSafe(s.params.text);
           cache.lastText = s.params.text;
           cache.glRun = undefined;
@@ -312,7 +315,7 @@ export class DanmakuLayer extends Entity {
         // canvas (z2) so the box stays behind the glyphs; the GL glyph layer is
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
-        if (glr && !s.userSent && cache.glSafe) {
+        if (glr && this._font && !s.userSent && cache.glSafe) {
           // GPU path: push this run's glyph quads to the batch.
           this.drawStats.glRuns++;
           if (!cache.glRun || cache.lastFS !== fs) {
