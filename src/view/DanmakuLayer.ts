@@ -249,7 +249,7 @@ export class DanmakuLayer extends Entity {
     // whole frame's glyphs batch into ~1 GPU draw call, which is the only way
     // past the Canvas2D per-glyph draw + overdraw fill-rate wall at 5,000.
     const gl = this._font
-      ? (this.scene as unknown as { pointRenderer?: GLPointRenderer } | null)
+      ? (this.scene as (Entity['scene'] & { pointRenderer?: GLPointRenderer }) | null)
       : null;
     const glr = gl?.pointRenderer ?? null;
     if (glr && this._texture) glr.setMSDFTexture(this._texture, this._distanceRange);

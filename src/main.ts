@@ -1,10 +1,13 @@
 import { Scene } from '@vectojs/core';
 import { attachDevtools } from '@vectojs/devtools';
 import { App } from './view/App';
-import { patchDropdownTheme } from './view/DropdownPatch';
+declare global {
+  interface Window {
+    __app?: App;
+  }
+}
 
 function main(): void {
-  patchDropdownTheme();
   const canvas = document.getElementById('bakudan-canvas') as HTMLCanvasElement | null;
   if (!canvas) return;
 
@@ -35,7 +38,7 @@ function main(): void {
   // Forge devtools hook
   if (window.location.search.includes('debug')) {
     attachDevtools(scene);
-    (window as any).__app = app;
+    window.__app = app;
   }
 
   function resize(): void {

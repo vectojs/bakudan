@@ -79,7 +79,7 @@ export class PlayerControls extends Stack {
       radius: 6,
     });
     rateDropdown.width = 64;
-    (rateDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    (rateDropdown as unknown as { button: Button }).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
     rateDropdown.on('change', (e: any) => callbacks.onRateChange(RATE_MAP[e.value]));
     this.add(rateDropdown);
   }

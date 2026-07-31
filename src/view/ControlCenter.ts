@@ -3,6 +3,10 @@ import type { IRenderer } from '@vectojs/core';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { t, PRESET_TRANSLATIONS, type Language } from '../model/i18n';
 
+function setDropdownHoverBg(dropdown: Dropdown, hoverBg: string): void {
+  (dropdown as unknown as { button: Button }).button.hoverBg = hoverBg;
+}
+
 export interface ControlCenterCallbacks {
   onPresetChange: (preset: PresetId) => void;
   onStressCountChange: (count: number) => void;
@@ -159,7 +163,7 @@ export class ControlCenter extends ScrollView {
       radius: 6,
     });
     modeDropdown.width = cardContentW;
-    (modeDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    setDropdownHoverBg(modeDropdown, 'rgba(255, 126, 95, 0.1)');
     modeDropdown.on('change', (e: any) => callbacks.onAppModeChange(appModeMap[e.value]));
     sysCard.add(labeledField(t('field.mode', lang), modeDropdown, cardContentW));
 
@@ -176,7 +180,7 @@ export class ControlCenter extends ScrollView {
       radius: 6,
     });
     bgDropdown.width = cardContentW;
-    (bgDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    setDropdownHoverBg(bgDropdown, 'rgba(255, 126, 95, 0.1)');
     bgDropdown.on('change', (e: any) => callbacks.onBgModeChange(bgMap[e.value]));
     sysCard.add(labeledField(t('field.bg', lang), bgDropdown, cardContentW));
 
@@ -197,7 +201,7 @@ export class ControlCenter extends ScrollView {
       radius: 6,
     });
     videoDropdown.width = cardContentW;
-    (videoDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    setDropdownHoverBg(videoDropdown, 'rgba(255, 126, 95, 0.1)');
     videoDropdown.on('change', (e: any) => callbacks.onVideoSourceChange(videoMap[e.value]));
     sysCard.add(labeledField(t('field.video', lang), videoDropdown, cardContentW));
 
@@ -284,7 +288,7 @@ export class ControlCenter extends ScrollView {
       radius: 6,
     });
     presetDropdown.width = cardContentW;
-    (presetDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    setDropdownHoverBg(presetDropdown, 'rgba(255, 126, 95, 0.1)');
     presetDropdown.on('change', (e: any) => callbacks.onPresetChange(presetMap[e.value]));
     presetCard.add(presetDropdown);
 
@@ -353,7 +357,7 @@ export class ControlCenter extends ScrollView {
       radius: 6,
     });
     langDropdown.width = cardContentW;
-    (langDropdown as any).button.hoverBg = 'rgba(255, 126, 95, 0.1)';
+    setDropdownHoverBg(langDropdown, 'rgba(255, 126, 95, 0.1)');
     langDropdown.on('change', (e: any) => callbacks.onLanguageChange(langMap[e.value]));
     langCard.add(langDropdown);
     this.stack.add(langCard);
