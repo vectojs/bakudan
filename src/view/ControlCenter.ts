@@ -1,7 +1,9 @@
 import { Stack, Button, Slider, Dropdown, Checkbox, Text, ScrollView } from '@vectojs/ui';
 import type { IRenderer } from '@vectojs/core';
-import type { PresetId, CharacterEffects } from '../model/types';
-import { t, PRESET_TRANSLATIONS, type Language } from '../model/i18n';
+import type { CharacterEffects, PresetId } from '../model/types';
+import type { VideoCatalogEntry } from '../model/VideoCatalog';
+import type { TrackProfile } from '../model/ProfiledTrack';
+import { PRESET_TRANSLATIONS, t, type Language } from '../model/i18n';
 
 function setDropdownHoverBg(dropdown: Dropdown, hoverBg: string): void {
   (dropdown as unknown as { button: Button }).button.hoverBg = hoverBg;
@@ -14,7 +16,8 @@ export interface ControlCenterCallbacks {
   onEffectToggle: (effect: keyof CharacterEffects) => void;
   onToggleShowcase: (preset: 'physics' | 'jelly', enabled: boolean) => void;
   onBgModeChange: (mode: 'none' | 'ambient' | 'video') => void;
-  onVideoSourceChange: (url: string) => void;
+  onVideoSourceChange: (videoId: string) => void;
+  onTrackProfileChange: (profileId: string) => void;
   onPresetParamChange: (key: string, value: number) => void;
   onFpsCapChange: (fps: number) => void;
   onAppModeChange: (mode: 'stress' | 'video') => void;
@@ -23,27 +26,6 @@ export interface ControlCenterCallbacks {
   /** Start/stop the frame profiler; returns a status line to show in the card. */
   onToggleProfiler: () => string;
 }
-
-export interface VideoSourceEntry {
-  label: string;
-  url: string;
-}
-
-export const VIDEO_SOURCES: VideoSourceEntry[] = [
-  { label: 'Demo Loop (15s Local)', url: '/video/demo-clip.mp4' },
-  {
-    label: 'Big Buck Bunny (10m Stream)',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-  },
-  {
-    label: 'Sintel Trailer (8m Stream)',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-  },
-  {
-    label: 'Tears of Steel (12m Stream)',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-  },
-];
 
 class SettingsCard extends Stack {
   private _cardWidth: number;
@@ -112,7 +94,10 @@ export class ControlCenter extends ScrollView {
     width: number,
     height: number,
     lang: Language,
-    currentVideoUrl: string,
+    videoCatalog: readonly VideoCatalogEntry[],
+    currentVideoId: string,
+    trackProfiles: ReadonlyMap<string, TrackProfile>,
+    currentTrackProfileId: string,
     callbacks: ControlCenterCallbacks,
   ) {
     super({ width, height });
@@ -184,26 +169,45 @@ export class ControlCenter extends ScrollView {
     bgDropdown.on('change', (e: any) => callbacks.onBgModeChange(bgMap[e.value]));
     sysCard.add(labeledField(t('field.bg', lang), bgDropdown, cardContentW));
 
-    // Video Source Dropdown
-    const videoLabels = VIDEO_SOURCES.map((v) => v.label);
-    const videoMap = VIDEO_SOURCES.reduce(
-      (acc, v) => {
-        acc[v.label] = v.url;
-        return acc;
-      },
-      {} as Record<string, string>,
-    );
-    const initialVideo = VIDEO_SOURCES.find((v) => v.url === currentVideoUrl) || VIDEO_SOURCES[0]!;
+    const videoLabels = videoCatalog.map((entry) => entry.title);
+    const videoIdByLabel = Object.fromEntries(
+      videoCatalog.map((entry) => [entry.title, entry.id]),
+    ) as Record<string, string>;
+    const initialVideo =
+      videoCatalog.find((entry) => entry.id === currentVideoId) ?? videoCatalog[0]!;
     const videoDropdown = new Dropdown(videoLabels, {
-      value: initialVideo.label,
+      value: initialVideo.title,
+      label: t('field.video', lang),
       bg: 'rgba(255, 255, 255, 0.95)',
       color: '#453c38',
       radius: 6,
     });
     videoDropdown.width = cardContentW;
     setDropdownHoverBg(videoDropdown, 'rgba(255, 126, 95, 0.1)');
-    videoDropdown.on('change', (e: any) => callbacks.onVideoSourceChange(videoMap[e.value]));
+    videoDropdown.on('change', (event: { value: string }) =>
+      callbacks.onVideoSourceChange(videoIdByLabel[event.value]!),
+    );
     sysCard.add(labeledField(t('field.video', lang), videoDropdown, cardContentW));
+
+    const profiles = [...trackProfiles.values()];
+    const profileLabels = profiles.map((profile) => profile.label);
+    const profileIdByLabel = Object.fromEntries(
+      profiles.map((profile) => [profile.label, profile.id]),
+    ) as Record<string, string>;
+    const initialProfile = trackProfiles.get(currentTrackProfileId) ?? profiles[0]!;
+    const profileDropdown = new Dropdown(profileLabels, {
+      value: initialProfile.label,
+      label: t('field.trackProfile', lang),
+      bg: 'rgba(255, 255, 255, 0.95)',
+      color: '#453c38',
+      radius: 6,
+    });
+    profileDropdown.width = cardContentW;
+    setDropdownHoverBg(profileDropdown, 'rgba(255, 126, 95, 0.1)');
+    profileDropdown.on('change', (event: { value: string }) =>
+      callbacks.onTrackProfileChange(profileIdByLabel[event.value]!),
+    );
+    sysCard.add(labeledField(t('field.trackProfile', lang), profileDropdown, cardContentW));
 
     this.stack.add(sysCard);
 

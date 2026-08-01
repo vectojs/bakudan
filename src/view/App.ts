@@ -1,10 +1,18 @@
 import { Scene, Entity, type IRenderer } from '@vectojs/core';
 import { DanmakuPool, Scheduler, DanmakuTrack } from '@vectojs/danmaku-core';
 import { detectBrowserLanguage, type Language, t } from '../model/i18n';
-import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
+import { generateLargeTimedTrack } from '../model/demoTimedTrack';
+import { saveUserDanmaku } from '../model/UserDanmakuStore';
+import {
+  DEFAULT_VIDEO_ID,
+  VIDEO_CATALOG,
+  resolveVideoSelection,
+  videoById,
+} from '../model/VideoCatalog';
+import { TRACK_PROFILES, type ProfiledTrackResult } from '../model/TrackProfiles';
 import { ContentLibrary } from '../model/ContentLibrary';
 import type { PresetId, CharacterEffects } from '../model/types';
-import { StageBackground } from './StageBackground';
+import { StageBackground, VideoLoadError } from './StageBackground';
 import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { PoolSlot } from '../model/types';
@@ -104,15 +112,18 @@ export class App {
 
   private mode: AppMode = 'stress';
   private danmakuTrack!: DanmakuTrack;
+  private profiledTrack!: ProfiledTrackResult;
   private videoLoading = false;
   private videoLoadFailed = false;
+  private _videoRequestId = 0;
   private _stressTargetBeforeVideo = 500;
   showcasePhysics = false;
   showcaseJelly = false;
 
-  // Language & Video tracking state
+  // Language and stable video/profile identity.
   currentLang: Language;
-  currentVideoUrl = '/video/demo-clip.mp4';
+  currentVideoId = DEFAULT_VIDEO_ID;
+  currentTrackProfileId = videoById(DEFAULT_VIDEO_ID)!.defaultTrackProfileId;
 
   // Sliding panel animation X coordinate
   private _panelX = 0;
@@ -183,9 +194,9 @@ export class App {
     this.announcer = new DanmakuAnnouncer();
     this._stressTargetBeforeVideo = isMobileInit ? 200 : 500;
 
-    // Default 15s track generator
-    const initialTrack = generateLargeTimedTrack(15);
-    this.danmakuTrack = new DanmakuTrack(initialTrack);
+    const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
+    this.profiledTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
+    this.danmakuTrack = new DanmakuTrack(this.profiledTrack.entries);
 
     // Initial build of UI controls
     this._buildUI();
@@ -249,7 +260,10 @@ export class App {
       PANEL_WIDTH,
       this.stageH || 600,
       this.currentLang,
-      this.currentVideoUrl,
+      VIDEO_CATALOG,
+      this.currentVideoId,
+      TRACK_PROFILES,
+      this.currentTrackProfileId,
       {
         onPresetChange: (p) => {
           this.activePreset = p;
@@ -285,7 +299,8 @@ export class App {
             this.bg.stopVideo();
           }
         },
-        onVideoSourceChange: (url) => this._onVideoSourceChange(url),
+        onVideoSourceChange: (videoId) => this._onVideoSourceChange(videoId),
+        onTrackProfileChange: (profileId) => this._onTrackProfileChange(profileId),
         onPresetParamChange: () => {},
         onFpsCapChange: (fps) => {
           this.scene.maxFPS = fps;
@@ -327,35 +342,70 @@ export class App {
     }
   }
 
-  private _onVideoSourceChange(url: string): void {
-    if (this.currentVideoUrl === url) return;
-    this.currentVideoUrl = url;
+  private _onVideoSourceChange(videoId: string): void {
+    if (this.currentVideoId === videoId) return;
+    const selection = resolveVideoSelection({ kind: 'catalog', id: videoId });
+    const profile = TRACK_PROFILES.get(selection.defaultTrackProfileId);
+    if (!profile) throw new Error(`Unknown track profile id: ${selection.defaultTrackProfileId}`);
+
+    const requestId = ++this._videoRequestId;
     this.videoLoading = true;
-    this.bg.stopVideo();
-
+    this.videoLoadFailed = false;
     this.bg
-      .setVideo(url)
+      .setVideo(selection.source.url)
       .then(() => {
+        if (requestId !== this._videoRequestId) return;
         this.videoLoading = false;
-        const duration = this.bg.duration || 15;
-
-        // Dynamic timed track & density map
-        const trackData = generateLargeTimedTrack(duration);
-        this.danmakuTrack = new DanmakuTrack(trackData);
-
+        this.videoLoadFailed = false;
+        this.currentVideoId = selection.id;
+        this.currentTrackProfileId = profile.id;
+        const duration = this.bg.duration || selection.durationHint;
+        this._installVideoTrack(duration, selection.id, profile.id);
         this.playerControls.setPlaybackState(0, duration, true);
-        this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
-
         this.bg.onEnded(() => {
           this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
         });
         this.scene.markDirty();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (requestId !== this._videoRequestId) return;
         this.videoLoading = false;
-        this.videoLoadFailed = true;
-        this.announcer.setSummary('Video failed to load.');
+        this.videoLoadFailed = !this.bg.isVideoReady;
+        this._announceVideoError(error);
       });
+  }
+
+  private _onTrackProfileChange(profileId: string): void {
+    const profile = TRACK_PROFILES.get(profileId);
+    if (!profile || profileId === this.currentTrackProfileId) return;
+    this.currentTrackProfileId = profileId;
+    if (this.bg.isVideoReady) {
+      const currentTime = this.bg.currentTime;
+      this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
+      this.danmakuTrack.seek(currentTime);
+    }
+    this.scene.markDirty();
+  }
+
+  private _installVideoTrack(duration: number, videoId: string, profileId: string): void {
+    const profile = TRACK_PROFILES.get(profileId);
+    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
+    this.profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
+    this.danmakuTrack = new DanmakuTrack(this.profiledTrack.entries);
+    this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
+  }
+
+  private _announceVideoError(error: unknown): void {
+    const code = error instanceof VideoLoadError ? error.code : 'media-error';
+    const key =
+      code === 'network-error'
+        ? 'video.error.network'
+        : code === 'metadata-error'
+          ? 'video.error.metadata'
+          : code === 'playback-rejected'
+            ? 'video.error.playback'
+            : 'video.error.media';
+    this.announcer.setSummary(t(key, this.currentLang));
   }
 
   private _changeLanguage(lang: Language): void {
@@ -609,29 +659,28 @@ export class App {
       this.danmakuTrack.reset();
       this.videoLoadFailed = false;
       if (!this.videoLoading && !this.bg.isVideoReady) {
+        const selection = resolveVideoSelection({ kind: 'catalog', id: this.currentVideoId });
+        const requestId = ++this._videoRequestId;
         this.videoLoading = true;
         this.bg
-          .setVideo(this.currentVideoUrl)
+          .setVideo(selection.source.url)
           .then(() => {
+            if (requestId !== this._videoRequestId) return;
             this.videoLoading = false;
-            const duration = this.bg.duration || 15;
-
-            // Generate localized timely track
-            const trackData = generateLargeTimedTrack(duration);
-            this.danmakuTrack = new DanmakuTrack(trackData);
-
+            this.videoLoadFailed = false;
+            const duration = this.bg.duration || selection.durationHint;
+            this._installVideoTrack(duration, this.currentVideoId, this.currentTrackProfileId);
             this.playerControls.setPlaybackState(0, duration, true);
-            this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
-
             this.bg.onEnded(() => {
               this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
             });
             this.scene.markDirty();
           })
-          .catch(() => {
+          .catch((error: unknown) => {
+            if (requestId !== this._videoRequestId) return;
             this.videoLoading = false;
             this.videoLoadFailed = true;
-            this.announcer.setSummary('Video failed to load.');
+            this._announceVideoError(error);
             this.bg.mode = 'ambient';
           });
       }
@@ -661,7 +710,7 @@ export class App {
         opacity: 0.9,
         preset: entry.preset ?? 'scroll',
         presetParams: {},
-        effects: { ...this.effects },
+        effects: entry.effects ?? { ...this.effects },
       });
     }
     this.playerControls.setPlaybackState(t, this.bg.duration, this.bg.paused);
@@ -669,7 +718,7 @@ export class App {
 
   private _togglePlayback(): void {
     if (this.bg.paused) {
-      this.bg.play().catch(() => {});
+      this.bg.play().catch((error: unknown) => this._announceVideoError(error));
     } else {
       this.bg.pause();
     }
@@ -700,12 +749,10 @@ export class App {
     this.scheduler.userSpawn(entry, true);
 
     if (this.mode === 'video') {
-      saveUserDanmaku(entry);
+      saveUserDanmaku(this.currentVideoId, entry);
       const duration = this.bg.duration || 15;
-      const trackData = generateLargeTimedTrack(duration);
-      this.danmakuTrack = new DanmakuTrack(trackData);
+      this._installVideoTrack(duration, this.currentVideoId, this.currentTrackProfileId);
       this.danmakuTrack.seek(this.bg.currentTime);
-      this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
     }
   }
 

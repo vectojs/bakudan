@@ -25,6 +25,14 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'field.mode': 'Mode',
     'field.bg': 'Background',
     'field.video': 'Video Source',
+    'field.trackProfile': 'Track Profile',
+    'field.customVideoUrl': 'Custom Video URL',
+    'action.retry': 'Retry',
+    'action.chooseAnotherSource': 'Choose another source',
+    'video.error.network': 'The video could not be downloaded.',
+    'video.error.media': 'The video format or codec is not supported.',
+    'video.error.metadata': 'The video metadata is missing or invalid.',
+    'video.error.playback': 'The browser rejected video playback.',
 
     'fps.max': 'Max (uncapped)',
 
@@ -84,6 +92,14 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'field.mode': '运行模式',
     'field.bg': '背景样式',
     'field.video': '视频源',
+    'field.trackProfile': '弹幕轨道方案',
+    'field.customVideoUrl': '自定义视频 URL',
+    'action.retry': '重试',
+    'action.chooseAnotherSource': '选择其他视频源',
+    'video.error.network': '无法下载视频。',
+    'video.error.media': '不支持此视频格式或编解码器。',
+    'video.error.metadata': '视频元数据缺失或无效。',
+    'video.error.playback': '浏览器拒绝播放视频。',
 
     'fps.max': '最大 (无限制)',
 
@@ -143,6 +159,14 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'field.mode': '運行模式',
     'field.bg': '背景樣式',
     'field.video': '視頻源',
+    'field.trackProfile': '彈幕軌道方案',
+    'field.customVideoUrl': '自訂影片 URL',
+    'action.retry': '重試',
+    'action.chooseAnotherSource': '選擇其他影片來源',
+    'video.error.network': '無法下載影片。',
+    'video.error.media': '不支援此影片格式或編解碼器。',
+    'video.error.metadata': '影片中繼資料缺失或無效。',
+    'video.error.playback': '瀏覽器拒絕播放影片。',
 
     'fps.max': '最大 (無限制)',
 
@@ -202,6 +226,14 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'field.mode': 'モード',
     'field.bg': '背景',
     'field.video': 'ビデオソース',
+    'field.trackProfile': '弾幕トラックプロファイル',
+    'field.customVideoUrl': 'カスタム動画 URL',
+    'action.retry': '再試行',
+    'action.chooseAnotherSource': '別のソースを選択',
+    'video.error.network': '動画をダウンロードできませんでした。',
+    'video.error.media': '動画形式またはコーデックに対応していません。',
+    'video.error.metadata': '動画のメタデータがないか無効です。',
+    'video.error.playback': 'ブラウザーが動画の再生を拒否しました。',
 
     'fps.max': '最大 (制限なし)',
 
@@ -261,6 +293,14 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'field.mode': '모드',
     'field.bg': '배경',
     'field.video': '비디오 소스',
+    'field.trackProfile': '단막 트랙 프로필',
+    'field.customVideoUrl': '사용자 지정 비디오 URL',
+    'action.retry': '다시 시도',
+    'action.chooseAnotherSource': '다른 소스 선택',
+    'video.error.network': '비디오를 다운로드할 수 없습니다.',
+    'video.error.media': '지원되지 않는 비디오 형식 또는 코덱입니다.',
+    'video.error.metadata': '비디오 메타데이터가 없거나 잘못되었습니다.',
+    'video.error.playback': '브라우저가 비디오 재생을 거부했습니다.',
 
     'fps.max': '최대 (제한 없음)',
 

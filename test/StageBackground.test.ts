@@ -3,8 +3,8 @@ import { StageBackground, VideoLoadError } from '../src/view/StageBackground';
 
 interface ControlledVideo {
   element: HTMLVideoElement;
-  pause: ReturnType<typeof mock>;
-  load: ReturnType<typeof mock>;
+  pause: () => void;
+  load: () => void;
 }
 
 function controlledVideo(duration = 15): ControlledVideo {
