@@ -226,9 +226,9 @@ Render the deck with `THEME.inkRaised`, a 1 px `THEME.line` border, coral Send a
 `setCompact(compact: boolean)` switches without reconstructing controls:
 
 - Desktop: width 760, height 56, one row.
-- Mobile: width supplied by App, height 106, comment row at y=8 and playback row at y=57.
-- Input gets remaining width after fixed Send/Lab actions; minimum 156 px.
-- At widths below 360, rate moves to the second row but keeps a minimum 64 px hit area.
+- Mobile: width supplied by App, height 106, playback row at y=8 and comment row at y=57.
+- Input gets the comment row's remaining width after Send; minimum 156 px. Lab stays in the playback row.
+- At widths below 360, elide the visual elapsed-time text before shrinking rate below its 64 px minimum; the complete playback state remains in the accessibility projection.
 
 Use explicit numeric assignments; do not rely on CSS or `window` reads inside the component.
 
@@ -288,9 +288,9 @@ Use `Tabs.onChange` for state updates and `Tabs.selectTab` for programmatic sele
 
 - [ ] **Step 4: Implement desktop/mobile geometry**
 
-- Desktop: width 420, x = viewport width − width − 16, y = 54, bottom = Command Deck y − 12.
-- Mobile: x = 8, width = viewport width − 16, y = 60, bottom = Command Deck y − 8.
-- Never let height fall below 180; if the viewport is smaller, the content scrolls rather than escaping the drawer.
+- Desktop: x = 16, width = viewport width − 32, height ≈ 46% of the viewport, and bottom = Command Deck y − 12.
+- Mobile: x = 8, width = viewport width − 16, height ≈ 69% of the viewport, and bottom = Command Deck y − 8.
+- Clamp height to the available region below the status bar. Use a 180 px minimum only when at least 180 px is available; otherwise use the full available region and let the panel's single `ScrollView` own overflow.
 
 - [ ] **Step 5: Format, test, and commit**
 
