@@ -39,8 +39,8 @@ import { StageBackground } from './StageBackground';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 
-const DESKTOP_POOL = 5000;
-const MOBILE_POOL = 1000;
+const DESKTOP_POOL = 20_000;
+const MOBILE_POOL = 5_000;
 const MOBILE_BREAKPOINT = 768;
 const STATUS_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
