@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { buildProfiledTrack, TRACK_PROFILES } from '../src/model/TrackProfiles';
+import {
+  buildProfiledTrack,
+  ProfiledDanmakuTrack,
+  TRACK_PROFILES,
+} from '../src/model/TrackProfiles';
 import { generateLargeTimedTrack } from '../src/model/demoTimedTrack';
 import { saveUserDanmaku } from '../src/model/UserDanmakuStore';
 
@@ -77,5 +81,13 @@ describe('TrackProfiles', () => {
       presetCounts: { top: 1 },
       effectCounts: {},
     });
+  });
+  it('preserves resolved effects through the typed track cursor', () => {
+    const effects = { glow: true, gradient: false, rainbow: false, outline: true };
+    const track = new ProfiledDanmakuTrack([
+      { time: 0.5, text: 'styled', preset: 'scroll', effects },
+    ]);
+
+    expect(track.sync(0.5)).toEqual([{ time: 0.5, text: 'styled', preset: 'scroll', effects }]);
   });
 });

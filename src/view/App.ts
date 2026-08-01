@@ -1,5 +1,5 @@
 import { Scene, Entity, type IRenderer } from '@vectojs/core';
-import { DanmakuPool, Scheduler, DanmakuTrack } from '@vectojs/danmaku-core';
+import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
 import { detectBrowserLanguage, type Language, t } from '../model/i18n';
 import { generateLargeTimedTrack } from '../model/demoTimedTrack';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
@@ -9,7 +9,11 @@ import {
   resolveVideoSelection,
   videoById,
 } from '../model/VideoCatalog';
-import { TRACK_PROFILES, type ProfiledTrackResult } from '../model/TrackProfiles';
+import {
+  ProfiledDanmakuTrack,
+  TRACK_PROFILES,
+  type ProfiledTrackResult,
+} from '../model/TrackProfiles';
 import { ContentLibrary } from '../model/ContentLibrary';
 import type { PresetId, CharacterEffects } from '../model/types';
 import { StageBackground, VideoLoadError } from './StageBackground';
@@ -111,7 +115,7 @@ export class App {
   private panelOpen = false;
 
   private mode: AppMode = 'stress';
-  private danmakuTrack!: DanmakuTrack;
+  private danmakuTrack!: ProfiledDanmakuTrack;
   private profiledTrack!: ProfiledTrackResult;
   private videoLoading = false;
   private videoLoadFailed = false;
@@ -196,7 +200,7 @@ export class App {
 
     const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
     this.profiledTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
-    this.danmakuTrack = new DanmakuTrack(this.profiledTrack.entries);
+    this.danmakuTrack = new ProfiledDanmakuTrack(this.profiledTrack.entries);
 
     // Initial build of UI controls
     this._buildUI();
@@ -391,7 +395,7 @@ export class App {
     const profile = TRACK_PROFILES.get(profileId);
     if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
     this.profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
-    this.danmakuTrack = new DanmakuTrack(this.profiledTrack.entries);
+    this.danmakuTrack = new ProfiledDanmakuTrack(this.profiledTrack.entries);
     this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
   }
 

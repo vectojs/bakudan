@@ -38,7 +38,7 @@ export class StageBackground extends Entity {
   private _endedCallback: (() => void) | null = null;
   private readonly _host: HTMLElement | null;
   private readonly _videoFactory: () => HTMLVideoElement;
-  private _destroyed = false;
+  private _stageDestroyed = false;
 
   constructor(options: StageBackgroundOptions = {}) {
     super();
@@ -111,7 +111,7 @@ export class StageBackground extends Entity {
   }
 
   async setVideo(src: string): Promise<void> {
-    if (this._destroyed)
+    if (this._stageDestroyed)
       throw new VideoLoadError('metadata-error', 'Stage background is destroyed');
     if (this._videoSrc === src && this._video) return;
     this._cancelCandidate('Video candidate was superseded');
@@ -229,7 +229,7 @@ export class StageBackground extends Entity {
   render(_renderer: IRenderer): void {}
 
   override destroy(): void {
-    this._destroyed = true;
+    this._stageDestroyed = true;
     this.stopVideo();
     super.destroy();
   }

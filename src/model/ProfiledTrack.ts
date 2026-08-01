@@ -1,4 +1,9 @@
-import type { CharacterEffects, PresetId, TimedDanmakuEntry } from '@vectojs/danmaku-core';
+import {
+  DanmakuTrack,
+  type CharacterEffects,
+  type PresetId,
+  type TimedDanmakuEntry,
+} from '@vectojs/danmaku-core';
 
 export interface TrackProfile {
   id: string;
@@ -29,6 +34,39 @@ export interface ProfiledTrackResult {
 export interface ProfiledTrackOptions {
   sampleText: () => string;
   random?: () => number;
+}
+
+/**
+ * Typed facade over DanmakuTrack. The core track deliberately exposes its base
+ * entry contract; this facade proves every inserted entry carries resolved
+ * effects and centralizes the safe narrowing at that boundary.
+ */
+export class ProfiledDanmakuTrack {
+  private readonly track: DanmakuTrack;
+
+  constructor(entries: ProfiledTimedDanmakuEntry[]) {
+    this.track = new DanmakuTrack(entries);
+  }
+
+  get length(): number {
+    return this.track.length;
+  }
+
+  getTimes(): number[] {
+    return this.track.getTimes();
+  }
+
+  seek(time: number): void {
+    this.track.seek(time);
+  }
+
+  sync(time: number): ProfiledTimedDanmakuEntry[] {
+    return this.track.sync(time) as ProfiledTimedDanmakuEntry[];
+  }
+
+  reset(): void {
+    this.track.reset();
+  }
 }
 
 interface WeightedRow<T extends string> {
@@ -135,7 +173,8 @@ export function buildProfiledTrack(
   const peakCount =
     clusteredEntries === 0 ? 0 : Math.max(1, Math.ceil(clusteredEntries / peakCapacity));
   const peakRadius = Math.min(0.75, duration / Math.max(8, peakCount * 8));
-  const entries = new Array<ProfiledTimedDanmakuEntry>(entryCount);
+  const entries: ProfiledTimedDanmakuEntry[] = [];
+  entries.length = entryCount;
   let writeIndex = 0;
 
   const createEntry = (time: number): ProfiledTimedDanmakuEntry => ({

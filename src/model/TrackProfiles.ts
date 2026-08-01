@@ -2,6 +2,7 @@ import type { TrackProfile } from './ProfiledTrack';
 
 export {
   buildProfiledTrack,
+  ProfiledDanmakuTrack,
   resolveTrackDistribution,
   type ProfiledTimedDanmakuEntry,
   type ProfiledTrackOptions,

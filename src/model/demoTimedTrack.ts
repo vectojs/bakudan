@@ -32,7 +32,8 @@ function mergeByTime(
   generated: readonly ProfiledTimedDanmakuEntry[],
   userEntries: readonly ProfiledTimedDanmakuEntry[],
 ): ProfiledTimedDanmakuEntry[] {
-  const merged = new Array<ProfiledTimedDanmakuEntry>(generated.length + userEntries.length);
+  const merged: ProfiledTimedDanmakuEntry[] = [];
+  merged.length = generated.length + userEntries.length;
   let generatedIndex = 0;
   let userIndex = 0;
   let writeIndex = 0;
