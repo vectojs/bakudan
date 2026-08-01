@@ -252,7 +252,28 @@ Built-in profiles:
 - **Flood** — sustained high density for video-overload testing.
 - **Style Showcase** — controlled distribution across all motion presets.
 
-A profile defines average rate, peak rate, clustering, preset weights, and optional effect weights. Reports include the profile ID and resolved distribution.
+A profile has an app-owned contract:
+
+```ts
+interface TrackProfile {
+  id: string;
+  label: string;
+  averagePerSecond: number;
+  peakPerSecond: number;
+  clusterRatio: number;
+  maxEntries: number;
+  presetWeights: Partial<Record<PresetId, number>>;
+  effectWeights?: Partial<Record<keyof CharacterEffects, number>>;
+}
+
+interface ResolvedTrackDistribution {
+  entries: number;
+  presetCounts: Partial<Record<PresetId, number>>;
+  effectCounts: Partial<Record<keyof CharacterEffects, number>>;
+}
+```
+
+Bakudan implements weighted generation in an app-side `buildProfiledTrack()` path rather than claiming that `danmaku-core`'s current uniform `generateTimedTrack()` API supports weights. The app-owned generated entry type extends `TimedDanmakuEntry` with resolved effects; a small wrapper around `DanmakuTrack` preserves that metadata when entries fire. The builder records a `ResolvedTrackDistribution` beside the entries, and reports include the profile ID plus that exact resolved distribution.
 
 User-sent comments are stored under a versioned, video-scoped key. Invalid stored data is discarded only for the affected video. A custom URL derives a stable local key from a normalized URL without treating that key as authentication or a globally stable identity.
 
@@ -280,6 +301,8 @@ Capacity is not accepted as complete until real-hardware measurement covers:
 
 Potential `danmaku-core` changes, such as a free-list/cursor or lazy rotation state, require their own task and package changeset after profiling proves the need. Bakudan must not fork the engine implementation locally.
 
+The current `DanmakuPool._findFree()` scans from index zero for every activation. Near a 20K target, this is the known expected activation hotspot: filling a pool can approach quadratic total scan work. The baseline must attribute this phase explicitly before it is interpreted as an application regression or replaced with a free-list/cursor.
+
 A 20K target continues running when over budget and reports the result. It must not silently lower the target.
 
 ## 10. Interactions and effects
@@ -302,7 +325,7 @@ Interactions:
 - Gravity showcase.
 - Jelly spring showcase.
 
-Jelly currently has UI state but no behavior. The redesign must implement it or omit the control; an inert delivered control is prohibited.
+Jelly is in scope and must be implemented, not omitted. It receives a separate `danmaku-core` task, tests, changeset, and package release before Bakudan enables the control. The reusable engine contract adds explicit spring state to `PoolSlot` and a `Scheduler.showcaseJelly` path. Spawn, drag release, and pointer repulsion excite a damped squash/stretch response that returns to neutral. `DanmakuLayer` applies the resolved scale/offset to WebGL glyph quads and the equivalent Canvas2D transform, so Jelly remains batch-safe for atlas-backed text. Bakudan must not ship the control against a package version that lacks this behavior.
 
 The panel labels each option's active render class: batch-safe, Canvas2D fallback, or special pass. Reports include the active split:
 
