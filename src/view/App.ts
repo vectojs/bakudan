@@ -354,6 +354,17 @@ export class App {
         { id: 'canvas-slots', label: 'Canvas slots' },
       ],
       targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+      quickTargets: this.isMobile
+        ? [
+            { value: 1000, label: '1K' },
+            { value: 2500, label: '2.5K' },
+            { value: 5000, label: '5K' },
+          ]
+        : [
+            { value: 5000, label: '5K' },
+            { value: 10_000, label: '10K' },
+            { value: 20_000, label: '20K' },
+          ],
       rateRange: { min: 1, max: 2000, step: 10 },
       onTargetChange: (target) => {
         this._setAppMode('stress');
@@ -435,7 +446,13 @@ export class App {
   selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
     const sameSource = this._sameVideoSelection(selection, this.currentVideoSelection);
     const profileId = requestedProfileId ?? resolveVideoSelection(selection).defaultTrackProfileId;
-    if (sameSource && profileId === this.currentTrackProfileId) return;
+    if (sameSource && profileId === this.currentTrackProfileId) {
+      if (this.mode !== 'video') {
+        this._setAppMode('video');
+        this._togglePlayback();
+      }
+      return;
+    }
     if (sameSource) {
       this._onTrackProfileChange(profileId);
       return;

@@ -41,6 +41,10 @@ interface Fixture {
 const fixtures: Fixture[] = [];
 
 function fixture(width = 1440, height = 900): Fixture {
+  Object.defineProperties(window, {
+    innerWidth: { configurable: true, value: width },
+    innerHeight: { configurable: true, value: height },
+  });
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -135,6 +139,11 @@ describe('App Cinema Overlay integration', () => {
     expect(layout.drawer.y + layout.drawer.height).toBe(600);
   });
 
+  it('uses 20K desktop and 5K mobile pool capacities', () => {
+    expect(fixture(1440, 900).app.pool.capacity).toBe(20_000);
+    expect(fixture(390, 844).app.pool.capacity).toBe(5_000);
+  });
+
   it('commits a candidate source and profile only after metadata succeeds', async () => {
     const { app, videos } = fixture();
     const initial = app.getViewSnapshot();
@@ -154,6 +163,25 @@ describe('App Cinema Overlay integration', () => {
       videoLoadState: { status: 'ready', sourceId: 'sintel-low-light' },
     });
     expect(videos[0]!.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns to video playback when the active source is re-selected from stress mode', async () => {
+    const { app, videos } = fixture();
+    app.selectVideo({ kind: 'catalog', id: 'sintel-low-light' }, 'peak-event');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await settle();
+
+    const modeControl = app as unknown as {
+      _setAppMode: (mode: 'video' | 'stress') => void;
+    };
+    modeControl._setAppMode('stress');
+    expect(app.getViewSnapshot().mode).toBe('stress');
+    expect(videos[0]!.pause).toHaveBeenCalledTimes(1);
+
+    app.selectVideo({ kind: 'catalog', id: 'sintel-low-light' }, 'peak-event');
+    await settle();
+    expect(app.getViewSnapshot().mode).toBe('video');
+    expect(videos[0]!.play).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the active source and profile when a candidate fails', async () => {
