@@ -61,7 +61,28 @@ App
     └── DevtoolsPanel
 ```
 
-`App` remains the coordinator, but catalog data, track profiles, scenario state, and visual tokens move out of component constructors. Components receive state and callbacks through narrow options rather than reading unrelated application fields.
+### 3.1 Reusable package boundary
+
+The redesign ships reusable domain behavior as one sibling package rather than leaving reusable canvas UI inside the Bakudan app:
+
+```text
+@vectojs/danmaku-core
+└── renderer-agnostic pool, scheduler, presets, track, and Jelly state
+
+@vectojs/danmaku-kit
+├── pure TrackProfile generation and generic video-source contracts
+├── themed StatusBar, CommandDeck, and LabDrawer
+└── generic Videos, Throughput, and Interactions panel contracts
+
+bakudan
+├── concrete licensed R2 video catalog, brand theme, labels, and i18n
+├── StageBackground, DanmakuLayer, App orchestration, and persistence adapter
+└── app-specific DevTools plugin and acceptance scenarios
+```
+
+`@vectojs/danmaku-kit` depends on `@vectojs/core`, `@vectojs/ui`, and `@vectojs/danmaku-core`. It receives theme, labels, catalog/profile data, state, and callbacks through typed options. It must not import Bakudan, embed Bakudan copy or CDN URLs, or re-export app-specific behavior. `@vectojs/danmaku-core` remains zero-dependency and never acquires VectoJS UI concerns.
+
+`App` remains the coordinator, but catalog data, track profiles, scenario state, and visual tokens move out of component constructors. Bakudan injects its concrete data and branding into `@vectojs/danmaku-kit`; components receive state and callbacks through narrow options rather than reading unrelated application fields.
 
 ## 4. Default Cinema Overlay
 
@@ -252,7 +273,7 @@ Built-in profiles:
 - **Flood** — sustained high density for video-overload testing.
 - **Style Showcase** — controlled distribution across all motion presets.
 
-A profile has an app-owned contract:
+A profile has a reusable `@vectojs/danmaku-kit` contract:
 
 ```ts
 interface TrackProfile {
@@ -273,7 +294,7 @@ interface ResolvedTrackDistribution {
 }
 ```
 
-Bakudan implements weighted generation in an app-side `buildProfiledTrack()` path rather than claiming that `danmaku-core`'s current uniform `generateTimedTrack()` API supports weights. The app-owned generated entry type extends `TimedDanmakuEntry` with resolved effects; a small wrapper around `DanmakuTrack` preserves that metadata when entries fire. The builder records a `ResolvedTrackDistribution` beside the entries, and reports include the profile ID plus that exact resolved distribution.
+`@vectojs/danmaku-kit` implements weighted generation through `buildProfiledTrack()` rather than claiming that `danmaku-core`'s current uniform `generateTimedTrack()` API supports weights. The package-owned generated entry type extends `TimedDanmakuEntry` with resolved effects; Bakudan wraps `DanmakuTrack` to preserve that metadata when entries fire. The builder records a `ResolvedTrackDistribution` beside the entries, and reports include the profile ID plus that exact resolved distribution.
 
 User-sent comments are stored under a versioned, video-scoped key. Invalid stored data is discarded only for the affected video. A custom URL derives a stable local key from a normalized URL without treating that key as authentication or a globally stable identity.
 

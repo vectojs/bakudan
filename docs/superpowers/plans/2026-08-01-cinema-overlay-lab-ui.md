@@ -4,15 +4,31 @@
 
 **Goal:** Replace Bakudan's generic peach settings UI with a video-first Cinema Overlay: normal viewing stays quiet, controls collapse into a bottom Command Deck, and all experiments live in an on-demand Lab Drawer.
 
-**Architecture:** The Scene remains the only application UI surface. Small purpose-built Entities (`TopStatusBar`, `CommandDeck`, `LabDrawer`, and four Lab panels) consume explicit app state and callbacks. `App` owns state transitions and responsive geometry; panels own controls, not engine behavior. `DanmakuLayer` remains one VMT entity for up to 20K slots and reads engine Jelly scalars directly. `@vectojs/devtools` and the app plugin remain debug-only dynamic imports.
+**Architecture:** The Scene remains the only application UI surface. Reusable `DanmakuStatusBar`, `DanmakuCommandDeck`, `DanmakuLabDrawer`, and Lab panels come from `@vectojs/danmaku-kit` and consume injected app state, labels, theme, and callbacks. `App` owns state transitions and responsive geometry; panels own controls, not engine behavior. `DanmakuLayer` remains one VMT entity for up to 20K slots and reads engine Jelly scalars directly. `@vectojs/devtools` and the app plugin remain debug-only dynamic imports.
 
-**Tech Stack:** VectoJS Scene/Entity, `@vectojs/ui`, `@vectojs/danmaku-core`, Canvas2D + batched WebGL/MSDF, TypeScript 7, Bun test, Vitest DevTools tests, Chromium/Firefox real-browser acceptance
+**Tech Stack:** VectoJS Scene/Entity, `@vectojs/ui`, `@vectojs/danmaku-core`, `@vectojs/danmaku-kit`, Canvas2D + batched WebGL/MSDF, TypeScript 7, Bun test, Vitest DevTools tests, Chromium/Firefox real-browser acceptance
 
 ---
 
 ## Dependencies
 
-Complete the video catalog/profile plan first. Complete and publish the danmaku-core Jelly plan before Task 7. Update Bakudan to the exact released `@vectojs/danmaku-core` version; never patch `node_modules` or add an unpublished file dependency.
+Complete the video catalog/profile plan first. Then execute `2026-08-01-danmaku-kit-package.md` and publish the reusable package. Complete and publish the danmaku-core Jelly plan before Task 7. Bakudan updates both packages to exact released versions; never patch `node_modules` or add an unpublished file dependency.
+
+### Package ownership amendment
+
+The reusable-package plan supersedes local file ownership in Tasks 2–7 below:
+
+| Cinema component/model | Final owner |
+| --- | --- |
+| TrackProfile contracts and builder | `@vectojs/danmaku-kit/model` |
+| TopStatusBar | `@vectojs/danmaku-kit/ui` as `DanmakuStatusBar` |
+| CommandDeck | `@vectojs/danmaku-kit/ui` as `DanmakuCommandDeck` |
+| LabDrawer and generic panel contracts | `@vectojs/danmaku-kit/ui` |
+| Videos/Throughput/Interactions/DevTools info panels | `@vectojs/danmaku-kit/ui` |
+| Bakudan theme/labels/catalog/profile values | Bakudan |
+| App, StageBackground, DanmakuLayer, persistence, DevTools plugin | Bakudan |
+
+Where a task below says to create a reusable component under `src/view`, implement and test its generic counterpart in the package plan, then make the Bakudan task an integration/cutover task. Do not deliver duplicate local implementations or compatibility re-exports.
 
 ### Task 1: Establish a single Cinema visual system and state contract
 

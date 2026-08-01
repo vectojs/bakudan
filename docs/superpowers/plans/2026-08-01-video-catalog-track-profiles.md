@@ -4,7 +4,7 @@
 
 **Goal:** Deliver a reliable five-video test catalog, atomic video switching, deterministic weighted danmaku track profiles, and video-scoped user-comment persistence before the Cinema Overlay replaces the existing controls.
 
-**Architecture:** Curated video metadata and track profiles live in focused model modules. `StageBackground` performs candidate-first source switching so failures preserve playback. App-side weighted generation wraps `DanmakuTrack` without claiming unsupported engine behavior. Public media is processed in `tmp/` and hosted on VectoJS R2; no new video binary enters Git.
+**Architecture:** Curated video metadata and profile values live in focused Bakudan model modules. Pure TrackProfile generation and generic video-source contracts move to `@vectojs/danmaku-kit/model`; `StageBackground` performs candidate-first source switching so failures preserve playback. Package-owned weighted generation wraps `DanmakuTrack` without claiming unsupported engine behavior. Public media is processed in `tmp/` and hosted on VectoJS R2; no new video binary enters Git.
 
 **Tech Stack:** TypeScript 7, VectoJS Scene/Entity, native HTMLVideoElement, Bun test + happy-dom, FFmpeg/ffprobe, Cloudflare R2 via wrangler
 
@@ -12,7 +12,7 @@
 
 ## Dependency and execution order
 
-Run in the Bakudan CTX-0008 worktree after the Jelly core package version is known, but this plan does not require Jelly to build. It must complete before the Cinema Overlay UI plan because that plan consumes `VIDEO_CATALOG`, `TRACK_PROFILES`, and the atomic video API.
+Run in the Bakudan CTX-0008 worktree after the Jelly core package version is known, but this plan does not require Jelly to build. Complete its focused behavior first, then execute `2026-08-01-danmaku-kit-package.md` to move the pure TrackProfile builder and generic source contracts into the sibling package. This plan is not complete until Bakudan imports those released package APIs with no duplicate implementation. The concrete `VIDEO_CATALOG`, `TRACK_PROFILES`, persistence, StageBackground, and App integration remain here for the Cinema Overlay plan.
 
 ### Task 1: Prepare and publish five licensed test clips
 
