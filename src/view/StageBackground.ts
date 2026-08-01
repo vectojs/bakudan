@@ -1,22 +1,7 @@
 import { Entity, type IRenderer } from '@vectojs/core';
+import { VideoSourceError } from '@vectojs/danmaku-kit/model';
 
 type BgMode = 'none' | 'ambient' | 'video';
-
-export type VideoLoadErrorCode =
-  | 'network-error'
-  | 'media-error'
-  | 'metadata-error'
-  | 'playback-rejected';
-
-export class VideoLoadError extends Error {
-  constructor(
-    readonly code: VideoLoadErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'VideoLoadError';
-  }
-}
 
 export interface StageBackgroundOptions {
   host?: HTMLElement | null;
@@ -34,7 +19,7 @@ export class StageBackground extends Entity {
   private _video: HTMLVideoElement | null = null;
   private _videoSrc: string | null = null;
   private _candidate: HTMLVideoElement | null = null;
-  private _candidateReject: ((error: VideoLoadError) => void) | null = null;
+  private _candidateReject: ((error: VideoSourceError) => void) | null = null;
   private _endedCallback: (() => void) | null = null;
   private readonly _host: HTMLElement | null;
   private readonly _videoFactory: () => HTMLVideoElement;
@@ -100,19 +85,19 @@ export class StageBackground extends Entity {
     this._candidate = null;
     this._candidateReject = null;
     if (candidate) this._disposeVideo(candidate);
-    reject?.(new VideoLoadError('metadata-error', message));
+    reject?.(new VideoSourceError('metadata-error', message));
   }
 
-  private _mediaError(video: HTMLVideoElement, src: string): VideoLoadError {
+  private _mediaError(video: HTMLVideoElement, src: string): VideoSourceError {
     const code = video.error?.code;
     if (code === 2)
-      return new VideoLoadError('network-error', `Network error loading video: ${src}`);
-    return new VideoLoadError('media-error', `Unsupported or unreadable video: ${src}`);
+      return new VideoSourceError('network-error', `Network error loading video: ${src}`);
+    return new VideoSourceError('media-error', `Unsupported or unreadable video: ${src}`);
   }
 
   async setVideo(src: string): Promise<void> {
     if (this._stageDestroyed)
-      throw new VideoLoadError('metadata-error', 'Stage background is destroyed');
+      throw new VideoSourceError('metadata-error', 'Stage background is destroyed');
     if (this._videoSrc === src && this._video) return;
     this._cancelCandidate('Video candidate was superseded');
 
@@ -128,7 +113,7 @@ export class StageBackground extends Entity {
         candidate.removeEventListener('loadedmetadata', onReady);
         candidate.removeEventListener('error', onError);
       };
-      const fail = (error: VideoLoadError) => {
+      const fail = (error: VideoSourceError) => {
         cleanup();
         if (this._candidate === candidate) {
           this._candidate = null;
@@ -140,7 +125,7 @@ export class StageBackground extends Entity {
       const onReady = () => {
         if (this._candidate !== candidate) return;
         if (!Number.isFinite(candidate.duration) || candidate.duration <= 0) {
-          fail(new VideoLoadError('metadata-error', `Invalid video metadata: ${src}`));
+          fail(new VideoSourceError('metadata-error', `Invalid video metadata: ${src}`));
           return;
         }
         cleanup();
@@ -175,7 +160,7 @@ export class StageBackground extends Entity {
       await this._video?.play();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Video playback was rejected';
-      throw new VideoLoadError('playback-rejected', message);
+      throw new VideoSourceError('playback-rejected', message);
     }
   }
 

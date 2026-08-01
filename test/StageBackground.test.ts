@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { StageBackground, VideoLoadError } from '../src/view/StageBackground';
+import { VideoSourceError } from '@vectojs/danmaku-kit/model';
+import { StageBackground } from '../src/view/StageBackground';
 
 interface ControlledVideo {
   element: HTMLVideoElement;
@@ -77,7 +78,7 @@ describe('StageBackground', () => {
     const { background, host, videos } = fixture();
     const pending = background.setVideo('https://example.test/pending.mp4');
     background.destroy();
-    await expect(pending).rejects.toBeInstanceOf(VideoLoadError);
+    await expect(pending).rejects.toBeInstanceOf(VideoSourceError);
     expect(videos[0]!.pause).toHaveBeenCalledTimes(1);
     expect(host.children).toHaveLength(0);
     host.remove();
