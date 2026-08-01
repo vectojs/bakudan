@@ -28,6 +28,7 @@
   "dependencies": {
     "@vectojs/core": "1.24.0",
     "@vectojs/danmaku-core": "0.2.0",
+    "@vectojs/danmaku-kit": "0.2.0",
     "@vectojs/ui": "2.5.0"
   },
   "devDependencies": {
