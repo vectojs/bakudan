@@ -6,7 +6,7 @@
       "name": "bakudan",
       "dependencies": {
         "@vectojs/core": "1.24.0",
-        "@vectojs/danmaku-core": "0.1.0",
+        "@vectojs/danmaku-core": "0.2.0",
         "@vectojs/ui": "2.5.0",
       },
       "devDependencies": {
@@ -400,7 +400,7 @@
 
     "@vectojs/core": ["@vectojs/core@1.24.0", "", { "dependencies": { "@vectojs/animation": "^0.1.1", "@vectojs/layout": "^0.4.0", "@vectojs/math": "^0.1.1", "@vectojs/text": "^0.2.0" } }, "sha512-jbzZb3+TbFgJbPSxbiZxp46jqSJOG+HcdeJOWtFjxUeo8E/se9E9nvi4RjkNxYHVzlyHzejJ0uKKLcudozUaiA=="],
 
-    "@vectojs/danmaku-core": ["@vectojs/danmaku-core@0.1.0", "", {}, "sha512-OHnqDdZKDMcZyTpBjCLCfQeW4K+44RUvoVOHGFYXCc6U2p54C+Ey+ePVNwDvqhcJlhUdHxZXwym+oekycxigJw=="],
+    "@vectojs/danmaku-core": ["@vectojs/danmaku-core@0.2.0", "", {}, "sha512-GokSzhCwOfyZ6khsqT7DJMVU70kzykenQ8Ka2KgS7bS6C/mfv6fgsjEfNbnTJLniQGB0BYS5DSuz96KGbot0mA=="],
 
     "@vectojs/devtools": ["@vectojs/devtools@0.11.0", "", { "peerDependencies": { "@vectojs/core": ">=1.0.0 <2.0.0", "@vectojs/ui": ">=1.0.0 <3.0.0" }, "optionalPeers": ["@vectojs/ui"] }, "sha512-cJXxCAXgP7KqZCNGMbH/1ADMxwa/r3rl/1tgEaQ/sTFbBgol0HfqtuoBmi7C255UMPJzmiKzlreQK2GH4XU9BQ=="],
 
