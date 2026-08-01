@@ -34,7 +34,10 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   immutableEntry({
     id: 'flower-seek-loop',
     title: 'Flower Seek Loop',
-    source: { kind: 'cdn', url: 'https://cdn.vectojs.org/bakudan/video/flower-seek-loop.mp4' },
+    source: {
+      kind: 'cdn',
+      url: 'https://cdn.vectojs.org/bakudan/video/flower-seek-loop.mp4?v=20260801',
+    },
     durationHint: 15,
     aspectRatio: 16 / 9,
     testTags: ['bright', 'seek-loop'],
@@ -43,7 +46,10 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   immutableEntry({
     id: 'bbb-motion',
     title: 'Big Buck Bunny · Motion',
-    source: { kind: 'cdn', url: 'https://cdn.vectojs.org/bakudan/video/bbb-motion.mp4' },
+    source: {
+      kind: 'cdn',
+      url: 'https://cdn.vectojs.org/bakudan/video/bbb-motion.mp4?v=20260801',
+    },
     durationHint: 30,
     aspectRatio: 16 / 9,
     testTags: ['motion', 'animation'],
@@ -57,7 +63,10 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   immutableEntry({
     id: 'sintel-low-light',
     title: 'Sintel · Low Light',
-    source: { kind: 'cdn', url: 'https://cdn.vectojs.org/bakudan/video/sintel-low-light.mp4' },
+    source: {
+      kind: 'cdn',
+      url: 'https://cdn.vectojs.org/bakudan/video/sintel-low-light.mp4?v=20260801',
+    },
     durationHint: 30,
     aspectRatio: 16 / 9,
     testTags: ['low-light', 'animation'],
@@ -71,7 +80,10 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   immutableEntry({
     id: 'tears-live-action',
     title: 'Tears of Steel · Live Action',
-    source: { kind: 'cdn', url: 'https://cdn.vectojs.org/bakudan/video/tears-live-action.mp4' },
+    source: {
+      kind: 'cdn',
+      url: 'https://cdn.vectojs.org/bakudan/video/tears-live-action.mp4?v=20260801',
+    },
     durationHint: 30,
     aspectRatio: 16 / 9,
     testTags: ['motion', 'low-light'],
@@ -85,7 +97,10 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   immutableEntry({
     id: 'sintel-portrait',
     title: 'Sintel · Portrait Crop',
-    source: { kind: 'cdn', url: 'https://cdn.vectojs.org/bakudan/video/sintel-portrait.mp4' },
+    source: {
+      kind: 'cdn',
+      url: 'https://cdn.vectojs.org/bakudan/video/sintel-portrait.mp4?v=20260801',
+    },
     durationHint: 15,
     aspectRatio: 9 / 16,
     testTags: ['portrait', 'animation'],

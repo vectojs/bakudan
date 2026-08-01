@@ -925,7 +925,7 @@ export class App {
     for (const entry of fired) {
       this.scheduler.userSpawn({
         text: entry.text,
-        color: entry.color ?? '#453c38', // warm-charcoal default color
+        color: entry.color ?? '#f8fafc',
         fontSize: entry.fontSize ?? 24,
         speed: entry.speed ?? 200,
         opacity: 0.9,
@@ -967,7 +967,7 @@ export class App {
     const entry = {
       time: Math.round(time * 10) / 10,
       text,
-      color: '#453c38',
+      color: '#f8fafc',
       fontSize: 24,
       speed: 200,
       opacity: 0.9,
