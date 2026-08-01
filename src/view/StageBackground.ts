@@ -2,20 +2,30 @@ import { Entity, type IRenderer } from '@vectojs/core';
 
 type BgMode = 'none' | 'ambient' | 'video';
 
+export type VideoLoadErrorCode =
+  | 'network-error'
+  | 'media-error'
+  | 'metadata-error'
+  | 'playback-rejected';
+
+export class VideoLoadError extends Error {
+  constructor(
+    readonly code: VideoLoadErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'VideoLoadError';
+  }
+}
+
+export interface StageBackgroundOptions {
+  host?: HTMLElement | null;
+  videoFactory?: () => HTMLVideoElement;
+}
+
 /**
- * The stage background layer.
- *
- * This is a DOM layer (`#bakudan-bg`, z-index 0), NOT canvas-painted: the
- * danmaku moved to a stacked WebGL canvas (z1) that must sit ABOVE the
- * background but BELOW the Canvas2D UI (z2), and the 2D canvas can't hold the
- * background without covering the GL danmaku. Ambient mode is a CSS gradient
- * (class `ambient`); video mode attaches a real `<video>` element the browser
- * composites directly (also removes a full-screen per-frame `drawImage`).
- *
- * It remains an `Entity` (added to the scene) purely for lifecycle symmetry;
- * `render()` is a no-op. The video-track sync still reads `currentTime`/
- * `seek()`/`play()`/`pause()` exactly as before — those work identically on a
- * DOM `<video>`.
+ * DOM-composited stage background. Video candidates load beside the active
+ * element and replace it only after valid metadata is available.
  */
 export class StageBackground extends Entity {
   width = 1920;
@@ -23,48 +33,50 @@ export class StageBackground extends Entity {
   private _mode: BgMode = 'ambient';
   private _video: HTMLVideoElement | null = null;
   private _videoSrc: string | null = null;
+  private _candidate: HTMLVideoElement | null = null;
+  private _candidateReject: ((error: VideoLoadError) => void) | null = null;
   private _endedCallback: (() => void) | null = null;
   private readonly _host: HTMLElement | null;
+  private readonly _videoFactory: () => HTMLVideoElement;
+  private _destroyed = false;
+
+  constructor(options: StageBackgroundOptions = {}) {
+    super();
+    this._host =
+      options.host === undefined
+        ? typeof document !== 'undefined'
+          ? document.getElementById('bakudan-bg')
+          : null
+        : options.host;
+    this._videoFactory = options.videoFactory ?? (() => document.createElement('video'));
+    this._applyModeClass();
+  }
 
   isPointInside(_globalX: number, _globalY: number): boolean {
     return false;
   }
 
-  constructor() {
-    super();
-    void this._videoSrc;
-    this._host = typeof document !== 'undefined' ? document.getElementById('bakudan-bg') : null;
-    this._applyModeClass();
-  }
-
-  /** Background mode. Setting it toggles the DOM host's CSS + video visibility. */
   get mode(): BgMode {
     return this._mode;
   }
-  set mode(m: BgMode) {
-    if (this._mode === m) return;
-    this._mode = m;
+
+  set mode(mode: BgMode) {
+    if (this._mode === mode) return;
+    this._mode = mode;
     this._applyModeClass();
   }
 
-  /** Reflect the current mode onto the DOM host (gradient vs. video vs. blank). */
+  get currentSource(): string | null {
+    return this._videoSrc;
+  }
+
   private _applyModeClass(): void {
     if (!this._host) return;
     this._host.classList.toggle('ambient', this._mode === 'ambient');
     if (this._video) this._video.style.display = this._mode === 'video' ? 'block' : 'none';
   }
 
-  /**
-   * Set a video source for the background layer. The `<video>` element is
-   * created, loaded, and its canvas-draw-compatible frames are drawn via
-   * renderer.drawImage each frame. Does NOT auto-play — call `play()`
-   * explicitly so the video-danmaku track and the visible playhead start
-   * from the same known state (autoplay-and-fire-danmaku-immediately would
-   * race against `DanmakuTrack.seek(0)`).
-   */
-  async setVideo(src: string): Promise<void> {
-    this.stopVideo();
-    const video = document.createElement('video');
+  private _configureVideo(video: HTMLVideoElement, src: string): void {
     video.src = src;
     video.loop = false;
     video.muted = true;
@@ -72,46 +84,101 @@ export class StageBackground extends Entity {
     video.crossOrigin = 'anonymous';
     video.setAttribute('playsinline', '');
     video.preload = 'auto';
+    video.style.display = 'none';
+  }
+
+  private _disposeVideo(video: HTMLVideoElement): void {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.remove();
+  }
+
+  private _cancelCandidate(message: string): void {
+    const candidate = this._candidate;
+    const reject = this._candidateReject;
+    this._candidate = null;
+    this._candidateReject = null;
+    if (candidate) this._disposeVideo(candidate);
+    reject?.(new VideoLoadError('metadata-error', message));
+  }
+
+  private _mediaError(video: HTMLVideoElement, src: string): VideoLoadError {
+    const code = video.error?.code;
+    if (code === 2)
+      return new VideoLoadError('network-error', `Network error loading video: ${src}`);
+    return new VideoLoadError('media-error', `Unsupported or unreadable video: ${src}`);
+  }
+
+  async setVideo(src: string): Promise<void> {
+    if (this._destroyed)
+      throw new VideoLoadError('metadata-error', 'Stage background is destroyed');
+    if (this._videoSrc === src && this._video) return;
+    this._cancelCandidate('Video candidate was superseded');
+
+    const candidate = this._videoFactory();
+    const previousRate = this._video?.playbackRate ?? 1;
+    this._configureVideo(candidate, src);
+    this._candidate = candidate;
+    this._host?.appendChild(candidate);
+
     await new Promise<void>((resolve, reject) => {
+      this._candidateReject = reject;
+      const cleanup = () => {
+        candidate.removeEventListener('loadedmetadata', onReady);
+        candidate.removeEventListener('error', onError);
+      };
+      const fail = (error: VideoLoadError) => {
+        cleanup();
+        if (this._candidate === candidate) {
+          this._candidate = null;
+          this._candidateReject = null;
+        }
+        this._disposeVideo(candidate);
+        reject(error);
+      };
       const onReady = () => {
-        video.removeEventListener('loadedmetadata', onReady);
-        video.removeEventListener('error', onError);
+        if (this._candidate !== candidate) return;
+        if (!Number.isFinite(candidate.duration) || candidate.duration <= 0) {
+          fail(new VideoLoadError('metadata-error', `Invalid video metadata: ${src}`));
+          return;
+        }
+        cleanup();
+        this._candidate = null;
+        this._candidateReject = null;
+        candidate.playbackRate = previousRate;
+        const previous = this._video;
+        this._removeEndedListener();
+        this._video = candidate;
+        this._videoSrc = src;
+        candidate.style.display = this._mode === 'video' ? 'block' : 'none';
+        if (previous) this._disposeVideo(previous);
         resolve();
       };
-      const onError = () => {
-        video.removeEventListener('loadedmetadata', onReady);
-        video.removeEventListener('error', onError);
-        reject(new Error(`Failed to load video: ${src}`));
-      };
-      video.addEventListener('loadedmetadata', onReady);
-      video.addEventListener('error', onError);
+      const onError = () => fail(this._mediaError(candidate, src));
+      candidate.addEventListener('loadedmetadata', onReady);
+      candidate.addEventListener('error', onError);
     });
-    this._video = video;
-    this._videoSrc = src;
-    // Mount into the DOM background layer so the browser composites it directly
-    // (z0, beneath the GL danmaku). Visible only while mode === 'video'.
-    video.style.display = this._mode === 'video' ? 'block' : 'none';
-    this._host?.appendChild(video);
   }
 
   stopVideo(): void {
-    if (this._video) {
-      this._removeEndedListener();
-      this._video.pause();
-      this._video.removeAttribute('src');
-      this._video.load();
-      this._video.remove();
-      this._video = null;
-      this._videoSrc = null;
+    this._cancelCandidate('Video loading was cancelled');
+    if (!this._video) return;
+    this._removeEndedListener();
+    this._disposeVideo(this._video);
+    this._video = null;
+    this._videoSrc = null;
+  }
+
+  async play(): Promise<void> {
+    try {
+      await this._video?.play();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Video playback was rejected';
+      throw new VideoLoadError('playback-rejected', message);
     }
   }
 
-  /** Play the background video. No-op if none is loaded. */
-  async play(): Promise<void> {
-    await this._video?.play();
-  }
-
-  /** Pause the background video. No-op if none is loaded. */
   pause(): void {
     this._video?.pause();
   }
@@ -120,21 +187,18 @@ export class StageBackground extends Entity {
     return this._video?.paused ?? true;
   }
 
-  /** Current playback position in seconds, or 0 if no video is loaded. */
   get currentTime(): number {
     return this._video?.currentTime ?? 0;
   }
 
-  /** Total duration in seconds, or 0 if metadata hasn't loaded yet. */
   get duration(): number {
     return this._video?.duration ?? 0;
   }
 
-  /** Jump to an absolute time in seconds, clamped to `[0, duration]`. */
-  seek(t: number): void {
+  seek(time: number): void {
     if (!this._video) return;
-    const d = this._video.duration || Infinity;
-    this._video.currentTime = Math.max(0, Math.min(t, d));
+    const duration = this._video.duration || Infinity;
+    this._video.currentTime = Math.max(0, Math.min(time, duration));
   }
 
   get playbackRate(): number {
@@ -145,17 +209,14 @@ export class StageBackground extends Entity {
     if (this._video) this._video.playbackRate = rate;
   }
 
-  /** True once the video has metadata loaded and is ready to seek/play. */
   get isVideoReady(): boolean {
-    return !!this._video && this._video.readyState >= 1;
+    return this._video !== null && this._video.readyState >= 1;
   }
 
-  /** Register a listener for the underlying `<video>` element's `ended` event. */
-  onEnded(cb: () => void): void {
-    // Remove any previous listener to prevent accumulation
+  onEnded(callback: () => void): void {
     this._removeEndedListener();
-    this._endedCallback = cb;
-    this._video?.addEventListener('ended', cb);
+    this._endedCallback = callback;
+    this._video?.addEventListener('ended', callback);
   }
 
   private _removeEndedListener(): void {
@@ -165,16 +226,10 @@ export class StageBackground extends Entity {
     this._endedCallback = null;
   }
 
-  /**
-   * No-op: the background is a DOM layer (CSS gradient + `<video>`), composited
-   * beneath the GL danmaku canvas. Kept so `StageBackground` stays a valid
-   * scene `Entity` for lifecycle/resize symmetry.
-   */
-  render(_renderer: IRenderer): void {
-    // intentionally empty — see class docstring
-  }
+  render(_renderer: IRenderer): void {}
 
   override destroy(): void {
+    this._destroyed = true;
     this.stopVideo();
     super.destroy();
   }
