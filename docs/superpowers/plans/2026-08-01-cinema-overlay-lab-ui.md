@@ -264,11 +264,11 @@ export interface LabPanel {
 `LabDrawer extends Entity` owns:
 
 - Header title “DANMAKU LAB”.
-- Four `Button` tabs with full words.
+- One `Tabs` component with full-word labels: Videos, Throughput, Interactions, DevTools.
 - A Close button with visible label “Close”.
-- A `ScrollView` content host.
+- One panel entity as each `TabItem.content`; a panel that can overflow owns its own single `ScrollView`.
 
-Its `setOpen` toggles visibility on the entire entity tree; `setActiveTab` hides inactive panel entities and updates selected styling. Tab click action names and resulting state names remain identical.
+Use `Tabs.onChange` for state updates and `Tabs.selectTab` for programmatic selection. Reuse its built-in `role="tab"` hotspots, roving tabindex, arrow/Home/End keyboard behavior, visibility management, and horizontal overflow; do not hand-roll tab buttons or keyboard routing. `setOpen` toggles visibility on the entire drawer tree.
 
 - [ ] **Step 4: Implement desktop/mobile geometry**
 
