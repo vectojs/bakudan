@@ -1,5 +1,5 @@
+import type { VideoSelection, VideoSourceDescriptor } from '@vectojs/danmaku-kit/model';
 import { normalizeVideoUrl, videoIdForCustomUrl } from './UserDanmakuStore';
-import type { VideoSelection, VideoSource } from './VideoSource';
 
 export type VideoTestTag =
   | 'motion'
@@ -15,10 +15,7 @@ export interface VideoAttribution {
   license: 'CC BY 3.0';
 }
 
-export interface VideoCatalogEntry {
-  id: string;
-  title: string;
-  source: VideoSource;
+export interface VideoCatalogEntry extends VideoSourceDescriptor {
   durationHint: number;
   aspectRatio: number;
   testTags: readonly VideoTestTag[];

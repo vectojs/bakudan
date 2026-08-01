@@ -6,7 +6,7 @@ import {
   type ProfiledTimedDanmakuEntry,
   type ProfiledTrackResult,
   type TrackProfile,
-} from './ProfiledTrack';
+} from '@vectojs/danmaku-kit/model';
 import { loadUserDanmakus, type StoredUserDanmaku } from './UserDanmakuStore';
 
 export interface TimedTrackGenerationOptions {

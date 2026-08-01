@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  buildProfiledTrack,
-  ProfiledDanmakuTrack,
-  TRACK_PROFILES,
-} from '../src/model/TrackProfiles';
+import { buildProfiledTrack, ProfiledDanmakuTrack } from '@vectojs/danmaku-kit/model';
+import { TRACK_PROFILES } from '../src/model/TrackProfiles';
 import { generateLargeTimedTrack } from '../src/model/demoTimedTrack';
 import { saveUserDanmaku } from '../src/model/UserDanmakuStore';
 

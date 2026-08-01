@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import type { VideoSelection, VideoSourceDescriptor } from '@vectojs/danmaku-kit/model';
 import {
   DEFAULT_VIDEO_ID,
   VIDEO_CATALOG,
@@ -7,6 +8,8 @@ import {
 } from '../src/model/VideoCatalog';
 
 describe('VideoCatalog', () => {
+  const defaultDescriptor: VideoSourceDescriptor = VIDEO_CATALOG[0]!;
+
   it('contains five immutable test entries with unique ids', () => {
     expect(VIDEO_CATALOG).toHaveLength(5);
     expect(new Set(VIDEO_CATALOG.map((entry) => entry.id)).size).toBe(5);
@@ -30,11 +33,11 @@ describe('VideoCatalog', () => {
   });
 
   it('resolves the default id and rejects unknown ids', () => {
+    expect(defaultDescriptor.id).toBe(DEFAULT_VIDEO_ID);
     expect(videoById(DEFAULT_VIDEO_ID)?.id).toBe(DEFAULT_VIDEO_ID);
     expect(videoById('missing')).toBeUndefined();
-    expect(() => resolveVideoSelection({ kind: 'catalog', id: 'missing' })).toThrow(
-      'Unknown video catalog id',
-    );
+    const missingSelection: VideoSelection = { kind: 'catalog', id: 'missing' };
+    expect(() => resolveVideoSelection(missingSelection)).toThrow('Unknown video catalog id');
   });
 
   it('resolves catalog ids and normalized custom URLs without conflating them', () => {

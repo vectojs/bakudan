@@ -1,4 +1,4 @@
-import type { TrackProfile } from './ProfiledTrack';
+import type { TrackProfile } from '@vectojs/danmaku-kit/model';
 
 export {
   buildProfiledTrack,
@@ -9,7 +9,7 @@ export {
   type ProfiledTrackResult,
   type ResolvedTrackDistribution,
   type TrackProfile,
-} from './ProfiledTrack';
+} from '@vectojs/danmaku-kit/model';
 
 export const TRACK_PROFILES: ReadonlyMap<string, TrackProfile> = new Map([
   [
