@@ -33,6 +33,11 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'video.error.media': 'The video format or codec is not supported.',
     'video.error.metadata': 'The video metadata is missing or invalid.',
     'video.error.playback': 'The browser rejected video playback.',
+    'a11y.playing': 'Playing.',
+    'a11y.paused': 'Paused.',
+    'a11y.seeked': 'Seeked to',
+    'a11y.selectionCleared': 'Selection cleared.',
+    'a11y.labClosed': 'Lab panel closed.',
 
     'fps.max': 'Max (uncapped)',
 
@@ -100,6 +105,11 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'video.error.media': '不支持此视频格式或编解码器。',
     'video.error.metadata': '视频元数据缺失或无效。',
     'video.error.playback': '浏览器拒绝播放视频。',
+    'a11y.playing': '正在播放。',
+    'a11y.paused': '已暂停。',
+    'a11y.seeked': '已跳转到',
+    'a11y.selectionCleared': '已取消选择。',
+    'a11y.labClosed': '已关闭实验面板。',
 
     'fps.max': '最大 (无限制)',
 
@@ -167,6 +177,11 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'video.error.media': '不支援此影片格式或編解碼器。',
     'video.error.metadata': '影片中繼資料缺失或無效。',
     'video.error.playback': '瀏覽器拒絕播放影片。',
+    'a11y.playing': '正在播放。',
+    'a11y.paused': '已暫停。',
+    'a11y.seeked': '已跳轉到',
+    'a11y.selectionCleared': '已取消選擇。',
+    'a11y.labClosed': '已關閉實驗面板。',
 
     'fps.max': '最大 (無限制)',
 
@@ -234,6 +249,11 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'video.error.media': '動画形式またはコーデックに対応していません。',
     'video.error.metadata': '動画のメタデータがないか無効です。',
     'video.error.playback': 'ブラウザーが動画の再生を拒否しました。',
+    'a11y.playing': '再生中。',
+    'a11y.paused': '一時停止しました。',
+    'a11y.seeked': 'シーク先',
+    'a11y.selectionCleared': '選択を解除しました。',
+    'a11y.labClosed': 'ラボパネルを閉じました。',
 
     'fps.max': '最大 (制限なし)',
 
@@ -301,6 +321,11 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'video.error.media': '지원되지 않는 비디오 형식 또는 코덱입니다.',
     'video.error.metadata': '비디오 메타데이터가 없거나 잘못되었습니다.',
     'video.error.playback': '브라우저가 비디오 재생을 거부했습니다.',
+    'a11y.playing': '재생 중입니다.',
+    'a11y.paused': '일시정지되었습니다.',
+    'a11y.seeked': '이동한 위치',
+    'a11y.selectionCleared': '선택이 해제되었습니다.',
+    'a11y.labClosed': '랩 패널을 닫았습니다.',
 
     'fps.max': '최대 (제한 없음)',
 
