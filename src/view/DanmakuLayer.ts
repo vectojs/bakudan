@@ -4,6 +4,23 @@ import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
 import type { LoadedAtlas } from './MSDFAtlas';
 
 /**
+ * Geometry of the action pill drawn over a selected danmaku. Exported because
+ * `App` places the accessibility hotspots on it: draw and hit-test must read the
+ * same numbers or the buttons end up somewhere the user is not clicking, which
+ * is exactly what happened when the hotspots hardcoded their own offsets.
+ */
+/** Vertical offset of the pill baseline from the danmaku origin, in font sizes. */
+export const PILL_BASELINE_FACTOR = 1.4;
+/** Horizontal offset of the like count from the pill's left edge. */
+export const PILL_COUNT_OFFSET_PX = 20;
+/** Horizontal offset of the copy glyph from the pill's left edge. */
+export const PILL_COPY_OFFSET_PX = 60;
+/** Total pill width, covering the like glyph, the count, and the copy glyph. */
+export const PILL_WIDTH_PX = 80;
+/** Pill height; the hotspots span it fully. */
+export const PILL_HEIGHT_PX = 44;
+
+/**
  * Minimal structural view of the WebGL point layer the Scene owns (typed
  * `private` in core, but reachable at runtime — this is exactly how core's own
  * `MSDFTextEntity` renders). We only need the MSDF glyph-batch entry points.
@@ -137,7 +154,12 @@ export class DanmakuLayer extends Entity {
 
   constructor(
     private pool: DanmakuPool,
-    private getStage: () => { w: number; h: number; interactive: boolean },
+    private getStage: () => {
+      w: number;
+      h: number;
+      interactive: boolean;
+      hoveredAction?: 'like' | 'copy' | null;
+    },
   ) {
     super();
     this.interactive = false;
@@ -222,7 +244,13 @@ export class DanmakuLayer extends Entity {
    * (one addGlyph per glyph, ~1 GPU draw call) or the Canvas2D fallback (one
    * drawImage per danmaku, taken for emoji / out-of-atlas text).
    */
-  readonly drawStats = { glRuns: 0, glGlyphs: 0, c2dBlits: 0, c2dFillText: 0, special: 0 };
+  readonly drawStats = {
+    glRuns: 0,
+    glGlyphs: 0,
+    c2dBlits: 0,
+    c2dFillText: 0,
+    special: 0,
+  };
 
   render(renderer: IRenderer): void {
     this.drawStats.glRuns = 0;
@@ -504,10 +532,33 @@ export class DanmakuLayer extends Entity {
     ry: number,
     likeCount: number,
   ): void {
-    const pillY = ry + s.params.fontSize * 1.4;
-    const btnFont = `14px sans-serif`;
-    renderer.fillText(s.liked ? '❤️' : '🤍', rx, pillY, btnFont, '#fff');
-    renderer.fillText(`${likeCount}`, rx + 20, pillY, btnFont, '#fff');
-    renderer.fillText('📋', rx + 60, pillY, btnFont, '#fff');
+    const pillY = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
+    const hovered = this.getStage().hoveredAction ?? null;
+    // Emoji glyphs ignore the fill colour, so hover is signalled by drawing the
+    // hovered action one size larger — the only affordance that actually reads
+    // on a colour-fixed glyph. Without it the pill gave no feedback at all.
+    const baseFont = `14px sans-serif`;
+    const hotFont = `17px sans-serif`;
+    renderer.fillText(
+      s.liked ? '❤️' : '🤍',
+      rx,
+      pillY,
+      hovered === 'like' ? hotFont : baseFont,
+      '#fff',
+    );
+    renderer.fillText(
+      `${likeCount}`,
+      rx + PILL_COUNT_OFFSET_PX,
+      pillY,
+      baseFont,
+      hovered === 'like' ? '#fff' : '#e2e8f0',
+    );
+    renderer.fillText(
+      '📋',
+      rx + PILL_COPY_OFFSET_PX,
+      pillY,
+      hovered === 'copy' ? hotFont : baseFont,
+      '#fff',
+    );
   }
 }
