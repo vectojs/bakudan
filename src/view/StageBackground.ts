@@ -206,6 +206,32 @@ export class StageBackground extends Entity {
     return this._video !== null && this._video.readyState >= 1;
   }
 
+  /**
+   * Downloaded spans of the current source, in seconds.
+   *
+   * A plain array copy rather than the live `TimeRanges`: that object is only
+   * readable through indexed `start(i)`/`end(i)` calls, is invalidated as the
+   * browser buffers, and throws `INDEX_SIZE_ERR` on a stale index. Reading it
+   * once per poll keeps the scrubber off a moving object.
+   */
+  get bufferedRanges(): { start: number; end: number }[] {
+    const video = this._video;
+    if (!video) return [];
+    const ranges: { start: number; end: number }[] = [];
+    for (let i = 0; i < video.buffered.length; i++) {
+      try {
+        ranges.push({
+          start: video.buffered.start(i),
+          end: video.buffered.end(i),
+        });
+      } catch {
+        // The range list shrank between reading length and reading this index.
+        break;
+      }
+    }
+    return ranges;
+  }
+
   onEnded(callback: () => void): void {
     this._removeEndedListener();
     this._endedCallback = callback;
