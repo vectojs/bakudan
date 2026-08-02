@@ -186,6 +186,7 @@ export class App {
   private mode: AppMode = 'video';
   private danmakuTrack!: ProfiledDanmakuTrack;
   private videoLoading = false;
+  private _videoBuffering = false;
   private _videoRequestId = 0;
   private _stressTargetBeforeVideo = 500;
 
@@ -283,6 +284,13 @@ export class App {
 
     this.bg = options.stageBackground ?? new StageBackground(options.stageBackgroundOptions);
     this.bg.mode = 'video';
+    this.bg.onBufferingChange((buffering) => {
+      if (this.destroyed) return;
+      this._videoBuffering = buffering;
+      // No markDirty() here: the kit's setStatus() marks the scene dirty itself
+      // whenever the state actually changes.
+      this._syncStatus();
+    });
     this.announcer = new DanmakuAnnouncer();
     this._stressTargetBeforeVideo = isMobileInit ? 200 : 500;
     this._profTargetCount = this._stressTargetBeforeVideo;
@@ -560,12 +568,21 @@ export class App {
         this._syncVideosState();
         this._syncPlaybackState();
         this._syncStatus();
-        void this.bg.play().catch((error: unknown) => {
-          const sourceError = this._asVideoSourceError(error);
-          if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
-          this._syncPlaybackState();
-          this._syncStatus();
-        });
+        void this.bg
+          .play()
+          .then(() => {
+            // Re-sync on success too: the sync above ran before play() resolved,
+            // so the status still says 'paused' for a video now playing.
+            if (requestId !== this._videoRequestId || this.destroyed) return;
+            this._syncPlaybackState();
+            this._syncStatus();
+          })
+          .catch((error: unknown) => {
+            const sourceError = this._asVideoSourceError(error);
+            if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
+            this._syncPlaybackState();
+            this._syncStatus();
+          });
         this.scene.markDirty();
       })
       .catch((error: unknown) => {
@@ -698,7 +715,11 @@ export class App {
     if (this.videoLoading) return 'loading';
     if (this.videoLoadState.status === 'error') return 'error';
     if (this.mode === 'stress') return 'stress';
+    // A mid-stream stall reuses 'loading': it is the same "waiting for data"
+    // state as the initial fetch, and the kit already renders and announces
+    // that kind. Ranked below an explicit pause, which is user intent.
     if (this.bg.paused) return 'paused';
+    if (this._videoBuffering) return 'loading';
     return 'video';
   }
 

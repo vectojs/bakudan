@@ -21,6 +21,9 @@ export class StageBackground extends Entity {
   private _candidate: HTMLVideoElement | null = null;
   private _candidateReject: ((error: VideoSourceError) => void) | null = null;
   private _endedCallback: (() => void) | null = null;
+  private _buffering = false;
+  private _bufferingCallback: ((buffering: boolean) => void) | null = null;
+  private _bufferingListeners: Array<[string, () => void]> = [];
   private readonly _host: HTMLElement | null;
   private readonly _videoFactory: () => HTMLVideoElement;
   private _stageDestroyed = false;
@@ -134,8 +137,11 @@ export class StageBackground extends Entity {
         candidate.playbackRate = previousRate;
         const previous = this._video;
         this._removeEndedListener();
+        this._removeBufferingListeners();
         this._video = candidate;
         this._videoSrc = src;
+        this._setBuffering(false);
+        this._attachBufferingListeners();
         candidate.style.display = this._mode === 'video' ? 'block' : 'none';
         if (previous) this._disposeVideo(previous);
         resolve();
@@ -150,9 +156,11 @@ export class StageBackground extends Entity {
     this._cancelCandidate('Video loading was cancelled');
     if (!this._video) return;
     this._removeEndedListener();
+    this._removeBufferingListeners();
     this._disposeVideo(this._video);
     this._video = null;
     this._videoSrc = null;
+    this._setBuffering(false);
   }
 
   async play(): Promise<void> {
@@ -209,6 +217,64 @@ export class StageBackground extends Entity {
       this._video.removeEventListener('ended', this._endedCallback);
     }
     this._endedCallback = null;
+  }
+
+  /**
+   * True while the active video has stalled mid-stream waiting for data.
+   *
+   * Distinct from the initial load: `loadedmetadata` resolves after a few KB of
+   * a progressive stream, so a long video can begin playing and then run out of
+   * buffered data repeatedly. Callers surface this through the same status
+   * channel as the initial load.
+   */
+  get isBuffering(): boolean {
+    return this._buffering;
+  }
+
+  /**
+   * Register a persistent buffering observer.
+   *
+   * Retained across video swaps, unlike {@link onEnded} which the caller
+   * re-registers per load. The DOM listeners are rebound whenever the active
+   * element changes, so a mid-stream stall is reported for every source without
+   * the caller tracking element identity.
+   */
+  onBufferingChange(callback: (buffering: boolean) => void): void {
+    this._bufferingCallback = callback;
+    this._attachBufferingListeners();
+  }
+
+  private _setBuffering(buffering: boolean): void {
+    if (this._buffering === buffering) return;
+    this._buffering = buffering;
+    this._bufferingCallback?.(buffering);
+  }
+
+  private _attachBufferingListeners(): void {
+    this._removeBufferingListeners();
+    const video = this._video;
+    if (!video || !this._bufferingCallback) return;
+    // `waiting`/`stalled` open a stall; `playing`/`canplay`/`seeked` close it.
+    // `seeked` is load-bearing: a seek into an unbuffered region fires
+    // `waiting`, and while paused it never fires `playing` to clear it.
+    const listeners: Array<[string, () => void]> = [
+      ['waiting', () => this._setBuffering(true)],
+      ['stalled', () => this._setBuffering(true)],
+      ['playing', () => this._setBuffering(false)],
+      ['canplay', () => this._setBuffering(false)],
+      ['seeked', () => this._setBuffering(false)],
+    ];
+    for (const [event, handler] of listeners) video.addEventListener(event, handler);
+    this._bufferingListeners = listeners;
+  }
+
+  private _removeBufferingListeners(): void {
+    if (this._video) {
+      for (const [event, handler] of this._bufferingListeners) {
+        this._video.removeEventListener(event, handler);
+      }
+    }
+    this._bufferingListeners = [];
   }
 
   render(_renderer: IRenderer): void {}

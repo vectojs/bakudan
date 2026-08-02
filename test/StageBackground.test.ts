@@ -97,4 +97,134 @@ describe('StageBackground', () => {
     background.destroy();
     host.remove();
   });
+
+  it('opens a stall on waiting and closes it on playing', async () => {
+    const { background, host, videos } = fixture();
+    const seen: boolean[] = [];
+    background.onBufferingChange((buffering) => seen.push(buffering));
+    const pending = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+
+    expect(background.isBuffering).toBe(false);
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(true);
+    videos[0]!.element.dispatchEvent(new Event('playing'));
+    expect(background.isBuffering).toBe(false);
+    expect(seen).toEqual([true, false]);
+    background.destroy();
+    host.remove();
+  });
+
+  it('treats stalled as a stall and clears it on canplay', async () => {
+    const { background, host, videos } = fixture();
+    background.onBufferingChange(() => {});
+    const pending = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+
+    videos[0]!.element.dispatchEvent(new Event('stalled'));
+    expect(background.isBuffering).toBe(true);
+    videos[0]!.element.dispatchEvent(new Event('canplay'));
+    expect(background.isBuffering).toBe(false);
+    background.destroy();
+    host.remove();
+  });
+
+  // A seek into an unbuffered region fires `waiting`; while paused it never
+  // fires `playing`, so without a `seeked` listener the stall never clears and
+  // the status bar reads "Loading" forever.
+  it('clears a stall on seeked, so a paused seek does not strand the state', async () => {
+    const { background, host, videos } = fixture();
+    background.onBufferingChange(() => {});
+    const pending = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(true);
+    videos[0]!.element.dispatchEvent(new Event('seeked'));
+    expect(background.isBuffering).toBe(false);
+    background.destroy();
+    host.remove();
+  });
+
+  it('reports only on transitions, not on every event', async () => {
+    const { background, host, videos } = fixture();
+    const seen: boolean[] = [];
+    background.onBufferingChange((buffering) => seen.push(buffering));
+    const pending = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    videos[0]!.element.dispatchEvent(new Event('stalled'));
+    videos[0]!.element.dispatchEvent(new Event('playing'));
+    videos[0]!.element.dispatchEvent(new Event('canplay'));
+    expect(seen).toEqual([true, false]);
+    background.destroy();
+    host.remove();
+  });
+
+  // The observer is registered once by the caller, but the element it listens to
+  // is replaced on every source change. Without rebinding, only the first video
+  // of a session would ever report a stall.
+  it('keeps reporting stalls after the video element is replaced', async () => {
+    const { background, host, videos } = fixture();
+    background.onBufferingChange(() => {});
+    const first = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await first;
+
+    const second = background.setVideo('https://example.test/second.mp4');
+    videos[1]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await second;
+
+    videos[1]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(true);
+    videos[1]!.element.dispatchEvent(new Event('playing'));
+    expect(background.isBuffering).toBe(false);
+    background.destroy();
+    host.remove();
+  });
+
+  it('does not let a stall on a replaced element leak into the next source', async () => {
+    const { background, host, videos } = fixture();
+    const seen: boolean[] = [];
+    background.onBufferingChange((buffering) => seen.push(buffering));
+    const first = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await first;
+
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(true);
+
+    const second = background.setVideo('https://example.test/second.mp4');
+    videos[1]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await second;
+    expect(background.isBuffering).toBe(false);
+
+    // The detached element must no longer be able to drive state.
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(false);
+    expect(seen).toEqual([true, false]);
+    background.destroy();
+    host.remove();
+  });
+
+  it('clears the stall when the video is stopped', async () => {
+    const { background, host, videos } = fixture();
+    background.onBufferingChange(() => {});
+    const pending = background.setVideo('https://example.test/first.mp4');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+
+    videos[0]!.element.dispatchEvent(new Event('waiting'));
+    expect(background.isBuffering).toBe(true);
+    background.stopVideo();
+    expect(background.isBuffering).toBe(false);
+    background.destroy();
+    host.remove();
+  });
 });
