@@ -1,5 +1,4 @@
 import { Scene } from '@vectojs/core';
-import { attachDevtools } from '@vectojs/devtools';
 import { App } from './view/App';
 declare global {
   interface Window {
@@ -7,7 +6,7 @@ declare global {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const canvas = document.getElementById('bakudan-canvas') as HTMLCanvasElement | null;
   if (!canvas) return;
 
@@ -37,6 +36,8 @@ function main(): void {
 
   // Forge devtools hook
   if (window.location.search.includes('debug')) {
+    // Keep the debug inspector out of the production bundle's startup path.
+    const { attachDevtools } = await import('@vectojs/devtools');
     attachDevtools(scene);
     window.__app = app;
   }

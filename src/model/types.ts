@@ -13,6 +13,12 @@ export type {
   TimedDanmakuEntry,
 } from '@vectojs/danmaku-core';
 export { DEFAULT_EFFECTS, createDefaultParams, PRESET_COLORS } from '@vectojs/danmaku-core';
+export type {
+  VideoSelection,
+  VideoSourceDescriptor,
+  VideoSourceKind,
+} from '@vectojs/danmaku-kit/model';
+export type { VideoAttribution, VideoCatalogEntry, VideoTestTag } from './VideoCatalog';
 
 /** Heads-up-display metrics — a view concern, kept in the app. */
 export interface HUDData {

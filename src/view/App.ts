@@ -1,32 +1,78 @@
-import { Scene, Entity, type IRenderer } from '@vectojs/core';
-import { DanmakuPool, Scheduler, DanmakuTrack } from '@vectojs/danmaku-core';
-import { detectBrowserLanguage, type Language, t } from '../model/i18n';
-import { generateLargeTimedTrack, saveUserDanmaku } from '../model/demoTimedTrack';
-import { ContentLibrary } from '../model/ContentLibrary';
-import type { PresetId, CharacterEffects } from '../model/types';
-import { StageBackground } from './StageBackground';
-import { DanmakuLayer, hitAction, ACTION_BTN_WIDTH } from './DanmakuLayer';
-import { loadMSDFAtlas } from './MSDFAtlas';
-import type { PoolSlot } from '../model/types';
-import { DanmakuAnnouncer } from './DanmakuAnnouncer';
-import { Dock } from './Dock';
-import { ControlCenter } from './ControlCenter';
-import { HUD } from './HUD';
-import { FrameProfiler } from '../model/FrameProfiler';
-import { PlayerControls } from './PlayerControls';
-import { ParticleSystem } from './ParticleSystem';
-import { HelpModal } from './HelpModal';
-import { Button } from '@vectojs/ui';
+import { ReactionStore } from '../model/ReactionStore';
+import { SelectionHotspots } from './SelectionHotspots';
 
-const DESKTOP_POOL = 5000;
-const MOBILE_POOL = 1000;
+import { Entity, Scene } from '@vectojs/core';
+import type { IRenderer } from '@vectojs/core';
+import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
+import { VideoSourceError } from '@vectojs/danmaku-kit/model';
+import type { VideoLoadState, VideoSelection } from '@vectojs/danmaku-kit/model';
+import {
+  DanmakuCommandDeck,
+  DanmakuLabDrawer,
+  DanmakuStatusBar,
+  DevToolsInfoPanel,
+  InteractionsPanel,
+  ThroughputPanel,
+  VideosPanel,
+} from '@vectojs/danmaku-kit/ui';
+import type {
+  DanmakuStatusKind,
+  DevToolsAvailability,
+  VideoCatalogRow,
+} from '@vectojs/danmaku-kit/ui';
+import { ContentLibrary } from '../model/ContentLibrary';
+import { FrameProfiler } from '../model/FrameProfiler';
+import { PRESET_TRANSLATIONS, detectBrowserLanguage, t } from '../model/i18n';
+import type { Language } from '../model/i18n';
+import { generateLargeTimedTrack } from '../model/demoTimedTrack';
+import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
+import { saveUserDanmaku } from '../model/UserDanmakuStore';
+import {
+  DEFAULT_VIDEO_ID,
+  VIDEO_CATALOG,
+  resolveVideoSelection,
+  videoById,
+} from '../model/VideoCatalog';
+import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
+import { DanmakuAnnouncer } from './DanmakuAnnouncer';
+import { DanmakuLayer } from './DanmakuLayer';
+import { loadMSDFAtlas } from './MSDFAtlas';
+import { ParticleSystem } from './ParticleSystem';
+import type { StageBackgroundOptions } from './StageBackground';
+import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
+
+const DESKTOP_POOL = 20_000;
+const MOBILE_POOL = 5_000;
 const MOBILE_BREAKPOINT = 768;
-const HUD_UPDATE_INTERVAL_MS = 500;
+const STATUS_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
-const PANEL_WIDTH = 280;
 const INTERACTIVE_IDLE_MS = 1500;
+const DESKTOP_DRAWER_RATIO = 0.46;
+const MOBILE_DRAWER_RATIO = 0.69;
+const OVERLAY_MARGIN_DESKTOP = 16;
+const OVERLAY_MARGIN_MOBILE = 8;
+const COMMAND_DECK_MAX_WIDTH = 960;
+const FRAME_METRICS = ['fps', 'frame-time'] as const;
+const DRAW_METRICS = ['gl-runs', 'gl-glyphs', 'canvas-slots'] as const;
+const DISTRIBUTIONS = ['steady', 'bursty'] as const;
+const EFFECT_IDS = ['glow', 'gradient', 'rainbow', 'outline'] as const;
+const RENDER_CLASSES = ['backend', 'glyphs', 'canvas'] as const;
 
 type AppMode = 'stress' | 'video';
+
+type LabTab = 'videos' | 'throughput' | 'interactions' | 'devtools';
+type FrameMetricId = (typeof FRAME_METRICS)[number];
+type DrawMetricId = (typeof DRAW_METRICS)[number];
+type DistributionId = (typeof DISTRIBUTIONS)[number];
+type EffectId = (typeof EFFECT_IDS)[number];
+type RenderClassId = (typeof RENDER_CLASSES)[number];
+
+import { StageBackground } from './StageBackground';
+
+export interface AppOptions {
+  stageBackground?: StageBackground;
+  stageBackgroundOptions?: StageBackgroundOptions;
+}
 
 class Ticker extends Entity {
   constructor(readonly app: App) {
@@ -73,15 +119,23 @@ export class App {
   private stageH = 0;
   private isMobile = false;
 
-  private bg!: StageBackground;
+  private bg: StageBackground;
   private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
-  private hud!: HUD;
-  /** On-demand per-frame time-series recorder (see FrameProfiler). */
-  /** Mirrors of control-panel state, so a profile report is self-describing. */
+  private statusBar!: DanmakuStatusBar;
+  private commandDeck!: DanmakuCommandDeck;
+  private labDrawer!: DanmakuLabDrawer<LabTab>;
+  private videosPanel!: VideosPanel<string>;
+  private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
+  private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
+  private devtoolsPanel!: DevToolsInfoPanel;
+  private ticker: Ticker | null = null;
+  private particleOverlay: ParticleOverlay | null = null;
+  private started = false;
+  private destroyed = false;
   private _profSpawnRate: number | null = null;
   private _profTargetCount: number | null = null;
-  private _profMode: string | null = null;
+  private _profMode: string | null = 'video';
 
   /** Exposed so render-heavy nodes can mark their own phases. */
   readonly profilerRef = () => this.profiler;
@@ -91,32 +145,45 @@ export class App {
     ratePerSec: this._profSpawnRate,
     targetCount: this._profTargetCount,
     mode: this._profMode,
-    glyphCacheHitPct: Math.round((this.hud?.data.measureTextHitRate ?? 100) * 10) / 10,
+    glyphCacheHitPct: Math.round(this._measureTextHitRate * 10) / 10,
     drawPath: this.danmakuLayer ? { ...this.danmakuLayer.drawStats } : undefined,
-    heapUsedMB: this.hud?.data.heapUsedMB ?? null,
+    heapUsedMB: this._heapUsedMB,
     userAgent: navigator.userAgent,
   }));
-  private dock!: Dock;
-  private controlCenter!: ControlCenter;
-  private playerControls!: PlayerControls;
-  private helpBtn!: Button;
-  private panelOpen = false;
 
-  private mode: AppMode = 'stress';
-  private danmakuTrack!: DanmakuTrack;
+  private _reactionStore: ReactionStore | null = null;
+  private _selectedSlotId: number | null = null;
+  private readonly _selectionHotspots: SelectionHotspots;
+
+  private labOpen = false;
+
+  private activeLabTab: LabTab = 'videos';
+  private distributionId: DistributionId = 'steady';
+  private videoLoadState: VideoLoadState = { status: 'idle' };
+  private currentVideoSelection: VideoSelection = { kind: 'catalog', id: DEFAULT_VIDEO_ID };
+  private pendingVideoSelection: VideoSelection | null = null;
+  private pendingTrackProfileId: string | null = null;
+  private devtoolsAvailability: DevToolsAvailability = import.meta.env.DEV
+    ? 'reload-required'
+    : 'unavailable';
+  private _viewportTop = 0;
+  private _viewportBottom: number | null = null;
+
+  private mode: AppMode = 'video';
+  private danmakuTrack!: ProfiledDanmakuTrack;
   private videoLoading = false;
-  private videoLoadFailed = false;
+  private _videoRequestId = 0;
   private _stressTargetBeforeVideo = 500;
-  showcasePhysics = false;
-  showcaseJelly = false;
 
-  // Language & Video tracking state
+  // Language and stable video/profile identity.
   currentLang: Language;
-  currentVideoUrl = '/video/demo-clip.mp4';
+  currentVideoId = DEFAULT_VIDEO_ID;
+  currentTrackProfileId = videoById(DEFAULT_VIDEO_ID)!.defaultTrackProfileId;
 
-  // Sliding panel animation X coordinate
-  private _panelX = 0;
   private _particlesActive = false;
+  private _frameTimeMs = 16.67;
+  private _measureTextHitRate = 100;
+  private _heapUsedMB: number | null = null;
 
   /** True while a danmaku is being dragged. */
   get isDragging(): boolean {
@@ -129,6 +196,7 @@ export class App {
   }
 
   /** True while the ambient gradient background is animating. */
+
   get hasAmbientAnimation(): boolean {
     return this.bg.mode === 'ambient';
   }
@@ -160,10 +228,9 @@ export class App {
   private _lastFps = 60;
   private _lastA11y = 0;
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, options: AppOptions = {}) {
     this.scene = scene;
     this.currentLang = detectBrowserLanguage();
-    this._panelX = window.innerWidth; // start panel closed
 
     const isMobileInit = window.innerWidth < MOBILE_BREAKPOINT;
     const poolCap = isMobileInit ? MOBILE_POOL : DESKTOP_POOL;
@@ -179,16 +246,25 @@ export class App {
       { textSampler: () => ContentLibrary.sample() },
     );
 
-    this.bg = new StageBackground();
+    this._selectionHotspots = new SelectionHotspots({
+      onLikeToggle: () => this._handleLikeToggle(),
+      onCopy: () => this._handleCopy(),
+      likeLabel: () => 'Like Danmaku',
+      copyLabel: () => 'Copy Danmaku Text',
+    });
+    this.scene.add(this._selectionHotspots);
+
+    this.bg = options.stageBackground ?? new StageBackground(options.stageBackgroundOptions);
+    this.bg.mode = 'video';
     this.announcer = new DanmakuAnnouncer();
     this._stressTargetBeforeVideo = isMobileInit ? 200 : 500;
+    this._profTargetCount = this._stressTargetBeforeVideo;
+    this._profSpawnRate = this.scheduler.rate;
+    this.scheduler.setTargetCount(0);
 
-    // Default 15s track generator
-    const initialTrack = generateLargeTimedTrack(15);
-    this.danmakuTrack = new DanmakuTrack(initialTrack);
-
-    // Initial build of UI controls
-    this._buildUI();
+    const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
+    const initialTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
+    this.danmakuTrack = new ProfiledDanmakuTrack(initialTrack.entries);
 
     // One batch-painting node for the entire stress pool (see DanmakuLayer).
     this.danmakuLayer = new DanmakuLayer(this.pool, () => ({
@@ -214,156 +290,473 @@ export class App {
     scene.add(this.bg);
     scene.add(this.danmakuLayer);
     scene.add(this.announcer);
-    scene.showOverlay(new ParticleOverlay());
+    this._buildUI();
+    this.particleOverlay = new ParticleOverlay();
+    scene.showOverlay(this.particleOverlay);
   }
 
-  /** Build or rebuild all UI overlay cards dynamically on lang/source change */
+  /** Compose package surfaces once with Bakudan-owned data and actions. */
   private _buildUI(): void {
-    if (this.hud?.parent) this.scene.hideOverlay(this.hud);
-    if (this.dock?.parent) this.scene.hideOverlay(this.dock);
-    if (this.controlCenter?.parent) this.scene.hideOverlay(this.controlCenter);
-    if (this.playerControls?.parent) this.scene.hideOverlay(this.playerControls);
-    if (this.helpBtn?.parent) this.scene.hideOverlay(this.helpBtn);
+    const labels = cinemaLabelsFor(this.currentLang);
+    const catalog: VideoCatalogRow[] = VIDEO_CATALOG.map((entry) => ({
+      ...entry,
+      metadata: [
+        { label: 'Duration', value: `${entry.durationHint}s` },
+        { label: 'Aspect', value: `${entry.aspectRatio}` },
+        { label: 'Coverage', value: entry.testTags.join(', ') || 'custom' },
+      ],
+      attribution: entry.attribution
+        ? `${entry.attribution.label} · ${entry.attribution.license} · ${entry.attribution.url}`
+        : '',
+    }));
+    const profiles = [...TRACK_PROFILES.values()].map((profile) => ({
+      id: profile.id,
+      label: profile.label,
+      description:
+        `${profile.averagePerSecond}/s average · ${profile.peakPerSecond}/s peak · ` +
+        `${Math.round(profile.clusterRatio * 100)}% clustered`,
+    }));
 
-    this.hud = new HUD();
-    this.hud.lang = this.currentLang;
-
-    this.dock = new Dock(this.currentLang, {
-      onSend: (text) => this._onUserSend(text),
-      onTogglePanel: () => this._togglePanel(),
+    this.statusBar = new DanmakuStatusBar({
+      width: window.innerWidth,
+      product: labels.kit.product,
+      labels: labels.kit,
+      theme: BAKUDAN_THEME,
+      compact: this.isMobile,
     });
-
-    this.playerControls = new PlayerControls({
-      onPlayPause: () => this._togglePlayback(),
-      onSeek: (t) => this._onSeek(t),
-      onRateChange: (r) => {
-        this.bg.playbackRate = r;
+    this.commandDeck = new DanmakuCommandDeck({
+      width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
+      labels: labels.kit,
+      theme: BAKUDAN_THEME,
+      compact: this.isMobile,
+      labOpen: this.labOpen,
+      callbacks: {
+        onSend: (text) => this._onUserSend(text),
+        onPlayPause: () => this._togglePlayback(),
+        onSeek: (time) => this._onSeek(time),
+        onRateChange: (rate) => {
+          this.bg.playbackRate = rate;
+          this._syncPlaybackState();
+        },
+        onToggleLab: () => this.setLabOpen(!this.labOpen),
       },
     });
-
-    // Populate timeline curves
-    this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, this.bg.paused);
-    this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
-
-    this.controlCenter = new ControlCenter(
-      PANEL_WIDTH,
-      this.stageH || 600,
-      this.currentLang,
-      this.currentVideoUrl,
-      {
-        onPresetChange: (p) => {
-          this.activePreset = p;
-        },
-        onStressCountChange: (n) => {
-          this._profTargetCount = n;
-          this.scheduler.setTargetCount(n);
-        },
-        onStressRateChange: (r) => {
-          this._profSpawnRate = r;
-          this.scheduler.setSpawnRate(r);
-        },
-        onEffectToggle: (key) => {
-          // Brush semantics: the toggle changes what NEW danmaku are born
-          // with. Danmaku already on screen keep their own effects, so
-          // toggling rainbow, spawning some, then toggling glow yields a mix
-          // of effect types on screen at once (the "laboratory" behaviour).
-          this.effects[key] = !this.effects[key];
-          this.scheduler.activeEffects = { ...this.effects };
-        },
-        onToggleShowcase: (preset, enabled) => {
-          if (preset === 'physics') {
-            this.showcasePhysics = enabled;
-            this.scheduler.showcasePhysics = enabled;
-          } else if (preset === 'jelly') {
-            this.showcaseJelly = enabled;
-          }
-        },
-        onBgModeChange: (mode) => {
-          if (this.mode === 'video') return;
-          this.bg.mode = mode;
-          if (mode !== 'video') {
-            this.bg.stopVideo();
-          }
-        },
-        onVideoSourceChange: (url) => this._onVideoSourceChange(url),
-        onPresetParamChange: () => {},
-        onFpsCapChange: (fps) => {
-          this.scene.maxFPS = fps;
-        },
-        onAppModeChange: (m) => {
-          this._profMode = m;
-          this._setAppMode(m);
-        },
-        onLanguageChange: (lang) => this._changeLanguage(lang),
-        onTogglePanel: () => this._togglePanel(),
-        onToggleProfiler: () => this._toggleProfiler(),
+    this.videosPanel = new VideosPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.videos,
+      state: {
+        source: this.currentVideoSelection,
+        profileId: this.currentTrackProfileId,
+        loadState: this.videoLoadState,
       },
-    );
-
-    // Sync position coordinate
-    this.controlCenter.x = this._panelX;
-
-    this.helpBtn = new Button(t('help.btn', this.currentLang), {
-      bg: 'rgba(255, 255, 255, 0.85)',
-      hoverBg: 'rgba(255, 126, 95, 0.1)',
-      color: '#ff7e5f',
-      radius: 18,
-      font: '700 16px sans-serif',
+      catalog,
+      profiles,
+      onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+      onRetry: () => this._retryVideo(),
     });
-    this.helpBtn.width = 36;
-    this.helpBtn.height = 36;
-    this.helpBtn.on('click', () => {
-      const modal = new HelpModal(this.currentLang, this.stageW, this.stageH);
-      this.scene.showOverlay(modal);
+    this.throughputPanel = new ThroughputPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.throughput,
+      state: this._throughputState(),
+      distributions: [
+        { id: 'steady', label: 'Steady' },
+        { id: 'bursty', label: 'Bursty' },
+      ],
+      frameMetrics: [
+        { id: 'fps', label: 'FPS' },
+        { id: 'frame-time', label: 'Frame ms' },
+      ],
+      drawMetrics: [
+        { id: 'gl-runs', label: 'GL runs' },
+        { id: 'gl-glyphs', label: 'GL glyphs' },
+        { id: 'canvas-slots', label: 'Canvas slots' },
+      ],
+      targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+      quickTargets: this.isMobile
+        ? [
+            { value: 1000, label: '1K' },
+            { value: 2500, label: '2.5K' },
+            { value: 5000, label: '5K' },
+          ]
+        : [
+            { value: 5000, label: '5K' },
+            { value: 10_000, label: '10K' },
+            { value: 20_000, label: '20K' },
+          ],
+      rateRange: { min: 1, max: 2000, step: 10 },
+      onTargetChange: (target) => {
+        this._setAppMode('stress');
+        this._stressTargetBeforeVideo = target;
+        this._profTargetCount = target;
+        this.scheduler.setTargetCount(target);
+        this._syncThroughputState();
+      },
+      onRateChange: (rate) => {
+        this._setAppMode('stress');
+        this._profSpawnRate = rate;
+        this.scheduler.setSpawnRate(rate);
+        this._syncThroughputState();
+      },
+      onDistributionChange: (distributionId) => {
+        this.distributionId = distributionId;
+        this._syncThroughputState();
+      },
+    });
+    this.interactionsPanel = new InteractionsPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.interactions,
+      state: this._interactionsState(),
+      presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+        id,
+        label: PRESET_TRANSLATIONS[this.currentLang][id],
+      })),
+      effects: EFFECT_IDS.map((id) => ({ id, label: t(`fx.${id}`, this.currentLang) })),
+      renderClasses: [
+        { id: 'backend', label: 'Backend' },
+        { id: 'glyphs', label: 'MSDF glyphs' },
+        { id: 'canvas', label: 'Canvas fallbacks' },
+      ],
+      onPresetChange: (presetId) => {
+        this.activePreset = presetId;
+        this._syncInteractionsState();
+      },
+      onEffectChange: (effectId, enabled) => {
+        this.effects[effectId] = enabled;
+        this.scheduler.activeEffects = { ...this.effects };
+        this._syncInteractionsState();
+      },
+    });
+    this.devtoolsPanel = new DevToolsInfoPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.devtools,
+      state: {
+        availability: this.devtoolsAvailability,
+        canReload: import.meta.env.DEV,
+      },
+      onReload: () => this._loadDevtools(),
+    });
+    this.labDrawer = new DanmakuLabDrawer<LabTab>({
+      theme: BAKUDAN_THEME,
+      labels: labels.kit.lab,
+      panels: [
+        { id: 'videos', label: labels.kit.lab.videos, panel: this.videosPanel },
+        { id: 'throughput', label: labels.kit.lab.throughput, panel: this.throughputPanel },
+        {
+          id: 'interactions',
+          label: labels.kit.lab.interactions,
+          panel: this.interactionsPanel,
+        },
+        { id: 'devtools', label: labels.kit.lab.devtools, panel: this.devtoolsPanel },
+      ],
+      open: this.labOpen,
+      activeTab: this.activeLabTab,
+      onOpenChange: (open) => this.setLabOpen(open),
+      onActiveTabChange: (tabId) => this.setActiveLabTab(tabId),
     });
 
-    this.scene.showOverlay(this.hud);
-    this.scene.showOverlay(this.dock);
-    this.scene.showOverlay(this.controlCenter);
-    this.scene.showOverlay(this.helpBtn);
-
-    if (this.mode === 'video') {
-      this.scene.showOverlay(this.playerControls);
-    }
+    this._syncStatus();
+    this._syncPlaybackState();
+    this.scene.showOverlay(this.statusBar);
+    this.scene.showOverlay(this.commandDeck);
+    this.scene.showOverlay(this.labDrawer);
   }
 
-  private _onVideoSourceChange(url: string): void {
-    if (this.currentVideoUrl === url) return;
-    this.currentVideoUrl = url;
+  selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
+    const sameSource = this._sameVideoSelection(selection, this.currentVideoSelection);
+    const profileId = requestedProfileId ?? resolveVideoSelection(selection).defaultTrackProfileId;
+    if (sameSource && profileId === this.currentTrackProfileId) {
+      if (this.mode !== 'video') {
+        this._setAppMode('video');
+        this._togglePlayback();
+      }
+      return;
+    }
+    if (sameSource) {
+      this._onTrackProfileChange(profileId);
+      return;
+    }
+    this._loadVideoSelection(selection, profileId);
+  }
+
+  private _retryVideo(): void {
+    if (!this.pendingVideoSelection || !this.pendingTrackProfileId) return;
+    this._loadVideoSelection(this.pendingVideoSelection, this.pendingTrackProfileId);
+  }
+
+  private _loadVideoSelection(selection: VideoSelection, requestedProfileId?: string): void {
+    const candidate = resolveVideoSelection(selection);
+    const profileId = requestedProfileId ?? candidate.defaultTrackProfileId;
+    const profile = TRACK_PROFILES.get(profileId);
+    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
+
+    const requestId = ++this._videoRequestId;
+    this.pendingVideoSelection = selection;
+    this.pendingTrackProfileId = profileId;
     this.videoLoading = true;
-    this.bg.stopVideo();
-
-    this.bg
-      .setVideo(url)
+    this.videoLoadState = { status: 'loading', candidateId: candidate.id };
+    this._setAppMode('video');
+    this._clearSelection();
+    this._setAppMode('video');
+    this._syncVideosState();
+    this._syncStatus();
+    this._syncPlaybackState();
+    void this.bg
+      .setVideo(candidate.source.url)
       .then(() => {
+        if (requestId !== this._videoRequestId || this.destroyed) return;
         this.videoLoading = false;
-        const duration = this.bg.duration || 15;
-
-        // Dynamic timed track & density map
-        const trackData = generateLargeTimedTrack(duration);
-        this.danmakuTrack = new DanmakuTrack(trackData);
-
-        this.playerControls.setPlaybackState(0, duration, true);
-        this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
-
+        this._reactionStore = new ReactionStore(candidate.id);
+        this.currentVideoSelection = selection;
+        this.currentVideoId = candidate.id;
+        this.currentTrackProfileId = profile.id;
+        const duration = this.bg.duration || candidate.durationHint;
+        this._installVideoTrack(duration, candidate.id, profile.id);
+        this.videoLoadState = { status: 'ready', sourceId: candidate.id };
+        this.pendingVideoSelection = null;
+        this.pendingTrackProfileId = null;
         this.bg.onEnded(() => {
-          this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
+          this._syncPlaybackState();
+          this._syncStatus();
+        });
+        this._syncVideosState();
+        this._syncPlaybackState();
+        this._syncStatus();
+        void this.bg.play().catch((error: unknown) => {
+          const sourceError = this._asVideoSourceError(error);
+          if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
+          this._syncPlaybackState();
+          this._syncStatus();
         });
         this.scene.markDirty();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (requestId !== this._videoRequestId || this.destroyed) return;
+        const sourceError = this._asVideoSourceError(error);
         this.videoLoading = false;
-        this.videoLoadFailed = true;
-        this.announcer.setSummary('Video failed to load.');
+        this.videoLoadState = {
+          status: 'error',
+          candidateId: candidate.id,
+          error: sourceError,
+        };
+        this._announceVideoError(sourceError);
+        this._syncVideosState();
+        this._syncPlaybackState();
+        this._syncStatus();
       });
   }
 
-  private _changeLanguage(lang: Language): void {
-    if (this.currentLang === lang) return;
-    this.currentLang = lang;
-    this._buildUI();
-    this.onResize(this.stageW, this.stageH);
+  private _onTrackProfileChange(profileId: string): void {
+    const profile = TRACK_PROFILES.get(profileId);
+    if (!profile || profileId === this.currentTrackProfileId) return;
+    this.currentTrackProfileId = profileId;
+    if (this.bg.isVideoReady) {
+      this._clearSelection();
+      const currentTime = this.bg.currentTime;
+      this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
+      this.danmakuTrack.seek(currentTime);
+    }
+    this._syncVideosState();
     this.scene.markDirty();
+  }
+
+  private _installVideoTrack(duration: number, videoId: string, profileId: string): void {
+    const profile = TRACK_PROFILES.get(profileId);
+    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
+    const profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
+    this.danmakuTrack = new ProfiledDanmakuTrack(profiledTrack.entries);
+  }
+
+  private _sameVideoSelection(a: VideoSelection, b: VideoSelection): boolean {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === 'catalog' && b.kind === 'catalog') return a.id === b.id;
+    return a.kind === 'custom' && b.kind === 'custom' && a.url === b.url;
+  }
+
+  private _asVideoSourceError(error: unknown): VideoSourceError {
+    if (error instanceof VideoSourceError) return error;
+    let code: VideoSourceError['code'] = 'media-error';
+    let message = 'Video source failed';
+    if (error && typeof error === 'object') {
+      if ('code' in error) {
+        const value = error.code;
+        if (
+          value === 'network-error' ||
+          value === 'metadata-error' ||
+          value === 'playback-rejected' ||
+          value === 'media-error'
+        ) {
+          code = value;
+        }
+      }
+      if ('message' in error && typeof error.message === 'string') message = error.message;
+    }
+    return new VideoSourceError(code, message);
+  }
+
+  private _announceVideoError(error: VideoSourceError): void {
+    const key =
+      error.code === 'network-error'
+        ? 'video.error.network'
+        : error.code === 'metadata-error'
+          ? 'video.error.metadata'
+          : error.code === 'playback-rejected'
+            ? 'video.error.playback'
+            : 'video.error.media';
+    this.announcer.setSummary(t(key, this.currentLang));
+  }
+
+  private _throughputState() {
+    const draw = this.danmakuLayer.drawStats;
+    return {
+      capacity: this.pool.capacity,
+      target: this.scheduler.target,
+      rate: this.scheduler.rate,
+      distributionId: this.distributionId,
+      framePercentiles: {
+        fps: this._lastFps,
+        'frame-time': this._frameTimeMs,
+      },
+      drawSplit: {
+        'gl-runs': draw.glRuns,
+        'gl-glyphs': draw.glGlyphs,
+        'canvas-slots': draw.c2dBlits + draw.c2dFillText + draw.special,
+      },
+    };
+  }
+
+  private _interactionsState() {
+    const draw = this.danmakuLayer.drawStats;
+    return {
+      presetId: this.activePreset,
+      effects: { ...this.effects },
+      renderClasses: {
+        backend: (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
+          ? 'WebGL + Canvas2D'
+          : 'Canvas2D',
+        glyphs: `${draw.glGlyphs}`,
+        canvas: `${draw.c2dBlits + draw.c2dFillText + draw.special}`,
+      },
+    };
+  }
+
+  private _syncVideosState(): void {
+    this.videosPanel.setState({
+      source: this.currentVideoSelection,
+      profileId: this.currentTrackProfileId,
+      loadState: this.videoLoadState,
+    });
+  }
+
+  private _syncThroughputState(): void {
+    this.throughputPanel.setState(this._throughputState());
+  }
+
+  private _syncInteractionsState(): void {
+    this.interactionsPanel.setState(this._interactionsState());
+  }
+
+  private _statusKind(): DanmakuStatusKind {
+    if (this.videoLoading) return 'loading';
+    if (this.videoLoadState.status === 'error') return 'error';
+    if (this.mode === 'stress') return 'stress';
+    if (this.bg.paused) return 'paused';
+    return 'video';
+  }
+
+  private _syncStatus(): void {
+    this.statusBar.setStatus({
+      state: this._statusKind(),
+      fps: this._lastFps,
+      active: this.pool.activeCount,
+      capacity: this.pool.capacity,
+      backend: (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
+        ? 'WebGL/MSDF'
+        : 'Canvas2D',
+    });
+  }
+
+  private _syncPlaybackState(): void {
+    this.commandDeck.setPlaybackState({
+      currentTime: this.bg.currentTime,
+      duration: this.bg.duration,
+      playing: this.isVideoPlaying,
+      rate: this.bg.playbackRate,
+      disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
+    });
+  }
+
+  setLabOpen(open: boolean): void {
+    if (this.labOpen === open) return;
+    this.labOpen = open;
+    this.labDrawer.setOpen(open);
+    this._layoutCinema();
+    this.scene.markDirty();
+  }
+
+  setActiveLabTab(tabId: LabTab): void {
+    if (this.activeLabTab === tabId) return;
+    this.activeLabTab = tabId;
+    this.labDrawer.setActiveTab(tabId);
+    this.scene.markDirty();
+  }
+
+  private _loadDevtools(): void {
+    if (!import.meta.env.DEV || this.devtoolsAvailability === 'available') return;
+    void import('@vectojs/devtools')
+      .then(() => {
+        if (this.destroyed) return;
+        this.devtoolsAvailability = 'available';
+        this.devtoolsPanel.setState({ availability: 'available', canReload: false });
+      })
+      .catch(() => {
+        if (this.destroyed) return;
+        this.devtoolsAvailability = 'unavailable';
+        this.devtoolsPanel.setState({ availability: 'unavailable', canReload: false });
+      });
+  }
+
+  getViewSnapshot(): Readonly<{
+    mode: AppMode;
+    labOpen: boolean;
+    activeLabTab: LabTab;
+    videoId: string;
+    profileId: string;
+    videoLoadState: VideoLoadState;
+  }> {
+    return {
+      mode: this.mode,
+      labOpen: this.labOpen,
+      activeLabTab: this.activeLabTab,
+      videoId: this.currentVideoId,
+      profileId: this.currentTrackProfileId,
+      videoLoadState: this.videoLoadState,
+    };
+  }
+
+  getCinemaLayoutSnapshot() {
+    return {
+      status: {
+        x: this.statusBar.x,
+        y: this.statusBar.y,
+        width: this.statusBar.width,
+        height: this.statusBar.height,
+      },
+      command: {
+        x: this.commandDeck.x,
+        y: this.commandDeck.y,
+        width: this.commandDeck.width,
+        height: this.commandDeck.height,
+        controls: this.commandDeck.layoutSnapshot(),
+      },
+      drawer: {
+        x: this.labDrawer.x,
+        y: this.labDrawer.y,
+        width: this.labDrawer.width,
+        height: this.labDrawer.height,
+        open: this.labDrawer.isOpen,
+        childCount: this.labDrawer.children.length,
+      },
+    };
   }
 
   onResize(width: number, height: number): void {
@@ -371,137 +764,102 @@ export class App {
     this.stageH = height;
     this.isMobile = width < MOBILE_BREAKPOINT;
     this.scheduler.resize(width, height);
-
     this.bg.width = width;
     this.bg.height = height;
-    this.hud.alignToStage(width);
-
-    if (this.helpBtn) {
-      this.helpBtn.x = 24;
-      this.helpBtn.y = height - 24 - 36;
-    }
-
-    // Recalculate offscreen coordinate targets
-    const targetPanelX = this.panelOpen ? width - PANEL_WIDTH : width;
-    this._panelX = targetPanelX;
-    this.controlCenter.x = this._panelX;
-
-    this._layoutDock(width, height);
-    this._layoutPanel(width, height);
-    this._layoutPlayerControls(width, height);
-
+    this._layoutCinema();
     this.scene.markDirty();
   }
 
-  onViewportChange(vp: VisualViewport): void {
-    if (this.isMobile) {
-      const vpBottom = vp.height + vp.offsetTop;
-      this.dock.y = Math.max(0, vpBottom - 60);
-      this.scene.markDirty();
-    }
+  onViewportChange(viewport: VisualViewport): void {
+    this._viewportTop = viewport.offsetTop;
+    this._viewportBottom = viewport.offsetTop + viewport.height;
+    this._layoutCinema();
+    this.scene.markDirty();
+  }
+
+  private _layoutCinema(): void {
+    if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
+    const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
+    const compact = this.isMobile;
+    const viewportTop = Math.max(0, this._viewportTop);
+    const viewportBottom = Math.min(
+      this.stageH,
+      Math.max(viewportTop, this._viewportBottom ?? this.stageH),
+    );
+    const viewportHeight = Math.max(0, viewportBottom - viewportTop);
+    const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
+    this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
+    this.statusBar.x = margin;
+    this.statusBar.y = viewportTop + margin;
+    this.commandDeck.setCompact(compact).setWidth(deckWidth);
+    this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
+
+    const drawerHeight = Math.round(
+      viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
+    );
+    const drawerY = viewportBottom - drawerHeight;
+    this.labDrawer.setAvailableBounds({ width: this.stageW, height: drawerHeight });
+    this.labDrawer.x = 0;
+    this.labDrawer.y = drawerY;
+    const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
+    this.commandDeck.y = Math.max(
+      this.statusBar.y + this.statusBar.height + margin,
+      commandBottom - this.commandDeck.height,
+    );
   }
 
   start(): void {
+    if (this.started || this.destroyed) return;
+    this.started = true;
     this._setupPointerTracking();
-    this.scene.add(new Ticker(this));
-    // Load the MSDF atlas and hand it to the danmaku layer so plain text draws
-    // through the batched WebGL glyph path. Async + best-effort: until it
-    // resolves (or if it fails / WebGL is unavailable) the layer stays on the
-    // Canvas2D glyph-bitmap fallback, so nothing blocks startup.
+    this.ticker = new Ticker(this);
+    this.scene.add(this.ticker);
+    if (this.stageW === 0 || this.stageH === 0) {
+      this.onResize(this.scene.width, this.scene.height);
+    }
+    this._loadVideoSelection(this.currentVideoSelection, this.currentTrackProfileId);
     void loadMSDFAtlas().then((atlas) => {
-      if (atlas) {
+      if (atlas && !this.destroyed) {
         this.danmakuLayer.setMSDF(atlas);
         this.scene.markDirty();
       }
     });
   }
 
-  /**
-   * Start a ~5s frame recording, or stop one early. On completion the JSON
-   * report is copied to the clipboard AND logged, because a canvas app has no
-   * DOM text field to select — clipboard is the only reliable way to get it out.
-   */
-  private _toggleProfiler(): string {
-    if (this.profiler.isRunning) {
-      return this._finishProfile();
-    }
-    this.profiler.start();
-    // Auto-stop so the user does not have to time it by hand.
-    window.setTimeout(() => {
-      if (this.profiler.isRunning) {
-        this.controlCenter?.setProfilerStatus(this._finishProfile());
-        this.scene.markDirty();
-      }
-    }, 5000);
-    return 'Recording… 0 frames';
-  }
-
-  private _finishProfile(): string {
-    const report = this.profiler.stop();
-    if (!report) return 'Too few frames — try again';
-    const json = JSON.stringify(report, null, 2);
-    // Always log: the clipboard can be denied, the console cannot.
-    console.log('[bakudan] frame profile\n' + json);
-    const summary =
-      `${report.frames} frames · p50 ${report.frameTimeMs.p50}ms · ` +
-      `p95 ${report.frameTimeMs.p95}ms · jitter ±${report.frameTimeMs.stdDev}ms` +
-      (report.screenHz ? ` · ${report.screenHz}Hz` : '') +
-      (report.overBudget ? ` · ${report.overBudget.pct}% over budget` : '');
-    void navigator.clipboard
-      ?.writeText(json)
-      .then(() => {
-        this.controlCenter?.setProfilerStatus('Copied to clipboard! ' + summary);
-        this.scene.markDirty();
-      })
-      .catch(() => {
-        this.controlCenter?.setProfilerStatus('See console (clipboard denied). ' + summary);
-        this.scene.markDirty();
-      });
-    return summary;
-  }
-
   frame(dt: number): void {
     this.profiler.beginPhase('app.frame(js)');
-    if (this.profiler.isRunning) {
-      this.profiler.record(dt);
-      // Refresh the card roughly every 30 frames so it reads as "recording".
-      if (this.profiler.captured % 30 === 0) {
-        this.controlCenter?.setProfilerStatus(`Recording… ${this.profiler.captured} frames`);
-      }
-    }
+    if (this.profiler.isRunning) this.profiler.record(dt);
     this._frameAccumMs += dt;
     this._frameCount++;
-    if (this._frameAccumMs >= HUD_UPDATE_INTERVAL_MS) {
+    if (this._frameAccumMs >= STATUS_UPDATE_INTERVAL_MS) {
       this._lastFps = Math.round((this._frameCount / this._frameAccumMs) * 1000);
-      this.hud.data.fps = this._lastFps;
-      this.hud.data.frameTime = this._frameAccumMs / this._frameCount;
-      this.hud.data.entityCount = this.pool.activeCount;
-
-      // Glyph cache hit rate: the ratio of Canvas2D-fallback danmaku drawn as a
-      // cached `drawImage` blit vs. re-rasterized this session (core's
-      // TextRasterCache). At steady state the fixed content library is fully
-      // cached, so this pins near 100%.
+      this._frameTimeMs = this._frameAccumMs / this._frameCount;
       const { hits, misses } = this.danmakuLayer.rasterStats;
       const total = hits + misses;
-      this.hud.data.measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
-      this.hud.data.gcSavedCount = Math.round(this.pool.activeCount * this._lastFps);
-
+      this._measureTextHitRate = total > 0 ? (hits / total) * 100 : 100;
       if (
         typeof performance !== 'undefined' &&
         'memory' in performance &&
-        (performance as any).memory
+        performance.memory &&
+        typeof performance.memory === 'object' &&
+        'usedJSHeapSize' in performance.memory &&
+        typeof performance.memory.usedJSHeapSize === 'number'
       ) {
-        this.hud.data.heapUsedMB = Math.round((performance as any).memory.usedJSHeapSize / 1048576);
+        this._heapUsedMB = Math.round(performance.memory.usedJSHeapSize / 1048576);
       }
+      this._syncStatus();
+      this._syncThroughputState();
+      this._syncInteractionsState();
+      this._syncPlaybackState();
       this._frameAccumMs = 0;
       this._frameCount = 0;
     }
 
     if (Date.now() - this._lastA11y >= A11Y_UPDATE_INTERVAL_MS) {
       const latest = this.pool.slots
-        .filter((s) => s.active)
+        .filter((slot) => slot.active)
         .slice(-3)
-        .map((s) => s.params.text)
+        .map((slot) => slot.params.text)
         .join(', ');
       this.announcer.setSummary(
         `${this.pool.activeCount} danmaku active. Latest: ${latest || 'none'}`,
@@ -509,28 +867,9 @@ export class App {
       this._lastA11y = Date.now();
     }
 
-    // 1. Update Particle Physics
     this.profiler.beginPhase('particles.update');
     this._particlesActive = ParticleSystem.update(dt);
     this.profiler.endPhase('particles.update');
-
-    // 2. Interpolate Panel Slide Transition
-    const targetPanelX = this.panelOpen ? this.stageW - PANEL_WIDTH : this.stageW;
-    if (this._panelX !== targetPanelX) {
-      const speed = 1800; // px/sec
-      const dist = targetPanelX - this._panelX;
-      const step = Math.sign(dist) * speed * (dt / 1000);
-      if (Math.abs(step) >= Math.abs(dist)) {
-        this._panelX = targetPanelX;
-      } else {
-        this._panelX += step;
-      }
-      this.controlCenter.x = this._panelX;
-      // Sync Dock & PlayerControls layout to match the active viewport bounds!
-      this._layoutDock(this.stageW, this.stageH);
-      this._layoutPlayerControls(this.stageW, this.stageH);
-      this.scene.markDirty();
-    }
 
     if (!this._dragSlot) {
       const now = performance.now();
@@ -570,116 +909,113 @@ export class App {
   }
 
   private _updateHover(): void {
-    let foundTop = false;
     const slots = this.pool.slots;
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active) continue;
-      if (!foundTop) {
-        const localX = this.pointerX - s.x;
-        const localY = this.pointerY - s.y;
-        if (localX >= 0 && localY >= 0) {
-          const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
-          const h = (s.params.fontSize || 24) * 1.4;
-          if (localX <= w && localY <= h) {
-            if (!s.hovered) {
-              s.hovered = true;
-              s.paused = true;
-            }
-            foundTop = true;
-            continue;
-          }
+    let slotHovered = false;
+
+    if (this._selectedSlotId !== null) {
+      const s = slots[this._selectedSlotId];
+      if (s?.active && s.interactionLocked) {
+        const pillW = 80;
+        const pillH = 44;
+        const pillY = s.y + s.params.fontSize * 1.4 - pillH / 2;
+        this._selectionHotspots.liked = s.liked ?? false;
+        this._selectionHotspots.place(s.x, s.y, 44, 44);
+        if (
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + pillW &&
+          this.pointerY >= pillY &&
+          this.pointerY <= pillY + pillH
+        ) {
+          slotHovered = true;
         }
       }
-      if (s.hovered) {
+    }
+
+    if (!slotHovered) {
+      for (let i = slots.length - 1; i >= 0; i--) {
+        const s = slots[i];
+        if (!s.active || s.interactionLocked) {
+          s.hovered = false;
+          continue;
+        }
         s.hovered = false;
-        s.paused = s.dragging;
+        if (
+          !slotHovered &&
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + s.width + 44 &&
+          this.pointerY >= s.y &&
+          this.pointerY <= s.y + s.params.fontSize * 1.5
+        ) {
+          s.hovered = true;
+          slotHovered = true;
+        }
+        s.paused = s.dragging || s.hovered;
       }
     }
   }
 
   private _setAppMode(mode: AppMode): void {
     if (this.mode === mode) return;
+    this._clearSelection();
     this.mode = mode;
-
+    this._profMode = mode;
     if (mode === 'video') {
-      this._stressTargetBeforeVideo = this.scheduler.target;
       this.scheduler.setTargetCount(0);
       this.bg.mode = 'video';
-      this.danmakuTrack.reset();
-      this.videoLoadFailed = false;
-      if (!this.videoLoading && !this.bg.isVideoReady) {
-        this.videoLoading = true;
-        this.bg
-          .setVideo(this.currentVideoUrl)
-          .then(() => {
-            this.videoLoading = false;
-            const duration = this.bg.duration || 15;
-
-            // Generate localized timely track
-            const trackData = generateLargeTimedTrack(duration);
-            this.danmakuTrack = new DanmakuTrack(trackData);
-
-            this.playerControls.setPlaybackState(0, duration, true);
-            this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
-
-            this.bg.onEnded(() => {
-              this.playerControls.setPlaybackState(this.bg.currentTime, this.bg.duration, true);
-            });
-            this.scene.markDirty();
-          })
-          .catch(() => {
-            this.videoLoading = false;
-            this.videoLoadFailed = true;
-            this.announcer.setSummary('Video failed to load.');
-            this.bg.mode = 'ambient';
-          });
-      }
-      if (!this.playerControls.parent) this.scene.showOverlay(this.playerControls);
+      this.danmakuTrack.seek(this.bg.currentTime);
     } else {
+      this._stressTargetBeforeVideo = Math.max(0, this._stressTargetBeforeVideo);
       this.scheduler.setTargetCount(this._stressTargetBeforeVideo);
-      this.bg.mode = 'ambient';
       this.bg.pause();
-      if (this.playerControls.parent) this.scene.hideOverlay(this.playerControls);
     }
-    this._layoutPlayerControls(this.stageW, this.stageH);
+    this._syncStatus();
+    this._syncPlaybackState();
+    this._syncThroughputState();
     this.scene.markDirty();
   }
 
   private _frameVideo(): void {
-    if (this.videoLoadFailed || !this.bg.isVideoReady) {
-      return;
-    }
+    if (!this.bg.isVideoReady) return;
     const t = this.bg.currentTime;
     const fired = this.danmakuTrack.sync(t);
     for (const entry of fired) {
       this.scheduler.userSpawn({
         text: entry.text,
-        color: entry.color ?? '#453c38', // warm-charcoal default color
+        color: entry.color ?? '#f8fafc',
         fontSize: entry.fontSize ?? 24,
         speed: entry.speed ?? 200,
         opacity: 0.9,
         preset: entry.preset ?? 'scroll',
         presetParams: {},
-        effects: { ...this.effects },
+        effects: entry.effects ?? { ...this.effects },
       });
     }
-    this.playerControls.setPlaybackState(t, this.bg.duration, this.bg.paused);
+    this._syncPlaybackState();
   }
 
   private _togglePlayback(): void {
     if (this.bg.paused) {
-      this.bg.play().catch(() => {});
+      void this.bg
+        .play()
+        .catch((error: unknown) => this._announceVideoError(this._asVideoSourceError(error)))
+        .finally(() => {
+          this._syncPlaybackState();
+          this._syncStatus();
+        });
     } else {
       this.bg.pause();
+      this._syncPlaybackState();
+      this._syncStatus();
     }
   }
 
   private _onSeek(t: number): void {
+    this._clearSelection();
     this.bg.seek(t);
     this.danmakuTrack.seek(t);
     // While paused the loop is idle (no pending animation), so the new video
     // frame won't repaint on its own — force one.
+    this._syncPlaybackState();
     this.scene.markDirty();
   }
 
@@ -688,7 +1024,7 @@ export class App {
     const entry = {
       time: Math.round(time * 10) / 10,
       text,
-      color: '#453c38',
+      color: '#f8fafc',
       fontSize: 24,
       speed: 200,
       opacity: 0.9,
@@ -700,163 +1036,190 @@ export class App {
     this.scheduler.userSpawn(entry, true);
 
     if (this.mode === 'video') {
-      saveUserDanmaku(entry);
+      saveUserDanmaku(this.currentVideoId, entry);
       const duration = this.bg.duration || 15;
-      const trackData = generateLargeTimedTrack(duration);
-      this.danmakuTrack = new DanmakuTrack(trackData);
+      this._installVideoTrack(duration, this.currentVideoId, this.currentTrackProfileId);
       this.danmakuTrack.seek(this.bg.currentTime);
-      this.playerControls.setDanmakuDensity(this.danmakuTrack.getTimes());
     }
   }
 
-  private _togglePanel(): void {
-    this.panelOpen = !this.panelOpen;
-    this._layoutPanel(this.stageW, this.stageH);
-    this.scene.markDirty();
-  }
-
-  private _layoutDock(W: number, H: number): void {
-    if (this.isMobile) {
-      this.dock.width = W - 16;
-      this.dock.x = 8;
-      this.dock.y = H - 60;
-    } else {
-      // remaining space is exactly the animated panel coordinate
-      const remainingW = this._panelX;
-      this.dock.width = Math.min(600, remainingW - 32);
-      this.dock.x = (remainingW - this.dock.width) / 2;
-      this.dock.y = H - 60;
-    }
-  }
-
-  private _layoutPlayerControls(W: number, H: number): void {
-    if (this.isMobile) {
-      this.playerControls.width = W - 16;
-      this.playerControls.x = 8;
-      this.playerControls.y = H - 60 - 52;
-    } else {
-      const remainingW = this._panelX;
-      this.playerControls.width = Math.min(640, remainingW - 32);
-      this.playerControls.x = (remainingW - this.playerControls.width) / 2;
-      this.playerControls.y = H - 60 - 52;
-    }
-  }
-
-  private _layoutPanel(W: number, H: number): void {
-    if (this.isMobile) {
-      if (this.panelOpen) {
-        this.controlCenter.height = H * 0.5;
-        this.controlCenter.width = W;
-        this.controlCenter.x = 0;
-        this.controlCenter.y = H * 0.5;
-        if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
-      } else {
-        if (this.controlCenter.parent) this.scene.hideOverlay(this.controlCenter);
-      }
-    } else {
-      this.controlCenter.height = H;
-      this.controlCenter.y = 0;
-      this.controlCenter.width = PANEL_WIDTH;
-      // In desktop mode, controlCenter stays mounted overlay, X coordinate is animated via _panelX in frame()
-      if (!this.controlCenter.parent) this.scene.showOverlay(this.controlCenter);
-    }
-  }
-
-  /** Topmost active danmaku slot whose box (plus action strip) is under the
-   *  pointer. Scans back-to-front so the most-recently-drawn wins. */
   private _findSlotAtPointer(): PoolSlot | null {
     const slots = this.pool.slots;
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active) continue;
-      const localX = this.pointerX - s.x;
-      const localY = this.pointerY - s.y;
-      if (localX >= 0 && localY >= 0) {
-        const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
-        const h = (s.params.fontSize || 24) * 1.4;
-        if (localX <= w && localY <= h) {
+    if (this._selectedSlotId !== null) {
+      const s = slots[this._selectedSlotId];
+      if (s?.active && s.interactionLocked) {
+        if (
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + s.width &&
+          this.pointerY >= s.y &&
+          this.pointerY <= s.y + s.params.fontSize * 1.5
+        ) {
           return s;
         }
+      }
+    }
+    for (let i = slots.length - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (!s.active || s.interactionLocked) continue;
+      const localX = this.pointerX - s.x;
+      if (
+        localX >= 0 &&
+        localX <= s.width + (s.hovered ? 44 : 0) &&
+        this.pointerY >= s.y &&
+        this.pointerY <= s.y + s.params.fontSize * 1.5
+      ) {
+        return s;
       }
     }
     return null;
   }
 
-  private _setupPointerTracking(): void {
-    const canvas = (this.scene as any).canvas as HTMLCanvasElement | undefined;
+  private _handleTapStage(): void {
+    const slot = this._findSlotAtPointer();
+    if (!slot) {
+      this._clearSelection();
+      this._handleTapVideo();
+      return;
+    }
+
+    if (this._selectedSlotId !== null && this._selectedSlotId !== slot.id) {
+      this._clearSelection();
+    }
+
+    if (!slot.interactionLocked) {
+      slot.interactionLocked = true;
+      this._selectedSlotId = slot.id;
+      if (slot.params.contentId && this._reactionStore) {
+        const rx = this._reactionStore.get(slot.params.contentId);
+        slot.liked = rx.liked;
+      }
+      this.scene.markDirty();
+      return;
+    }
+
+    // If they clicked the already-selected slot body (not its actions), release it.
+    this._clearSelection();
+  }
+
+  private _clearSelection(): void {
+    if (this._selectedSlotId !== null) {
+      const s = this.pool.slots[this._selectedSlotId];
+      if (s) {
+        s.interactionLocked = false;
+        s.hovered = false;
+        s.paused = false;
+      }
+      this._selectedSlotId = null;
+      this._selectionHotspots.x = -1000;
+      this.scene.markDirty();
+    }
+  }
+
+  private _handleLikeToggle(): void {
+    if (this._selectedSlotId === null || !this._reactionStore) return;
+    const s = this.pool.slots[this._selectedSlotId];
+    if (!s || !s.active || !s.params.contentId) return;
+    const rx = this._reactionStore.toggle(s.params.contentId);
+    s.liked = rx.liked;
+    this.scene.markDirty();
+  }
+
+  private _handleCopy(): void {
+    if (this._selectedSlotId === null) return;
+    const s = this.pool.slots[this._selectedSlotId];
+    if (!s || !s.active) return;
+    const text = s.params.text;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(text).then(
+        () => console.log('Copied'), // Toast wiring elided for focus
+        () => console.warn('Clipboard unavailable'),
+      );
+    }
+  }
+
+  private _handleTapVideo(): void {
+    return;
+  }
+
+  private readonly _handlePointerMove = (event: PointerEvent): void => {
+    const canvas = this.scene.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    this.pointerX = (event.clientX - rect.left) * scaleX;
+    this.pointerY = (event.clientY - rect.top) * scaleY;
+    this._lastPointerMove = performance.now();
+    this._interactiveMode = true;
+    if (this._dragSlot) {
+      this._dragSlot.x = this.pointerX - this._dragOffX;
+      this._dragSlot.y = this.pointerY - this._dragOffY;
+      this.scene.markDirty();
+    }
+  };
+
+  private _handlePointerDown = (event: PointerEvent) => {
+    const canvas = this.scene.canvas;
     if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    this.pointerX = (event.clientX - rect.left) * scaleX;
+    this.pointerY = (event.clientY - rect.top) * scaleY;
 
-    canvas.addEventListener('pointermove', (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      this.pointerX = (e.clientX - rect.left) * scaleX;
-      this.pointerY = (e.clientY - rect.top) * scaleY;
-      this._lastPointerMove = performance.now();
-      if (!this._interactiveMode) {
-        this._interactiveMode = true;
-      }
+    const inCommandDeck =
+      this.pointerY >= this.stageH - (this.stageW > 768 ? 120 : 160) && this.mode === 'video';
 
-      if (this._dragSlot) {
-        this._dragSlot.x = this.pointerX - this._dragOffX;
-        this._dragSlot.y = this.pointerY - this._dragOffY;
-        this.scene.markDirty();
-      }
-    });
+    const inLab =
+      this.labOpen && this.pointerY >= (this.stageW > 768 ? this.stageH - 500 : this.stageH * 0.31);
 
-    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
-      this.pointerActive = true;
-      if (!this._interactiveMode) return;
+    if (this.labOpen && !inLab && !inCommandDeck) {
+      this.setLabOpen(false);
+      return;
+    }
 
-      // Click outside panel/dock to close
-      if (this.panelOpen) {
-        const clickInPanel =
-          this.pointerX >= this._panelX && this.pointerX <= this._panelX + this.controlCenter.width;
-        const clickInDock =
-          this.pointerX >= this.dock.x &&
-          this.pointerX <= this.dock.x + this.dock.width &&
-          this.pointerY >= this.dock.y &&
-          this.pointerY <= this.dock.y + this.dock.height;
-        if (!clickInPanel && !clickInDock) {
-          this._togglePanel();
-          return;
-        }
-      }
+    if (inLab || inCommandDeck || !this._interactiveMode) return;
 
-      const slot = this._findSlotAtPointer();
-      if (!slot) return;
+    this._handleTapStage();
 
-      const localX = this.pointerX - slot.x;
-      const action = slot.hovered ? hitAction(slot, localX) : null;
-      if (action === 'like') {
-        slot.liked = !slot.liked;
-        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, slot.params.color);
-        this.scene.markDirty();
-        return;
-      }
-      if (action === 'copy') {
-        navigator.clipboard.writeText(slot.params.text).catch(() => {});
-        ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#ff7e5f');
-        return;
-      }
+    this.scene.canvas.setPointerCapture(event.pointerId);
+  };
 
-      this._dragSlot = slot;
-      slot.dragging = true;
-      slot.paused = true;
-      this._dragOffX = this.pointerX - slot.x;
-      this._dragOffY = this.pointerY - slot.y;
-      canvas.setPointerCapture(e.pointerId);
-    });
+  private readonly _handlePointerEnd = (): void => {
+    this.pointerActive = false;
+    if (!this._dragSlot) return;
+    this._dragSlot.dragging = false;
+    this._dragSlot.paused = this._dragSlot.hovered;
+    this._dragSlot = null;
+  };
 
-    const endDrag = (): void => {
-      this.pointerActive = false;
-      if (this._dragSlot) {
-        this._dragSlot.dragging = false;
-        this._dragSlot.paused = this._dragSlot.hovered;
-        this._dragSlot = null;
-      }
-    };
-    canvas.addEventListener('pointerup', endDrag);
-    canvas.addEventListener('pointerleave', endDrag);
+  private _setupPointerTracking(): void {
+    const canvas = this.scene.canvas;
+    canvas.addEventListener('pointermove', this._handlePointerMove);
+    canvas.addEventListener('pointerdown', this._handlePointerDown);
+    canvas.addEventListener('pointerup', this._handlePointerEnd);
+    canvas.addEventListener('pointerleave', this._handlePointerEnd);
+  }
+
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this._videoRequestId++;
+    const canvas = this.scene.canvas;
+    canvas.removeEventListener('pointermove', this._handlePointerMove);
+    canvas.removeEventListener('pointerdown', this._handlePointerDown);
+    canvas.removeEventListener('pointerup', this._handlePointerEnd);
+    canvas.removeEventListener('pointerleave', this._handlePointerEnd);
+    this.labDrawer.setOpen(false);
+    if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
+    if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
+    if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
+    if (this.particleOverlay?.parent) this.scene.hideOverlay(this.particleOverlay);
+    if (this.ticker?.parent) this.scene.remove(this.ticker);
+    if (this.announcer.parent) this.scene.remove(this.announcer);
+    if (this.danmakuLayer.parent) this.scene.remove(this.danmakuLayer);
+    this.bg.destroy();
+    if (this.bg.parent) this.scene.remove(this.bg);
+    this.ticker = null;
+    this.particleOverlay = null;
   }
 }
