@@ -3,6 +3,7 @@ import type { CharacterEffects, TimedDanmakuEntry } from '@vectojs/danmaku-core'
 const STORAGE_PREFIX = 'bakudan:v1:user-danmaku:';
 
 export interface StoredUserDanmaku extends TimedDanmakuEntry {
+  id?: string;
   effects?: CharacterEffects;
 }
 
@@ -33,13 +34,14 @@ export function videoIdForCustomUrl(value: string): string {
 
 function isStoredEntry(value: unknown): value is StoredUserDanmaku {
   if (!value || typeof value !== 'object') return false;
-  const entry = value as { time?: unknown; text?: unknown };
+  const entry = value as { time?: unknown; text?: unknown; id?: unknown };
   return (
     typeof entry.time === 'number' &&
     Number.isFinite(entry.time) &&
     entry.time >= 0 &&
     typeof entry.text === 'string' &&
-    entry.text.trim().length > 0
+    entry.text.trim().length > 0 &&
+    (entry.id === undefined || typeof entry.id === 'string')
   );
 }
 
@@ -54,7 +56,24 @@ export function loadUserDanmakus(videoId: string): StoredUserDanmaku[] {
       localStorage.removeItem(key);
       return [];
     }
-    return parsed.filter(isStoredEntry).sort((left, right) => left.time - right.time);
+    const valid = parsed.filter(isStoredEntry).sort((left, right) => left.time - right.time);
+
+    // Deterministic migration for old entries without UUIDs
+    let changed = false;
+    for (let i = 0; i < valid.length; i++) {
+      if (!valid[i].id) {
+        valid[i].id = crypto.randomUUID();
+        changed = true;
+      }
+    }
+    if (changed) {
+      try {
+        localStorage.setItem(key, JSON.stringify(valid));
+      } catch {
+        // Ignore
+      }
+    }
+    return valid;
   } catch {
     try {
       localStorage.removeItem(key);

@@ -241,6 +241,7 @@ export class DanmakuLayer extends Entity {
     // Slots that need their own transform/effect pass (drawn after the plain
     // batched text so their glyphs sit on top and each gets isolated state).
     let special: PoolSlot[] | null = null;
+    let selected: PoolSlot | null = null;
 
     for (let i = 0; i < slots.length; i++) {
       const s = slots[i];
@@ -248,6 +249,10 @@ export class DanmakuLayer extends Entity {
       const fontSize = s.params.fontSize;
       // Inline frustum cull — skip anything fully off-screen.
       if (s.x > stageW || s.x + s.width < 0 || s.y > stageH || s.y + fontSize * 1.5 < 0) {
+        continue;
+      }
+      if (s.interactionLocked) {
+        selected = s;
         continue;
       }
       const cache = this._getSlotCache(s);
@@ -346,14 +351,6 @@ export class DanmakuLayer extends Entity {
             renderer.fillText(s.params.text, rx, textY, font, s.params.color);
           }
         }
-
-        if (s.hovered && interactive) {
-          if (curAlpha !== 1) {
-            renderer.setGlobalAlpha(1);
-            curAlpha = 1;
-          }
-          this._drawActions(renderer, s, fs, rx, ry);
-        }
       }
     }
 
@@ -362,6 +359,10 @@ export class DanmakuLayer extends Entity {
       for (let i = 0; i < special.length; i++) {
         this._renderSpecial(renderer, special[i], stageW, stageH, interactive);
       }
+    }
+
+    if (selected) {
+      this._renderSpecial(renderer, selected, stageW, stageH, interactive, true);
     }
 
     if (curAlpha !== 1) renderer.setGlobalAlpha(1);
@@ -379,6 +380,7 @@ export class DanmakuLayer extends Entity {
     _stageW: number,
     _stageH: number,
     interactive: boolean,
+    isSelected = false,
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
@@ -399,7 +401,8 @@ export class DanmakuLayer extends Entity {
     const ry = Math.round(s.y);
     const textY = ry + fontSize * 0.8;
 
-    if (s.userSent && s.width > 0) this._drawUserBox(renderer, rx, ry, s.width, fontSize);
+    if (isSelected || (s.userSent && s.width > 0))
+      this._drawUserBox(renderer, rx, ry, s.width, fontSize, isSelected);
 
     if (preset === 'glitch') {
       const t = s.age / 1000;
@@ -417,11 +420,12 @@ export class DanmakuLayer extends Entity {
         cx += charWidth(chars[i], fontSize);
       }
     } else {
-      if (effects.outline) {
-        renderer.fillText(text, rx + 1, textY, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, rx - 1, textY, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, rx, textY + 1, font, 'rgba(0,0,0,0.6)');
-        renderer.fillText(text, rx, textY - 1, font, 'rgba(0,0,0,0.6)');
+      if (effects.outline || isSelected) {
+        const outlineColor = isSelected ? 'rgba(96,165,250,0.8)' : 'rgba(0,0,0,0.6)';
+        renderer.fillText(text, rx + 1, textY, font, outlineColor);
+        renderer.fillText(text, rx - 1, textY, font, outlineColor);
+        renderer.fillText(text, rx, textY + 1, font, outlineColor);
+        renderer.fillText(text, rx, textY - 1, font, outlineColor);
       }
       let paint: string | unknown = color;
       if (effects.gradient) {
@@ -435,8 +439,8 @@ export class DanmakuLayer extends Entity {
       renderer.fillText(text, rx, textY, font, paint);
       if (effects.glow) renderer.fillText(text, rx, textY, font, color);
     }
-
     if (s.hovered && interactive) this._drawActions(renderer, s, fontSize, rx, ry);
+    if (isSelected) this._drawSelectedPill(renderer, s, rx, ry, s.liked ? 1 : 0);
     renderer.setGlobalAlpha(1);
   }
 
@@ -465,12 +469,18 @@ export class DanmakuLayer extends Entity {
     ry: number,
     width: number,
     fontSize: number,
+    isSelected = false,
   ): void {
     const pad = 4;
     renderer.beginPath();
     renderer.roundRect(rx - pad, ry - pad, width + pad * 2, fontSize * 1.2 + pad * 2, 4);
-    renderer.fill('rgba(255, 126, 95, 0.08)');
-    renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
+    if (isSelected) {
+      renderer.fill('rgba(96,165,250,0.15)');
+      renderer.stroke('rgba(96,165,250,0.8)', 1);
+    } else {
+      renderer.fill('rgba(255, 126, 95, 0.08)');
+      renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
+    }
   }
 
   private _drawActions(
@@ -480,23 +490,24 @@ export class DanmakuLayer extends Entity {
     rx: number,
     ry: number,
   ): void {
+    // Retained for unselected hover behavior
     const textEnd = rx + s.width;
     const btnFont = `${fontSize}px sans-serif`;
     renderer.fillText(s.liked ? '❤️' : '🤍', textEnd + 4, ry + fontSize * 0.8, btnFont, '#fff');
     renderer.fillText('📋', textEnd + 24, ry + fontSize * 0.8, btnFont, '#fff');
   }
-}
 
-/** Action-button hit region width (like + copy buttons past the text). */
-export const ACTION_BTN_WIDTH = 44;
-
-/**
- * Hit-test the action button strip at a local-x offset past the text.
- * Mirrors the layout drawn in `_drawActions`. Only valid while hovered.
- */
-export function hitAction(slot: PoolSlot, localX: number): ActionKind | null {
-  const textEnd = slot.width;
-  if (localX >= textEnd + 4 && localX < textEnd + 24) return 'like';
-  if (localX >= textEnd + 24 && localX < textEnd + 44) return 'copy';
-  return null;
+  private _drawSelectedPill(
+    renderer: IRenderer,
+    s: PoolSlot,
+    rx: number,
+    ry: number,
+    likeCount: number,
+  ): void {
+    const pillY = ry + s.params.fontSize * 1.4;
+    const btnFont = `14px sans-serif`;
+    renderer.fillText(s.liked ? '❤️' : '🤍', rx, pillY, btnFont, '#fff');
+    renderer.fillText(`${likeCount}`, rx + 20, pillY, btnFont, '#fff');
+    renderer.fillText('📋', rx + 60, pillY, btnFont, '#fff');
+  }
 }

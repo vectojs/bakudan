@@ -1,6 +1,6 @@
 # Bakudan Video-First Cinema Overlay Design
 
-**Status:** Approved for planning  
+**Status:** Approved for implementation  
 **Date:** 2026-08-01  
 **CarryCtx task:** CTX-0008  
 **Approved direction:** Cinema Overlay, normal collapsed viewing state
@@ -14,7 +14,7 @@ The redesign must not turn Bakudan into a conventional dashboard. Video owns the
 ### Goals
 
 - Make synchronized video playback the default experience.
-- Provide four to six reliable built-in test videos plus custom URL loading.
+- Provide five reliable built-in test videos with actual media durations of approximately 60 seconds, plus custom URL loading.
 - Raise the desktop danmaku capacity to 20,000 and mobile capacity to 5,000.
 - Make the existing motion presets, effects, and interactions understandable and testable.
 - Complete the currently inert Jelly showcase.
@@ -141,16 +141,16 @@ Opening or closing the drawer must preserve video time, playback state, track cu
 
 ### 5.1 Palette
 
-| Token | Value | Use |
-| --- | --- | --- |
-| Ink | `#07090d` | Stage and overlay base |
-| Smoke | `#121722` | Elevated controls and drawer panels |
-| Pulse | `#f43f5e` | Play, Send, active playback state |
-| Signal | `#60a5fa` | Focus, density signal, diagnostics |
-| Warn | `#f59e0b` | Budget or fallback warnings only |
-| Stable | `#4ade80` | Verified healthy state only |
-| Primary text | `#f8fafc` | Active labels and values |
-| Secondary text | `#8d99aa` | Supporting labels |
+| Token          | Value     | Use                                 |
+| -------------- | --------- | ----------------------------------- |
+| Ink            | `#07090d` | Stage and overlay base              |
+| Smoke          | `#121722` | Elevated controls and drawer panels |
+| Pulse          | `#f43f5e` | Play, Send, active playback state   |
+| Signal         | `#60a5fa` | Focus, density signal, diagnostics  |
+| Warn           | `#f59e0b` | Budget or fallback warnings only    |
+| Stable         | `#4ade80` | Verified healthy state only         |
+| Primary text   | `#f8fafc` | Active labels and values            |
+| Secondary text | `#8d99aa` | Supporting labels                   |
 
 Pulse and Signal have distinct semantics. Neither is used as general decoration. Warnings and healthy-state colors appear only when their state applies.
 
@@ -228,7 +228,7 @@ Custom URLs create an ephemeral entry and are not added to the curated catalog.
 
 Select four to six licensed clips covering:
 
-- A 15-second seek/replay loop.
+- A seamless 60-second seek/replay loop.
 - High-motion night or traffic footage.
 - Bright water or sky footage.
 - Low-light footage.
@@ -236,6 +236,8 @@ Select four to six licensed clips covering:
 - A portrait or non-16:9 clip.
 
 Only CC0, compatible Creative Commons, or otherwise explicitly reusable sources are eligible. Attribution is preserved in catalog metadata. New hosted assets live under `cdn.vectojs.org/bakudan/video/`; the implementation must verify HTTP 200, MIME type, range-request behavior, and browser playback before referencing them.
+
+Every curated clip must be an actual approximately 60-second media object. The Command Deck reads the duration from loaded media metadata; it must not present a synthetic 60-second timeline over a shorter file. Longer source excerpts are preferred, while deterministic concatenated loops are acceptable for explicitly loop-oriented test footage. Only the selected candidate is loaded.
 
 ### 7.3 Atomic source switching
 
@@ -298,7 +300,13 @@ interface ResolvedTrackDistribution {
 
 User-sent comments are stored under a versioned, video-scoped key. Invalid stored data is discarded only for the affected video. A custom URL derives a stable local key from a normalized URL without treating that key as authentication or a globally stable identity.
 
-The existing unused fixed demo track is either wired specifically to the 15-second demo or removed. It must not remain as misleading dead product data.
+The existing unused fixed demo track is either wired specifically to the curated 60-second loop or removed. It must not remain as misleading dead product data.
+
+### 8.1 Reactions and stable comment identity
+
+Every timed entry receives a stable content identifier before it enters the pool. Built-in profile entries use the video ID plus their deterministic track position; user-sent entries receive a persisted UUID. A slot reset clears both the identifier and transient interaction state so recycled pool indices never inherit another comment's reaction.
+
+Bakudan stores reaction state under a separate versioned, video-scoped key. The compact selected-comment pill shows the local like count and toggles like/unlike without requiring an account or backend. A storage write failure preserves the current in-memory reaction for the session and never reports a persisted success that did not occur.
 
 ## 9. Throughput and pool scaling
 
@@ -348,6 +356,20 @@ Interactions:
 
 Jelly is in scope and must be implemented, not omitted. It receives a separate `danmaku-core` task, tests, changeset, and package release before Bakudan enables the control. The reusable engine contract adds explicit spring state to `PoolSlot` and a `Scheduler.showcaseJelly` path. Spawn, drag release, and pointer repulsion excite a damped squash/stretch response that returns to neutral. `DanmakuLayer` applies the resolved scale/offset to WebGL glyph quads and the equivalent Canvas2D transform, so Jelly remains batch-safe for atlas-backed text. Bakudan must not ship the control against a package version that lacks this behavior.
 
+### 10.1 Selected-comment interaction
+
+Clicking a comment freezes it at its current screen position and promotes it above every normal danmaku draw path. It leaves scheduler occupancy and all repulsion, gravity, and Jelly influence while selected, so other comments continue behind it without changing either trajectory. Only one comment may be selected.
+
+The selected text gains a high-contrast outline. A compact pill directly below its left edge contains like/unlike with the local count and Copy. Like and Copy do not dismiss the selection. Clicking empty stage space, clicking the selected text again, or pressing Escape releases it back onto its original motion path. Selecting another comment atomically releases the previous one.
+
+The promoted comment is removed from the WebGL/plain batch and drawn last on Canvas2D with its interaction chrome. Bakudan pools two transparent 44×44 accessibility hotspots for the actions; it does not create an Entity or DOM projection for every pool slot. Clipboard success is announced only after the Clipboard API resolves. Failure reports `Clipboard unavailable` rather than simulating success.
+
+### 10.2 Adaptive vertical packing
+
+Fixed 40px rows are replaced in `@vectojs/danmaku-core` by an allocation over reusable 2–4px vertical bands. A comment requests contiguous bands from its measured font box plus the outsets required by outline, glow, rotation, or motion amplitude. Presets read the assigned `baseY` instead of rebuilding Y from a fixed lane index every frame.
+
+The scheduler reuses preallocated band state and creates no per-frame temporary arrays in the packing hot path. Normal video playback accepts only kinematically safe, vertically non-overlapping placements. Explicit Throughput stress scenarios retain round-robin overflow when every safe interval is occupied; they continue at the requested target and report the resulting frame budget rather than silently lowering density.
+
 The panel labels each option's active render class: batch-safe, Canvas2D fallback, or special pass. Reports include the active split:
 
 - GL runs and glyphs.
@@ -389,6 +411,8 @@ Automated tests import `@vectojs/devtools/headless` for layout, accessibility, s
 - Command Deck actions remain reachable while controls are visually quiet.
 - Video status and source errors use appropriate live-region semantics without announcing frame metrics continuously.
 - The mobile bottom sheet traps focus only while behaving as a modal surface; otherwise it remains a non-modal region over the playing video.
+- The selected comment exposes named Like/Unlike and Copy hotspots with at least 44×44 focus geometry even though the visible pill remains compact.
+- Escape, blank-stage click, and repeated selection all return focus and motion predictably.
 - Forced-colors mode repaints VectoJS controls with system colors.
 - Reduced-motion mode removes spring and opacity interpolation while preserving state changes.
 
@@ -413,6 +437,10 @@ Automated tests import `@vectojs/devtools/headless` for layout, accessibility, s
 - User comments persist per video.
 - Desktop 20K and mobile 5K targets are selectable.
 - Every displayed interaction/effect control has observable behavior.
+- Selecting a comment freezes only that comment; unselected comments continue behind it without force or lane interaction.
+- Like/unlike persists by stable video/comment identity, Copy reports real success or failure, and both actions remain below the selected text.
+- Mixed 18px, 24px, and 30px comments use their measured vertical extents without overlap in Video mode; Throughput overflow remains explicit.
+- Every curated source reports an actual metadata duration of approximately 60 seconds.
 
 ### VMT and accessibility
 
@@ -427,6 +455,8 @@ Automated tests import `@vectojs/devtools/headless` for layout, accessibility, s
 - Chromium and Firefox.
 - Desktop and 390×844 mobile.
 - Playing, paused, loading, error, ended, drawer-open, and controls-idle states.
+- Selected-comment and compact-pill states at stage edges.
+- Dense mixed-size tracks with no full-width fixed-row gaps in Video mode.
 - Keyboard navigation, reduced motion, and forced colors.
 - Send and Lab controls remain inside the mobile viewport.
 
