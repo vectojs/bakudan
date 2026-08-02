@@ -48,6 +48,14 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   // label 7.70:1.
   menuSelected: 'rgba(244, 63, 94, 0.30)',
   menuHighlight: 'rgba(244, 63, 94, 0.55)',
+  // Downloaded span of the scrubber, a neutral so it never reads as a second
+  // playhead. It has to separate from the track behind it AND from the progress
+  // fill in front of it, and those pull opposite ways: measured against this
+  // deck, 0.40 gives 1.32:1 vs track and 3.72:1 vs progress, 0.70 gives 2.65:1
+  // and 1.85:1. 0.55 is where the two meet (1.88:1 and 2.60:1) at 3.02:1
+  // against the deck surface. Non-text, so SC 1.4.11's 3:1 is not the gate --
+  // buffering itself is announced by the status bar's live region.
+  bufferedTrack: 'rgba(148, 163, 184, 0.55)',
 });
 
 export interface BakudanPanelLabels {

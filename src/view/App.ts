@@ -742,6 +742,9 @@ export class App {
       playing: this.isVideoPlaying,
       rate: this.bg.playbackRate,
       disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
+      // Stress mode has no media, so an empty list clears any stale span left
+      // over from a previous video source.
+      buffered: this.mode === 'video' ? this.bg.bufferedRanges : [],
     });
   }
 
