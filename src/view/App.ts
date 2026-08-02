@@ -160,7 +160,10 @@ export class App {
   private activeLabTab: LabTab = 'videos';
   private distributionId: DistributionId = 'steady';
   private videoLoadState: VideoLoadState = { status: 'idle' };
-  private currentVideoSelection: VideoSelection = { kind: 'catalog', id: DEFAULT_VIDEO_ID };
+  private currentVideoSelection: VideoSelection = {
+    kind: 'catalog',
+    id: DEFAULT_VIDEO_ID,
+  };
   private pendingVideoSelection: VideoSelection | null = null;
   private pendingTrackProfileId: string | null = null;
   private devtoolsAvailability: DevToolsAvailability = import.meta.env.DEV
@@ -195,10 +198,23 @@ export class App {
     return this.mode === 'video' && this.bg.isVideoReady && !this.bg.paused;
   }
 
-  /** True while the ambient gradient background is animating. */
-
+  /**
+   * True while the background itself needs a redraw every frame.
+   *
+   * Always `false` today, deliberately. Ambient mode is a *static* CSS
+   * `radial-gradient` on the `#bakudan-bg` DOM layer — no `@keyframes`, no
+   * `transition` — and video mode is already covered by `isVideoPlaying`, so
+   * neither background gives the canvas anything new to draw.
+   *
+   * This getter previously returned `true` for ambient mode, which is the
+   * default. That single stale predicate defeated render-on-demand for the whole
+   * app: `hasPendingAnimations()` never went false at idle, so the scene stayed
+   * pinned at `maxFPS: 240` forever and the status bar's own "idle throttle"
+   * state was unreachable. Keep the seam — if the gradient is ever actually
+   * animated, this is where it gets reported.
+   */
   get hasAmbientAnimation(): boolean {
-    return this.bg.mode === 'ambient';
+    return false;
   }
 
   /** True while there are active explosion particles. */
@@ -410,7 +426,10 @@ export class App {
         id,
         label: PRESET_TRANSLATIONS[this.currentLang][id],
       })),
-      effects: EFFECT_IDS.map((id) => ({ id, label: t(`fx.${id}`, this.currentLang) })),
+      effects: EFFECT_IDS.map((id) => ({
+        id,
+        label: t(`fx.${id}`, this.currentLang),
+      })),
       renderClasses: [
         { id: 'backend', label: 'Backend' },
         { id: 'glyphs', label: 'MSDF glyphs' },
@@ -440,13 +459,21 @@ export class App {
       labels: labels.kit.lab,
       panels: [
         { id: 'videos', label: labels.kit.lab.videos, panel: this.videosPanel },
-        { id: 'throughput', label: labels.kit.lab.throughput, panel: this.throughputPanel },
+        {
+          id: 'throughput',
+          label: labels.kit.lab.throughput,
+          panel: this.throughputPanel,
+        },
         {
           id: 'interactions',
           label: labels.kit.lab.interactions,
           panel: this.interactionsPanel,
         },
-        { id: 'devtools', label: labels.kit.lab.devtools, panel: this.devtoolsPanel },
+        {
+          id: 'devtools',
+          label: labels.kit.lab.devtools,
+          panel: this.devtoolsPanel,
+        },
       ],
       open: this.labOpen,
       activeTab: this.activeLabTab,
@@ -706,12 +733,18 @@ export class App {
       .then(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'available';
-        this.devtoolsPanel.setState({ availability: 'available', canReload: false });
+        this.devtoolsPanel.setState({
+          availability: 'available',
+          canReload: false,
+        });
       })
       .catch(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'unavailable';
-        this.devtoolsPanel.setState({ availability: 'unavailable', canReload: false });
+        this.devtoolsPanel.setState({
+          availability: 'unavailable',
+          canReload: false,
+        });
       });
   }
 
@@ -798,7 +831,10 @@ export class App {
       viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
     );
     const drawerY = viewportBottom - drawerHeight;
-    this.labDrawer.setAvailableBounds({ width: this.stageW, height: drawerHeight });
+    this.labDrawer.setAvailableBounds({
+      width: this.stageW,
+      height: drawerHeight,
+    });
     this.labDrawer.x = 0;
     this.labDrawer.y = drawerY;
     const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
