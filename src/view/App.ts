@@ -1,5 +1,6 @@
 import { ReactionStore } from '../model/ReactionStore';
 import { SelectionHotspots } from './SelectionHotspots';
+import { installKeyboardShortcuts } from './KeyboardShortcuts';
 
 import { Entity, Scene } from '@vectojs/core';
 import type { IRenderer } from '@vectojs/core';
@@ -154,6 +155,8 @@ export class App {
   private _reactionStore: ReactionStore | null = null;
   private _selectedSlotId: number | null = null;
   private readonly _selectionHotspots: SelectionHotspots;
+
+  private _disposeShortcuts: (() => void) | null = null;
 
   private labOpen = false;
 
@@ -848,6 +851,7 @@ export class App {
     if (this.started || this.destroyed) return;
     this.started = true;
     this._setupPointerTracking();
+    this._disposeShortcuts = installKeyboardShortcuts(this);
     this.ticker = new Ticker(this);
     this.scene.add(this.ticker);
     if (this.stageW === 0 || this.stageH === 0) {
@@ -1055,6 +1059,82 @@ export class App {
     this.scene.markDirty();
   }
 
+  /**
+   * Whether playback keyboard shortcuts can act right now.
+   *
+   * Mirrors the `disabled` condition the command deck already computes for its
+   * transport controls (`_syncPlaybackState`), so a key and a click are never
+   * enabled at different times.
+   */
+  get playbackShortcutsEnabled(): boolean {
+    return this.mode === 'video' && !this.videoLoading && this.bg.isVideoReady;
+  }
+
+  /** Toggle play/pause, announcing the resulting state. */
+  togglePlayback(): void {
+    const willPlay = this.bg.paused;
+    this._togglePlayback();
+    this.announcer.setSummary(t(willPlay ? 'a11y.playing' : 'a11y.paused', this.currentLang));
+  }
+
+  /** Seek by a signed offset in seconds, clamped to the loaded duration. */
+  seekBy(seconds: number): void {
+    const duration = this.bg.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const next = Math.min(duration, Math.max(0, this.bg.currentTime + seconds));
+    this._onSeek(next);
+    this._announceSeek(next, duration);
+  }
+
+  /** Seek to a fraction (0-1) of the loaded duration. */
+  seekToFraction(fraction: number): void {
+    const duration = this.bg.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const next = Math.min(duration, Math.max(0, duration * fraction));
+    this._onSeek(next);
+    this._announceSeek(next, duration);
+  }
+
+  /** Seek to the first or last frame of the loaded duration. */
+  seekToEdge(edge: 'start' | 'end'): void {
+    const duration = this.bg.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const next = edge === 'start' ? 0 : duration;
+    this._onSeek(next);
+    this._announceSeek(next, duration);
+  }
+
+  /**
+   * Dismiss the topmost transient surface, innermost first: a selected danmaku
+   * before the lab drawer. Returns true when something was actually dismissed,
+   * so the caller can leave the key unhandled otherwise.
+   */
+  dismiss(): boolean {
+    if (this._selectedSlotId !== null) {
+      this._clearSelection();
+      this.announcer.setSummary(t('a11y.selectionCleared', this.currentLang));
+      return true;
+    }
+    if (this.labOpen) {
+      this.setLabOpen(false);
+      this.announcer.setSummary(t('a11y.labClosed', this.currentLang));
+      return true;
+    }
+    return false;
+  }
+
+  private _announceSeek(time: number, duration: number): void {
+    const fmt = (s: number): string => {
+      const total = Math.max(0, Math.round(s));
+      const mm = Math.floor(total / 60);
+      const ss = total % 60;
+      return `${mm}:${ss.toString().padStart(2, '0')}`;
+    };
+    this.announcer.setSummary(
+      `${t('a11y.seeked', this.currentLang)} ${fmt(time)} / ${fmt(duration)}`,
+    );
+  }
+
   private _onUserSend(text: string): void {
     const time = this.mode === 'video' ? this.bg.currentTime : 0;
     const entry = {
@@ -1240,6 +1320,8 @@ export class App {
     if (this.destroyed) return;
     this.destroyed = true;
     this._videoRequestId++;
+    this._disposeShortcuts?.();
+    this._disposeShortcuts = null;
     const canvas = this.scene.canvas;
     canvas.removeEventListener('pointermove', this._handlePointerMove);
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
