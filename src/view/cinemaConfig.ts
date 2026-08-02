@@ -10,7 +10,14 @@ import type {
 import type { Language } from '../model/i18n';
 
 export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
-  surface: 'rgba(7, 9, 13, 0.82)',
+  // Near-opaque on purpose. This token backs the status bar, the command deck,
+  // and the laboratory drawer, all of which float directly over the danmaku
+  // wall. Readability is not the constraint - text clears 11.7:1 even at 0.82 -
+  // but at 0.82 a full 18% of a chaotic, fast-moving 20k-danmaku stream shows
+  // through, and the drawer is a large panel holding scrollable controls, so
+  // the motion behind it reads as visual noise rather than depth. 0.97 cuts
+  // the bleed to 3% (text 18.15:1) and matches menuSurface's rationale below.
+  surface: 'rgba(7, 9, 13, 0.97)',
   surfaceRaised: 'rgba(18, 23, 34, 0.94)',
   border: 'rgba(248, 250, 252, 0.18)',
   text: '#f8fafc',

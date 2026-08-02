@@ -1,5 +1,5 @@
 import { ReactionStore } from '../model/ReactionStore';
-import { SelectionHotspots } from './SelectionHotspots';
+import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
 
 import { Entity, Scene } from '@vectojs/core';
@@ -36,7 +36,13 @@ import {
 } from '../model/VideoCatalog';
 import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
-import { DanmakuLayer } from './DanmakuLayer';
+import {
+  DanmakuLayer,
+  PILL_BASELINE_FACTOR,
+  PILL_COPY_OFFSET_PX,
+  PILL_HEIGHT_PX,
+  PILL_WIDTH_PX,
+} from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
 import { ParticleSystem } from './ParticleSystem';
 import type { StageBackgroundOptions } from './StageBackground';
@@ -154,6 +160,8 @@ export class App {
 
   private _reactionStore: ReactionStore | null = null;
   private _selectedSlotId: number | null = null;
+  /** Which action of the selected danmaku's pill the pointer is over. */
+  private _hoveredAction: HoveredAction = null;
   private readonly _selectionHotspots: SelectionHotspots;
 
   private _disposeShortcuts: (() => void) | null = null;
@@ -290,6 +298,7 @@ export class App {
       w: this.stageW,
       h: this.stageH,
       interactive: this._interactiveMode,
+      hoveredAction: this._hoveredAction,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from
@@ -769,6 +778,22 @@ export class App {
     };
   }
 
+  /**
+   * Whether a pointer at `y` (scene units, horizontally centred) lands in the
+   * laboratory drawer. Exposed so tests can pin the region against the drawer's
+   * real laid-out rect rather than a breakpoint guess.
+   */
+  debugHitsLab(y: number): boolean {
+    const previousX = this.pointerX;
+    const previousY = this.pointerY;
+    this.pointerX = this.stageW / 2;
+    this.pointerY = y;
+    const result = this.labOpen && this._hitsOverlay(this.labDrawer);
+    this.pointerX = previousX;
+    this.pointerY = previousY;
+    return result;
+  }
+
   getCinemaLayoutSnapshot() {
     return {
       status: {
@@ -955,19 +980,26 @@ export class App {
     if (this._selectedSlotId !== null) {
       const s = slots[this._selectedSlotId];
       if (s?.active && s.interactionLocked) {
-        const pillW = 80;
-        const pillH = 44;
-        const pillY = s.y + s.params.fontSize * 1.4 - pillH / 2;
+        const pillW = PILL_WIDTH_PX;
+        const pillH = PILL_HEIGHT_PX;
+        const pillY = s.y + s.params.fontSize * PILL_BASELINE_FACTOR - pillH / 2;
         this._selectionHotspots.liked = s.liked ?? false;
-        this._selectionHotspots.place(s.x, s.y, 44, 44);
-        if (
-          this.pointerX >= s.x &&
-          this.pointerX <= s.x + pillW &&
-          this.pointerY >= pillY &&
-          this.pointerY <= pillY + pillH
-        ) {
-          slotHovered = true;
+        // Place the hotspots on the pill that DanmakuLayer._drawSelectedPill
+        // actually paints, not on the danmaku's own origin. The pill is drawn at
+        // pillY - fontSize * 1.4 below s.y - and its copy glyph sits at rx + 60,
+        // so passing (s.x, s.y, 44, 44) put the like rect over the like count
+        // and left the copy rect starting 16px before its glyph. Worse, at
+        // fontSize 32 the 44px-tall rects cleared the pill entirely, so neither
+        // action had any clickable area at all.
+        this._selectionHotspots.place(s.x, pillY, pillH, PILL_COPY_OFFSET_PX, pillW);
+        // Derive hover from the hotspots themselves, so the highlight and the
+        // click target can never disagree.
+        const hoveredAction = this._selectionHotspots.hitAction(this.pointerX, this.pointerY);
+        if (hoveredAction !== this._hoveredAction) {
+          this._hoveredAction = hoveredAction;
+          this.scene.markDirty();
         }
+        if (hoveredAction !== null) slotHovered = true;
       }
     }
 
@@ -1226,6 +1258,7 @@ export class App {
         s.paused = false;
       }
       this._selectedSlotId = null;
+      this._hoveredAction = null;
       this._selectionHotspots.x = -1000;
       this.scene.markDirty();
     }
@@ -1273,6 +1306,19 @@ export class App {
     }
   };
 
+  /**
+   * Whether the current pointer position falls inside an overlay's real laid-out
+   * rect. Reads the entity's own geometry so it can never drift from layout.
+   */
+  private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
+    return (
+      this.pointerX >= overlay.x &&
+      this.pointerX <= overlay.x + overlay.width &&
+      this.pointerY >= overlay.y &&
+      this.pointerY <= overlay.y + overlay.height
+    );
+  }
+
   private _handlePointerDown = (event: PointerEvent) => {
     const canvas = this.scene.canvas;
     if (!canvas) return;
@@ -1282,11 +1328,14 @@ export class App {
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
 
-    const inCommandDeck =
-      this.pointerY >= this.stageH - (this.stageW > 768 ? 120 : 160) && this.mode === 'video';
-
-    const inLab =
-      this.labOpen && this.pointerY >= (this.stageW > 768 ? this.stageH - 500 : this.stageH * 0.31);
+    // Ask the overlays where they actually are rather than re-deriving their
+    // geometry from breakpoints. Both used to be guessed from stageH, and the
+    // guesses drifted badly from _layoutOverlays: at 1600px tall the lab guess
+    // (stageH - 500) sat 236px below the drawer's real top, so pointerdowns in
+    // that band were treated as stage taps and stolen from the drawer; at 800px
+    // tall it sat 132px above it, swallowing real stage taps instead.
+    const inCommandDeck = this.mode === 'video' && this._hitsOverlay(this.commandDeck);
+    const inLab = this.labOpen && this._hitsOverlay(this.labDrawer);
 
     if (this.labOpen && !inLab && !inCommandDeck) {
       this.setLabOpen(false);
