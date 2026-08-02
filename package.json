@@ -26,10 +26,10 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
-    "@vectojs/core": "1.24.0",
+    "@vectojs/core": "1.27.0",
     "@vectojs/danmaku-core": "0.3.0",
-    "@vectojs/danmaku-kit": "0.3.0",
-    "@vectojs/ui": "2.5.0"
+    "@vectojs/danmaku-kit": "0.4.0",
+    "@vectojs/ui": "2.7.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

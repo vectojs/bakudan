@@ -26,6 +26,21 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   fontLabel: "600 11px 'Inter', system-ui, sans-serif",
   fontDisplay: "600 14px 'Outfit', 'Inter', sans-serif",
   fontMono: "500 11px 'JetBrains Mono', monospace",
+  // Focus uses the blue signal rather than the rose accent so a focused
+  // control never reads as an emphasized-but-unfocused one. 7.91:1 against
+  // the composited stage surface, well past the 3:1 WCAG 1.4.11 floor.
+  focusRing: '#60a5fa',
+  // The open menu floats over the danmaku wall, so it is near-opaque: at the
+  // panel's own 0.82 the 20k-danmaku stream bleeds through and the rows stop
+  // being readable. 0.98 keeps label text at 17.21:1.
+  menuSurface: 'rgba(18, 23, 34, 0.98)',
+  // Selected vs keyboard-highlighted are both rose, separated by alpha only.
+  // The highlight stops at 0.55 rather than going louder because an option row
+  // is itself focusable (role="option", interactive) - past that the blue focus
+  // ring drops under 3:1 against the row it is drawn on. At 0.55: ring 3.17:1,
+  // label 7.70:1.
+  menuSelected: 'rgba(244, 63, 94, 0.30)',
+  menuHighlight: 'rgba(244, 63, 94, 0.55)',
 });
 
 export interface BakudanPanelLabels {
