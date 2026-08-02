@@ -1,3 +1,6 @@
+import { ReactionStore } from '../model/ReactionStore';
+import { SelectionHotspots } from './SelectionHotspots';
+
 import { Entity, Scene } from '@vectojs/core';
 import type { IRenderer } from '@vectojs/core';
 import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
@@ -32,10 +35,9 @@ import {
 } from '../model/VideoCatalog';
 import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
-import { ACTION_BTN_WIDTH, DanmakuLayer, hitAction } from './DanmakuLayer';
+import { DanmakuLayer } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
 import { ParticleSystem } from './ParticleSystem';
-import { StageBackground } from './StageBackground';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 
@@ -64,6 +66,8 @@ type DrawMetricId = (typeof DRAW_METRICS)[number];
 type DistributionId = (typeof DISTRIBUTIONS)[number];
 type EffectId = (typeof EFFECT_IDS)[number];
 type RenderClassId = (typeof RENDER_CLASSES)[number];
+
+import { StageBackground } from './StageBackground';
 
 export interface AppOptions {
   stageBackground?: StageBackground;
@@ -147,7 +151,12 @@ export class App {
     userAgent: navigator.userAgent,
   }));
 
+  private _reactionStore: ReactionStore | null = null;
+  private _selectedSlotId: number | null = null;
+  private readonly _selectionHotspots: SelectionHotspots;
+
   private labOpen = false;
+
   private activeLabTab: LabTab = 'videos';
   private distributionId: DistributionId = 'steady';
   private videoLoadState: VideoLoadState = { status: 'idle' };
@@ -187,6 +196,7 @@ export class App {
   }
 
   /** True while the ambient gradient background is animating. */
+
   get hasAmbientAnimation(): boolean {
     return this.bg.mode === 'ambient';
   }
@@ -235,6 +245,14 @@ export class App {
       // Inject the localized meme content — the engine ships no wording.
       { textSampler: () => ContentLibrary.sample() },
     );
+
+    this._selectionHotspots = new SelectionHotspots({
+      onLikeToggle: () => this._handleLikeToggle(),
+      onCopy: () => this._handleCopy(),
+      likeLabel: () => 'Like Danmaku',
+      copyLabel: () => 'Copy Danmaku Text',
+    });
+    this.scene.add(this._selectionHotspots);
 
     this.bg = options.stageBackground ?? new StageBackground(options.stageBackgroundOptions);
     this.bg.mode = 'video';
@@ -477,15 +495,17 @@ export class App {
     this.videoLoading = true;
     this.videoLoadState = { status: 'loading', candidateId: candidate.id };
     this._setAppMode('video');
+    this._clearSelection();
+    this._setAppMode('video');
     this._syncVideosState();
     this._syncStatus();
     this._syncPlaybackState();
-
     void this.bg
       .setVideo(candidate.source.url)
       .then(() => {
         if (requestId !== this._videoRequestId || this.destroyed) return;
         this.videoLoading = false;
+        this._reactionStore = new ReactionStore(candidate.id);
         this.currentVideoSelection = selection;
         this.currentVideoId = candidate.id;
         this.currentTrackProfileId = profile.id;
@@ -530,6 +550,7 @@ export class App {
     if (!profile || profileId === this.currentTrackProfileId) return;
     this.currentTrackProfileId = profileId;
     if (this.bg.isVideoReady) {
+      this._clearSelection();
       const currentTime = this.bg.currentTime;
       this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
       this.danmakuTrack.seek(currentTime);
@@ -888,36 +909,54 @@ export class App {
   }
 
   private _updateHover(): void {
-    let foundTop = false;
     const slots = this.pool.slots;
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active) continue;
-      if (!foundTop) {
-        const localX = this.pointerX - s.x;
-        const localY = this.pointerY - s.y;
-        if (localX >= 0 && localY >= 0) {
-          const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
-          const h = (s.params.fontSize || 24) * 1.4;
-          if (localX <= w && localY <= h) {
-            if (!s.hovered) {
-              s.hovered = true;
-              s.paused = true;
-            }
-            foundTop = true;
-            continue;
-          }
+    let slotHovered = false;
+
+    if (this._selectedSlotId !== null) {
+      const s = slots[this._selectedSlotId];
+      if (s?.active && s.interactionLocked) {
+        const pillW = 80;
+        const pillH = 44;
+        const pillY = s.y + s.params.fontSize * 1.4 - pillH / 2;
+        this._selectionHotspots.liked = s.liked ?? false;
+        this._selectionHotspots.place(s.x, s.y, 44, 44);
+        if (
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + pillW &&
+          this.pointerY >= pillY &&
+          this.pointerY <= pillY + pillH
+        ) {
+          slotHovered = true;
         }
       }
-      if (s.hovered) {
+    }
+
+    if (!slotHovered) {
+      for (let i = slots.length - 1; i >= 0; i--) {
+        const s = slots[i];
+        if (!s.active || s.interactionLocked) {
+          s.hovered = false;
+          continue;
+        }
         s.hovered = false;
-        s.paused = s.dragging;
+        if (
+          !slotHovered &&
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + s.width + 44 &&
+          this.pointerY >= s.y &&
+          this.pointerY <= s.y + s.params.fontSize * 1.5
+        ) {
+          s.hovered = true;
+          slotHovered = true;
+        }
+        s.paused = s.dragging || s.hovered;
       }
     }
   }
 
   private _setAppMode(mode: AppMode): void {
     if (this.mode === mode) return;
+    this._clearSelection();
     this.mode = mode;
     this._profMode = mode;
     if (mode === 'video') {
@@ -971,6 +1010,7 @@ export class App {
   }
 
   private _onSeek(t: number): void {
+    this._clearSelection();
     this.bg.seek(t);
     this.danmakuTrack.seek(t);
     // While paused the loop is idle (no pending animation), so the new video
@@ -1003,24 +1043,102 @@ export class App {
     }
   }
 
-  /** Topmost active danmaku slot whose box (plus action strip) is under the
-   *  pointer. Scans back-to-front so the most-recently-drawn wins. */
   private _findSlotAtPointer(): PoolSlot | null {
     const slots = this.pool.slots;
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active) continue;
-      const localX = this.pointerX - s.x;
-      const localY = this.pointerY - s.y;
-      if (localX >= 0 && localY >= 0) {
-        const w = (s.width || 80) + (s.hovered ? ACTION_BTN_WIDTH : 0);
-        const h = (s.params.fontSize || 24) * 1.4;
-        if (localX <= w && localY <= h) {
+    if (this._selectedSlotId !== null) {
+      const s = slots[this._selectedSlotId];
+      if (s?.active && s.interactionLocked) {
+        if (
+          this.pointerX >= s.x &&
+          this.pointerX <= s.x + s.width &&
+          this.pointerY >= s.y &&
+          this.pointerY <= s.y + s.params.fontSize * 1.5
+        ) {
           return s;
         }
       }
     }
+    for (let i = slots.length - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (!s.active || s.interactionLocked) continue;
+      const localX = this.pointerX - s.x;
+      if (
+        localX >= 0 &&
+        localX <= s.width + (s.hovered ? 44 : 0) &&
+        this.pointerY >= s.y &&
+        this.pointerY <= s.y + s.params.fontSize * 1.5
+      ) {
+        return s;
+      }
+    }
     return null;
+  }
+
+  private _handleTapStage(): void {
+    const slot = this._findSlotAtPointer();
+    if (!slot) {
+      this._clearSelection();
+      this._handleTapVideo();
+      return;
+    }
+
+    if (this._selectedSlotId !== null && this._selectedSlotId !== slot.id) {
+      this._clearSelection();
+    }
+
+    if (!slot.interactionLocked) {
+      slot.interactionLocked = true;
+      this._selectedSlotId = slot.id;
+      if (slot.params.contentId && this._reactionStore) {
+        const rx = this._reactionStore.get(slot.params.contentId);
+        slot.liked = rx.liked;
+      }
+      this.scene.markDirty();
+      return;
+    }
+
+    // If they clicked the already-selected slot body (not its actions), release it.
+    this._clearSelection();
+  }
+
+  private _clearSelection(): void {
+    if (this._selectedSlotId !== null) {
+      const s = this.pool.slots[this._selectedSlotId];
+      if (s) {
+        s.interactionLocked = false;
+        s.hovered = false;
+        s.paused = false;
+      }
+      this._selectedSlotId = null;
+      this._selectionHotspots.x = -1000;
+      this.scene.markDirty();
+    }
+  }
+
+  private _handleLikeToggle(): void {
+    if (this._selectedSlotId === null || !this._reactionStore) return;
+    const s = this.pool.slots[this._selectedSlotId];
+    if (!s || !s.active || !s.params.contentId) return;
+    const rx = this._reactionStore.toggle(s.params.contentId);
+    s.liked = rx.liked;
+    this.scene.markDirty();
+  }
+
+  private _handleCopy(): void {
+    if (this._selectedSlotId === null) return;
+    const s = this.pool.slots[this._selectedSlotId];
+    if (!s || !s.active) return;
+    const text = s.params.text;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(text).then(
+        () => console.log('Copied'), // Toast wiring elided for focus
+        () => console.warn('Clipboard unavailable'),
+      );
+    }
+  }
+
+  private _handleTapVideo(): void {
+    return;
   }
 
   private readonly _handlePointerMove = (event: PointerEvent): void => {
@@ -1039,46 +1157,30 @@ export class App {
     }
   };
 
-  private readonly _handlePointerDown = (event: PointerEvent): void => {
-    this.pointerActive = true;
+  private _handlePointerDown = (event: PointerEvent) => {
+    const canvas = this.scene.canvas;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    this.pointerX = (event.clientX - rect.left) * scaleX;
+    this.pointerY = (event.clientY - rect.top) * scaleY;
+
     const inCommandDeck =
-      this.pointerX >= this.commandDeck.x &&
-      this.pointerX <= this.commandDeck.x + this.commandDeck.width &&
-      this.pointerY >= this.commandDeck.y &&
-      this.pointerY <= this.commandDeck.y + this.commandDeck.height;
+      this.pointerY >= this.stageH - (this.stageW > 768 ? 120 : 160) && this.mode === 'video';
+
     const inLab =
-      this.labOpen &&
-      this.pointerX >= this.labDrawer.x &&
-      this.pointerX <= this.labDrawer.x + this.labDrawer.width &&
-      this.pointerY >= this.labDrawer.y &&
-      this.pointerY <= this.labDrawer.y + this.labDrawer.height;
+      this.labOpen && this.pointerY >= (this.stageW > 768 ? this.stageH - 500 : this.stageH * 0.31);
+
     if (this.labOpen && !inLab && !inCommandDeck) {
       this.setLabOpen(false);
       return;
     }
+
     if (inLab || inCommandDeck || !this._interactiveMode) return;
 
-    const slot = this._findSlotAtPointer();
-    if (!slot) return;
-    const localX = this.pointerX - slot.x;
-    const action = slot.hovered ? hitAction(slot, localX) : null;
-    if (action === 'like') {
-      slot.liked = !slot.liked;
-      ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, slot.params.color);
-      this.scene.markDirty();
-      return;
-    }
-    if (action === 'copy') {
-      void navigator.clipboard?.writeText(slot.params.text).catch(() => {});
-      ParticleSystem.spawnExplosion(this.pointerX, this.pointerY, '#f43f5e');
-      return;
-    }
+    this._handleTapStage();
 
-    this._dragSlot = slot;
-    slot.dragging = true;
-    slot.paused = true;
-    this._dragOffX = this.pointerX - slot.x;
-    this._dragOffY = this.pointerY - slot.y;
     this.scene.canvas.setPointerCapture(event.pointerId);
   };
 
