@@ -15,7 +15,11 @@ async function main(): Promise<void> {
     // rAF. The stress bench should show the true achievable frame rate, not an
     // artificial 60fps ceiling. A per-run cap is still exposed in the panel.
     maxFPS: 240,
-    maxDPR: 1,
+    // Backing-store cap. The default DPR-1 raster CSS-stretches on any HiDPI
+    // display or under browser zoom — measured soft on this 2560x1600 @1.6
+    // panel. 2 is core's recommendation; cost scales with logical x dpr^2 and
+    // holds at the 5,000-danmaku stress ceiling (CTX-0015a, 2026-08-23).
+    maxDPR: Math.min(window.devicePixelRatio || 1, 2),
     a11ySyncInterval: 100,
     // Stack a WebGL2 layer above the 2D canvas. The danmaku text layer draws
     // its glyphs through it (MSDF, one batched draw call for the whole frame),
