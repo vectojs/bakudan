@@ -9,9 +9,17 @@ export class ReactionStore {
   private readonly memoryFallback = new Map<string, LocalReaction>();
   private readonly storageKey: string;
 
-  constructor(videoId: string) {
+  /**
+   * `memoryOnly` serves session-local sources (local file uploads): their
+   * storage key derives from a blob: URL that can never resolve after a
+   * reload, so persisting under it would only write unreachable garbage.
+   */
+  constructor(videoId: string, options: { memoryOnly?: boolean } = {}) {
     this.storageKey = `${STORAGE_PREFIX}${encodeURIComponent(videoId)}`;
+    this.memoryOnly = options.memoryOnly ?? false;
   }
+
+  private readonly memoryOnly: boolean;
   get(commentId: string): LocalReaction {
     const data = this._readData();
     const entry = data[commentId];
@@ -69,6 +77,7 @@ export class ReactionStore {
   }
 
   private _writeData(data: Record<string, LocalReaction>): void {
+    if (this.memoryOnly) return;
     if (typeof localStorage === 'undefined') return;
     try {
       localStorage.setItem(this.storageKey, JSON.stringify(data));

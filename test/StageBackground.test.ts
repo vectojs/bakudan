@@ -36,6 +36,16 @@ function fixture() {
 }
 
 describe('StageBackground', () => {
+  it('swaps to a blob: object URL source like any other URL', async () => {
+    const { background, host, videos } = fixture();
+    const pending = background.setVideo('blob:http://localhost:4173/session-uuid');
+    videos[0]!.element.dispatchEvent(new Event('loadedmetadata'));
+    await pending;
+    expect(background.currentSource).toBe('blob:http://localhost:4173/session-uuid');
+    expect(host.contains(videos[0]!.element)).toBe(true);
+    background.destroy();
+    host.remove();
+  });
   it('keeps the active video and app-facing source when a candidate fails', async () => {
     const { background, host, videos } = fixture();
     const first = background.setVideo('https://example.test/first.mp4');
