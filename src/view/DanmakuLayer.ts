@@ -2,6 +2,7 @@ import { Entity, type IRenderer, type MSDFFont, TextRasterCache } from '@vectojs
 import type { FrameProfiler } from '../model/FrameProfiler';
 import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
 import type { LoadedAtlas } from './MSDFAtlas';
+import { DANMAKU_CHROME } from './cinemaConfig';
 
 /**
  * Geometry of the action pill drawn over a selected danmaku. Exported because
@@ -19,6 +20,29 @@ export const PILL_COPY_OFFSET_PX = 60;
 export const PILL_WIDTH_PX = 80;
 /** Pill height; the hotspots span it fully. */
 export const PILL_HEIGHT_PX = 44;
+/** Corner radius of the action-pill backing plate ("control" tier). */
+export const PILL_RADIUS_PX = 12;
+/** Corner radius of the per-danmaku interaction boxes ("chip" tier). */
+export const USER_BOX_RADIUS_PX = 6;
+/**
+ * Minimum hotspot width SelectionHotspots.place() applies per action
+ * (mirrors its MIN_TOUCH_TARGET_PX, WCAG 2.5.8); needed here because the
+ * backing plate must cover the full clickable span, not just the glyphs.
+ * InteractionGeometry.test.ts pins the composed span on both sides.
+ */
+const COPY_HOTSPOT_MIN_PX = 24;
+/** Uniform margin between the pill plate's edge and the hotspot span. */
+export const PILL_PLATE_MARGIN_PX = 12;
+/**
+ * Total pill plate width: the hotspot span (like [0,60] + copy [60,84])
+ * plus one margin each side.
+ */
+export const PILL_PLATE_WIDTH_PX =
+  PILL_COPY_OFFSET_PX +
+  Math.max(COPY_HOTSPOT_MIN_PX, PILL_WIDTH_PX - PILL_COPY_OFFSET_PX) +
+  PILL_PLATE_MARGIN_PX * 2;
+/** Which visual state a danmaku's interaction box paints. */
+export type UserBoxKind = 'hover' | 'userSent' | 'selected';
 
 /**
  * Pure slot predicates shared by the draw pass and App's hit-testing.
@@ -388,7 +412,10 @@ export class DanmakuLayer extends Entity {
             renderer.setGlobalAlpha(s.params.opacity);
             curAlpha = s.params.opacity;
           }
-          this._drawUserBox(renderer, rx, ry, s.width, fs);
+          // Identity outranks inspection: a user-sent danmaku keeps its rose
+          // marker even while hovered, so ownership never flickers away under
+          // the pointer.
+          this._drawUserBox(renderer, rx, ry, s.width, fs, s.userSent ? 'userSent' : 'hover');
         }
 
         const cache = this._getSlotCache(s);
@@ -484,7 +511,16 @@ export class DanmakuLayer extends Entity {
     const textY = ry + fontSize * 0.8;
 
     if (isSelected || s.userSent || (interactive && s.hovered)) {
-      if (s.width > 0) this._drawUserBox(renderer, rx, ry, s.width, fontSize, isSelected);
+      if (s.width > 0) {
+        this._drawUserBox(
+          renderer,
+          rx,
+          ry,
+          s.width,
+          fontSize,
+          isSelected ? 'selected' : s.userSent ? 'userSent' : 'hover',
+        );
+      }
     }
 
     if (preset === 'glitch') {
@@ -504,7 +540,7 @@ export class DanmakuLayer extends Entity {
       }
     } else {
       if (effects.outline || isSelected) {
-        const outlineColor = isSelected ? 'rgba(96,165,250,0.8)' : 'rgba(0,0,0,0.6)';
+        const outlineColor = isSelected ? DANMAKU_CHROME.selectedTextOutline : 'rgba(0,0,0,0.6)';
         renderer.fillText(text, rx + 1, textY, font, outlineColor);
         renderer.fillText(text, rx - 1, textY, font, outlineColor);
         renderer.fillText(text, rx, textY + 1, font, outlineColor);
@@ -546,23 +582,43 @@ export class DanmakuLayer extends Entity {
     }
   }
 
+  /**
+   * Per-danmaku interaction box, painted from the shared DANMAKU_CHROME
+   * tokens so canvas chrome and kit panels stay one color system. Three
+   * states replace the old two-color orange scheme: a quiet slate veil for
+   * hover-pause (transient inspection), rose for user-sent ownership, and the
+   * strongest rose for selection (emphasis - keyboard focus keeps blue).
+   */
   private _drawUserBox(
     renderer: IRenderer,
     rx: number,
     ry: number,
     width: number,
     fontSize: number,
-    isSelected = false,
+    kind: UserBoxKind = 'hover',
   ): void {
     const pad = 4;
     renderer.beginPath();
-    renderer.roundRect(rx - pad, ry - pad, width + pad * 2, fontSize * 1.2 + pad * 2, 4);
-    if (isSelected) {
-      renderer.fill('rgba(96,165,250,0.15)');
-      renderer.stroke('rgba(96,165,250,0.8)', 1);
-    } else {
-      renderer.fill('rgba(255, 126, 95, 0.08)');
-      renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
+    renderer.roundRect(
+      rx - pad,
+      ry - pad,
+      width + pad * 2,
+      fontSize * 1.2 + pad * 2,
+      USER_BOX_RADIUS_PX,
+    );
+    switch (kind) {
+      case 'selected':
+        renderer.fill(DANMAKU_CHROME.selectedFill);
+        renderer.stroke(DANMAKU_CHROME.selectedStroke, 1);
+        break;
+      case 'userSent':
+        renderer.fill(DANMAKU_CHROME.userSentFill);
+        renderer.stroke(DANMAKU_CHROME.userSentStroke, 1);
+        break;
+      case 'hover':
+        renderer.fill(DANMAKU_CHROME.hoverFill);
+        renderer.stroke(DANMAKU_CHROME.hoverStroke, 1);
+        break;
     }
   }
 
@@ -574,6 +630,20 @@ export class DanmakuLayer extends Entity {
     likeCount: number,
   ): void {
     const pillY = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
+    // Backing plate over the exact hotspot span ([rx, rx+84] x [pillY-22,
+    // pillY+22], see SelectionHotspots.place) plus a uniform 12px margin, so
+    // the visible control and the click targets coincide and the actions read
+    // as one floating surface instead of bare emoji over bright video.
+    renderer.beginPath();
+    renderer.roundRect(
+      rx - PILL_PLATE_MARGIN_PX,
+      pillY - PILL_HEIGHT_PX / 2,
+      PILL_PLATE_WIDTH_PX,
+      PILL_HEIGHT_PX,
+      PILL_RADIUS_PX,
+    );
+    renderer.fill(DANMAKU_CHROME.pillFill);
+    renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
     const hovered = this.getStage().hoveredAction ?? null;
     // Emoji glyphs ignore the fill colour, so hover is signalled by drawing the
     // hovered action one size larger — the only affordance that actually reads
@@ -592,7 +662,7 @@ export class DanmakuLayer extends Entity {
       rx + PILL_COUNT_OFFSET_PX,
       pillY,
       baseFont,
-      hovered === 'like' ? '#fff' : '#e2e8f0',
+      hovered === 'like' ? '#fff' : DANMAKU_CHROME.pillCount,
     );
     renderer.fillText(
       '📋',

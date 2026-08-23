@@ -21,14 +21,20 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   surfaceRaised: 'rgba(18, 23, 34, 0.94)',
   border: 'rgba(248, 250, 252, 0.18)',
   text: '#f8fafc',
-  textMuted: '#8d99aa',
+  // Slate-400, joining the slate ramp the rest of the app paints with
+  // (#f8fafc text, #e2e8f0 secondary). The old #8d99aa was a warmer,
+  // muddier gray that sat outside that family.
+  textMuted: '#94a3b8',
   accent: '#f43f5e',
   accentHover: '#e11d48',
   signal: '#60a5fa',
   warning: '#f59e0b',
   danger: '#fb7185',
   success: '#4ade80',
-  radius: 12,
+  // One radius scale across the whole app: kit surfaces 14 (this token),
+  // floating control plates 12 (PILL_RADIUS_PX), tight text chips 6
+  // (USER_BOX_RADIUS_PX in DanmakuLayer).
+  radius: 14,
   fontUi: "500 13px 'Inter', system-ui, sans-serif",
   fontLabel: "600 11px 'Inter', system-ui, sans-serif",
   fontDisplay: "600 14px 'Outfit', 'Inter', sans-serif",
@@ -56,6 +62,56 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   // against the deck surface. Non-text, so SC 1.4.11's 3:1 is not the gate --
   // buffering itself is announced by the status bar's live region.
   bufferedTrack: 'rgba(148, 163, 184, 0.55)',
+});
+
+/**
+ * Paint tokens for the app-side danmaku interaction chrome in DanmakuLayer
+ * (user-sent box, hover-pause veil, selection box, action-pill plate).
+ *
+ * They exist so the canvas chrome and the kit panels speak ONE color language:
+ * rose = emphasis/ownership (BAKUDAN_THEME.accent), blue signal = keyboard
+ * focus only, neutral slate = transient inspection. The old chrome used a
+ * third, off-palette peach (#ff7e5f family) and painted selection blue like
+ * focus - both drifted from the theme the panels already follow.
+ *
+ * CanvasChrome.test.ts pins this derivation; changing a value here must fail
+ * that test or update its rationale.
+ */
+export const DANMAKU_CHROME: Readonly<
+  Record<
+    | 'hoverFill'
+    | 'hoverStroke'
+    | 'userSentFill'
+    | 'userSentStroke'
+    | 'selectedFill'
+    | 'selectedStroke'
+    | 'selectedTextOutline'
+    | 'pillFill'
+    | 'pillStroke'
+    | 'pillCount',
+    string
+  >
+> = Object.freeze({
+  // Hover-pause is transient inspection, not identity: a quiet slate veil that
+  // says "paused under your pointer" without shouting brand color.
+  hoverFill: 'rgba(148, 163, 184, 0.12)',
+  hoverStroke: 'rgba(148, 163, 184, 0.40)',
+  // User-sent marks ownership, which IS brand emphasis - rose at low alpha,
+  // echoing menuSelected/menuHighlight's alpha-only separation language.
+  userSentFill: 'rgba(244, 63, 94, 0.10)',
+  userSentStroke: 'rgba(244, 63, 94, 0.45)',
+  // Selection is content emphasis: stronger rose, clearly distinct from the
+  // blue scrubber progress and from keyboard focus. The text outline stays in
+  // the dark-stroke family the outline effect already uses - legible on any
+  // video frame, unlike a colored stroke that competes with the glyph fill.
+  selectedFill: 'rgba(244, 63, 94, 0.16)',
+  selectedStroke: 'rgba(244, 63, 94, 0.85)',
+  selectedTextOutline: 'rgba(7, 9, 13, 0.80)',
+  // Action pill backing plate: the theme's own surface base + hairline border,
+  // near-opaque so actions survive bright video frames.
+  pillFill: 'rgba(7, 9, 13, 0.92)',
+  pillStroke: 'rgba(248, 250, 252, 0.18)',
+  pillCount: '#e2e8f0',
 });
 
 export interface BakudanPanelLabels {
@@ -92,6 +148,45 @@ function formatChineseVideoError(error: Readonly<VideoSourceError>, candidateId?
           ? '浏览器拒绝播放视频。'
           : '不支持此视频格式或编解码器。';
   return `${candidateId ? `${candidateId}：` : ''}${message}`;
+}
+
+function formatTraditionalChineseVideoError(
+  error: Readonly<VideoSourceError>,
+  candidateId?: string,
+): string {
+  const message =
+    error.code === 'network-error'
+      ? '無法下載影片。'
+      : error.code === 'metadata-error'
+        ? '影片中繼資料缺失或無效。'
+        : error.code === 'playback-rejected'
+          ? '瀏覽器拒絕播放影片。'
+          : '不支援此影片格式或編解碼器。';
+  return `${candidateId ? `${candidateId}：` : ''}${message}`;
+}
+
+function formatJapaneseVideoError(error: Readonly<VideoSourceError>, candidateId?: string): string {
+  const message =
+    error.code === 'network-error'
+      ? '動画をダウンロードできませんでした。'
+      : error.code === 'metadata-error'
+        ? '動画のメタデータがないか無効です。'
+        : error.code === 'playback-rejected'
+          ? 'ブラウザーが動画の再生を拒否しました。'
+          : '動画形式またはコーデックに対応していません。';
+  return `${candidateId ? `${candidateId}：` : ''}${message}`;
+}
+
+function formatKoreanVideoError(error: Readonly<VideoSourceError>, candidateId?: string): string {
+  const message =
+    error.code === 'network-error'
+      ? '비디오를 다운로드할 수 없습니다.'
+      : error.code === 'metadata-error'
+        ? '비디오 메타데이터가 없거나 잘못되었습니다.'
+        : error.code === 'playback-rejected'
+          ? '브라우저가 비디오 재생을 거부했습니다.'
+          : '지원되지 않는 비디오 형식 또는 코덱입니다.';
+  return `${candidateId ? `${candidateId}: ` : ''}${message}`;
 }
 
 const ENGLISH: BakudanCinemaLabels = {
@@ -276,6 +371,299 @@ const CHINESE: BakudanCinemaLabels = {
   },
 };
 
+/**
+ * Traditional Chinese. zh-TW previously fell through to the simplified set,
+ * which Taiwanese users read as machine-translated; terminology follows the
+ * legacy i18n.ts dictionary (影片/中繼資料/控制項).
+ */
+const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
+  kit: {
+    product: 'Bakudan 彈幕',
+    status: {
+      video: '影片',
+      stress: '吞吐測試',
+      loading: '載入中',
+      paused: '已暫停',
+      error: '影片來源錯誤',
+      activeSummary: (active, capacity) =>
+        `${active.toLocaleString()} / ${capacity.toLocaleString()} 條`,
+      fpsSummary: (fps) => `${fps} FPS`,
+    },
+    command: {
+      inputPlaceholder: '發一條彈幕…',
+      send: '傳送',
+      play: '播放',
+      pause: '暫停',
+      videoPosition: '影片進度',
+      playbackRate: '播放速度',
+      openLab: '實驗室',
+      closeLab: '實驗室',
+    },
+    lab: {
+      title: 'Bakudan 實驗室',
+      close: '關閉',
+      videos: '影片',
+      throughput: '吞吐',
+      interactions: '互動',
+      devtools: '開發工具',
+    },
+  },
+  panels: {
+    videos: {
+      panel: '影片實驗室',
+      scroll: '影片實驗室控制項',
+      videos: '影片來源',
+      profiles: '軌道方案',
+      profileDetails: '方案詳情',
+      metadata: '中繼資料',
+      attribution: '署名',
+      customUrl: '自訂影片 URL',
+      customSource: '自訂 URL',
+      choose: '選擇影片',
+      retry: '重試影片來源',
+      loadState: '影片來源狀態',
+      formatLoadState: (state) => {
+        if (state.status === 'loading') return `正在載入 ${state.candidateId}`;
+        if (state.status === 'ready') return `已就緒 · ${state.sourceId}`;
+        return '請選擇影片來源';
+      },
+      formatLoadError: formatTraditionalChineseVideoError,
+      formatMetadata: (rows) => rows.map(({ label, value }) => `${label}：${value}`).join(' · '),
+      formatAttribution: (attribution) => attribution || '無需署名',
+    },
+    throughput: {
+      panel: '吞吐實驗室',
+      scroll: '吞吐實驗室控制項',
+      capacity: '彈幕池容量',
+      target: '目標彈幕數',
+      rate: '生成速率',
+      quickTargets: '快捷目標',
+      distribution: '分布',
+      framePercentiles: '幀健康',
+      drawSplit: '繪製分布',
+      formatCapacity: (value) => value.toLocaleString(),
+      formatTarget: (value) => value.toLocaleString(),
+      formatRate: (value) => `${value}/秒`,
+      formatMetric: (value) => `${Math.round(value * 10) / 10}`,
+    },
+    interactions: {
+      panel: '互動實驗室',
+      scroll: '互動實驗室控制項',
+      presets: '運動軌跡',
+      effects: '新彈幕特效',
+      renderClasses: '渲染分類',
+    },
+    devtools: {
+      panel: '開發工具資訊',
+      scroll: '開發工具資訊',
+      title: '除錯診斷僅在開發環境按需載入。',
+      reload: '載入診斷',
+      availability: {
+        available: '可用',
+        unavailable: '此建置不可用',
+        'reload-required': '按需載入',
+      },
+    },
+  },
+};
+
+/** Japanese. Previously an English fallback for every control surface. */
+const JAPANESE: BakudanCinemaLabels = {
+  kit: {
+    product: 'Bakudan 弾幕',
+    status: {
+      video: 'ビデオ',
+      stress: 'スループット',
+      loading: '読み込み中',
+      paused: '一時停止中',
+      error: 'ビデオソースエラー',
+      activeSummary: (active, capacity) =>
+        `${active.toLocaleString()} / ${capacity.toLocaleString()} 件`,
+      fpsSummary: (fps) => `${fps} FPS`,
+    },
+    command: {
+      inputPlaceholder: 'コメントを入力…',
+      send: '送信',
+      play: '再生',
+      pause: '一時停止',
+      videoPosition: 'ビデオの位置',
+      playbackRate: '再生速度',
+      openLab: 'ラボ',
+      closeLab: 'ラボ',
+    },
+    lab: {
+      title: 'Bakudan ラボ',
+      close: '閉じる',
+      videos: 'ビデオ',
+      throughput: 'スループット',
+      interactions: 'インタラクション',
+      devtools: '開発ツール',
+    },
+  },
+  panels: {
+    videos: {
+      panel: 'ビデオラボ',
+      scroll: 'ビデオラボのコントロール',
+      videos: 'ビデオソース',
+      profiles: 'トラックプロファイル',
+      profileDetails: 'プロファイル詳細',
+      metadata: 'メタデータ',
+      attribution: '出典',
+      customUrl: 'カスタム動画 URL',
+      customSource: 'カスタム URL',
+      choose: 'ビデオを選択',
+      retry: 'ソースを再試行',
+      loadState: 'ソースの状態',
+      formatLoadState: (state) => {
+        if (state.status === 'loading') return `読み込み中 ${state.candidateId}`;
+        if (state.status === 'ready') return `準備完了 · ${state.sourceId}`;
+        return 'ソースを選択してください';
+      },
+      formatLoadError: formatJapaneseVideoError,
+      formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
+      formatAttribution: (attribution) => attribution || '出典の記載不要',
+    },
+    throughput: {
+      panel: 'スループットラボ',
+      scroll: 'スループットラボのコントロール',
+      capacity: 'プール容量',
+      target: '目標ライブ数',
+      rate: '生成レート',
+      quickTargets: 'クイックターゲット',
+      distribution: '分布',
+      framePercentiles: 'フレームヘルス',
+      drawSplit: '描画内訳',
+      formatCapacity: (value) => value.toLocaleString(),
+      formatTarget: (value) => value.toLocaleString(),
+      formatRate: (value) => `${value}/秒`,
+      formatMetric: (value) => `${Math.round(value * 10) / 10}`,
+    },
+    interactions: {
+      panel: 'インタラクションラボ',
+      scroll: 'インタラクションラボのコントロール',
+      presets: 'モーションプリセット',
+      effects: '新規コメントエフェクト',
+      renderClasses: '描画クラス',
+    },
+    devtools: {
+      panel: '開発ツール情報',
+      scroll: '開発ツール情報',
+      title: 'デバッグ診断は開発環境でのみ読み込まれます。',
+      reload: '診断を読み込む',
+      availability: {
+        available: '利用可能',
+        unavailable: 'このビルドでは利用不可',
+        'reload-required': 'オンデマンドで読み込む',
+      },
+    },
+  },
+};
+
+/** Korean. Previously an English fallback for every control surface. */
+const KOREAN: BakudanCinemaLabels = {
+  kit: {
+    product: 'Bakudan 단막',
+    status: {
+      video: '비디오',
+      stress: '처리량',
+      loading: '로딩 중',
+      paused: '일시정지',
+      error: '비디오 소스 오류',
+      activeSummary: (active, capacity) =>
+        `${active.toLocaleString()} / ${capacity.toLocaleString()}개`,
+      fpsSummary: (fps) => `${fps} FPS`,
+    },
+    command: {
+      inputPlaceholder: '단막 입력…',
+      send: '전송',
+      play: '재생',
+      pause: '일시정지',
+      videoPosition: '비디오 위치',
+      playbackRate: '재생 속도',
+      openLab: '랩',
+      closeLab: '랩',
+    },
+    lab: {
+      title: 'Bakudan 랩',
+      close: '닫기',
+      videos: '비디오',
+      throughput: '처리량',
+      interactions: '인터랙션',
+      devtools: '개발 도구',
+    },
+  },
+  panels: {
+    videos: {
+      panel: '비디오 랩',
+      scroll: '비디오 랩 컨트롤',
+      videos: '비디오 소스',
+      profiles: '트랙 프로필',
+      profileDetails: '프로필 상세',
+      metadata: '메타데이터',
+      attribution: '출처',
+      customUrl: '사용자 지정 비디오 URL',
+      customSource: '사용자 지정 URL',
+      choose: '비디오 선택',
+      retry: '소스 다시 시도',
+      loadState: '소스 상태',
+      formatLoadState: (state) => {
+        if (state.status === 'loading') return `${state.candidateId} 로딩 중`;
+        if (state.status === 'ready') return `준비됨 · ${state.sourceId}`;
+        return '소스를 선택하세요';
+      },
+      formatLoadError: formatKoreanVideoError,
+      formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
+      formatAttribution: (attribution) => attribution || '출처 표시 불필요',
+    },
+    throughput: {
+      panel: '처리량 랩',
+      scroll: '처리량 랩 컨트롤',
+      capacity: '풀 용량',
+      target: '목표 라이브 수',
+      rate: '생성 속도',
+      quickTargets: '빠른 대상',
+      distribution: '분포',
+      framePercentiles: '프레임 헬스',
+      drawSplit: '그리기 분포',
+      formatCapacity: (value) => value.toLocaleString(),
+      formatTarget: (value) => value.toLocaleString(),
+      formatRate: (value) => `${value}/초`,
+      formatMetric: (value) => `${Math.round(value * 10) / 10}`,
+    },
+    interactions: {
+      panel: '인터랙션 랩',
+      scroll: '인터랙션 랩 컨트롤',
+      presets: '모션 프리셋',
+      effects: '신규 댓글 이펙트',
+      renderClasses: '렌더 클래스',
+    },
+    devtools: {
+      panel: '개발 도구 정보',
+      scroll: '개발 도구 정보',
+      title: '디버그 진단은 개발 환경에서만 로드됩니다.',
+      reload: '진단 로드',
+      availability: {
+        available: '사용 가능',
+        unavailable: '이 빌드에서는 사용 불가',
+        'reload-required': '필요 시 로드',
+      },
+    },
+  },
+};
+
 export function cinemaLabelsFor(language: Language): BakudanCinemaLabels {
-  return language === 'zh-CN' || language === 'zh-TW' ? CHINESE : ENGLISH;
+  switch (language) {
+    case 'zh-CN':
+      return CHINESE;
+    case 'zh-TW':
+      // Was a fallthrough to the simplified set; Traditional readers deserve
+      // their own script, not a regional typo on every label.
+      return TRADITIONAL_CHINESE;
+    case 'ja':
+      return JAPANESE;
+    case 'ko':
+      return KOREAN;
+    default:
+      return ENGLISH;
+  }
 }
