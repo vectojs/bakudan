@@ -146,10 +146,24 @@ export class DanmakuLayer extends Entity {
    * steady-state hit rate is ~100%. Provided by `@vectojs/core` since 1.12.0.
    */
   private _rasterCache = new TextRasterCache({ maxEntries: 6000 });
+  /** DPR `_rasterCache` was built for; see `rasterCacheDpr`. */
+  private _rasterCacheDpr = 1;
 
   /** Fallback-cache hit/miss/size, surfaced on the HUD. */
   get rasterStats(): { hits: number; misses: number; size: number } {
     return this._rasterCache.stats;
+  }
+
+  /**
+   * DPR the fallback rasters are keyed to. `TextRasterCache` rasterizes at a
+   * fixed dpr (default 1) while keeping blit dimensions in CSS px, so a cache
+   * built at the wrong ratio resamples onto the backing store — the same
+   * softness as the old maxDPR-1 blur, just for emoji / user-sent text.
+   * Keyed to the live `IRenderer.pixelRatio` (core >= 1.29.0), which is what
+   * `GlyphRasterAtlas.pixelRatio` established for code atlases.
+   */
+  get rasterCacheDpr(): number {
+    return this._rasterCacheDpr;
   }
 
   constructor(
@@ -258,6 +272,17 @@ export class DanmakuLayer extends Entity {
     this.drawStats.c2dBlits = 0;
     this.drawStats.c2dFillText = 0;
     this.drawStats.special = 0;
+
+    // Keep fallback rasters at the backing store's resolution. The read is
+    // live per frame on purpose: browser zoom and monitor moves change the
+    // ratio without recreating the layer, and a stale-keyed cache would blit
+    // resampled rasters. A rebuild is rare and cheap (next frame re-rasterizes).
+    const dpr = renderer.pixelRatio ?? 1;
+    if (dpr !== this._rasterCacheDpr) {
+      this._rasterCache = new TextRasterCache({ maxEntries: 6000, dpr });
+      this._rasterCacheDpr = dpr;
+    }
+
     this.profiler?.beginPhase('layer.cullBucket');
     const { w: stageW, h: stageH, interactive } = this.getStage();
     const slots = this.pool.slots;
