@@ -361,18 +361,49 @@ export class DanmakuLayer extends Entity {
   /**
    * Supply the loaded MSDF atlas to switch the plain text pass onto the GPU
    * glyph-batch path. Safe to call after construction (atlas loads async).
+   *
+   * The atlas is validated before adoption: `MSDFFont.parse` performs no shape
+   * checking, so a truncated/partial atlas.json parses into a font whose
+   * `data.atlas` / `data.metrics` is missing. Adopting such a font throws here
+   * (the `distanceRange` getter dereferences `data.atlas`) — an unhandled
+   * rejection in App's load callback — or pushes NaN quads from `_glyphRun`
+   * once a non-finite ascender reaches the layout. On rejection this layer
+   * keeps whatever font it already had (normally none) and stays on the
+   * Canvas2D fallback: degraded rendering, never a crash or NaN geometry.
    */
   setMSDF(atlas: LoadedAtlas): void {
+    const data = atlas?.font?.data;
+    const distanceRange = data?.atlas?.distanceRange;
+    const ascender = data?.metrics?.ascender;
+    if (
+      !atlas?.texture ||
+      !data ||
+      !Number.isFinite(distanceRange) ||
+      distanceRange <= 0 ||
+      !Number.isFinite(ascender)
+    ) {
+      // One warn, once per bad load attempt: silent degradation here would
+      // read as "why is stress fps capped" months later.
+      console.warn('[bakudan] MSDF atlas malformed; staying on the Canvas2D fallback', {
+        hasTexture: !!atlas?.texture,
+        distanceRange,
+        ascender,
+      });
+      return;
+    }
     this._font = atlas.font;
     this._texture = atlas.texture;
-    this._distanceRange = atlas.font.distanceRange;
+    this._distanceRange = distanceRange;
     this._glSafe.clear();
     this._runCache.clear();
   }
 
   /** Is `text` fully representable by the MSDF atlas (no emoji, all glyphs present)? */
   private _isGLSafe(text: string): boolean {
-    if (!this._font) return false;
+    // Null font (atlas still loading / load failed / rejected by setMSDF), or
+    // a font without finite metrics: either would NaN every quad in
+    // `_glyphRun`, so everything takes the Canvas2D fallback.
+    if (!this._font || !Number.isFinite(this._font.data?.metrics?.ascender)) return false;
     const hit = this._glSafe.get(text);
     if (hit !== undefined) return hit;
     let safe = true;
