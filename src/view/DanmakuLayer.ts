@@ -54,6 +54,29 @@ export const PILL_COPY_BASELINE_OFFSET_PX = -1;
 export const PAUSE_CHIP_HEIGHT_PX = 18;
 export const PAUSE_CHIP_RADIUS_PX = 6;
 export const PAUSE_CHIP_PADDING_PX = 8;
+/**
+ * Chip label font, hoisted to a module constant: a fresh string per chip made
+ * every paint pay allocation and font-string parsing again.
+ */
+export const PAUSE_CHIP_FONT = `600 10px 'Inter', system-ui, sans-serif`;
+
+const pauseChipWidthCache = new Map<string, number>();
+
+/**
+ * Plate width for a paused-chip label, memoized per text. The label is
+ * language-static, but stress mode keeps hundreds of slots hovered under a
+ * stationary pointer (the stream flows through the pointer column), so an
+ * uncached measureText here ran once per hovered slot per frame - measured
+ * 2026-08-23 at ~103k calls / 3 s on the 5k stress pool, halving fps (#38).
+ */
+export function pausedChipWidth(text: string): number {
+  const cached = pauseChipWidthCache.get(text);
+  if (cached !== undefined) return cached;
+  if (pauseChipWidthCache.size > 32) pauseChipWidthCache.clear();
+  const w = PAUSE_CHIP_PADDING_PX * 2 + measureText(text, PAUSE_CHIP_FONT);
+  pauseChipWidthCache.set(text, w);
+  return w;
+}
 
 const COPY_GLYPH = '\uD83C\uDFCB\uFE0F';
 /** Digits have no descender; their ink center is ~half a cap-height up. */
@@ -782,8 +805,9 @@ export class DanmakuLayer extends Entity {
    * WHY that danmaku is standing still instead of leaving an anonymous gray
    * veil whose role is unreadable in a still or at stress scale (round-2
    * review item 5). Drawn only for transient hover inspection — selection has
-   * its action pill and user-sent has its rose marker — and only for the
-   * handful of slots under the pointer, so the hot loop pays nothing.
+   * its action pill and user-sent has its rose marker. In stress mode a
+   * stationary pointer leaves hundreds of slots hovered at once, so the chip
+   * width is memoized (pausedChipWidth); the label itself is language-static.
    */
   private _drawPausedChip(
     renderer: IRenderer,
@@ -794,8 +818,7 @@ export class DanmakuLayer extends Entity {
   ): void {
     if (!label) return;
     const text = `⏸ ${label}`;
-    const chipW =
-      PAUSE_CHIP_PADDING_PX * 2 + measureText(text, `600 10px 'Inter', system-ui, sans-serif`);
+    const chipW = pausedChipWidth(text);
     const chipX = rx + width - chipW + PAUSE_CHIP_PADDING_PX;
     const chipY = ry - PAUSE_CHIP_HEIGHT_PX / 2 - 2;
     renderer.beginPath();
@@ -806,7 +829,7 @@ export class DanmakuLayer extends Entity {
       text,
       chipX + PAUSE_CHIP_PADDING_PX,
       chipY + PAUSE_CHIP_HEIGHT_PX / 2 + 3,
-      `600 10px 'Inter', system-ui, sans-serif`,
+      PAUSE_CHIP_FONT,
       BAKUDAN_THEME.text,
     );
   }
