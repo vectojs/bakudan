@@ -108,6 +108,7 @@ function internals(app: App): {
   _selectedLikeCount: number;
   _handleTapStage(): void;
   _handlePointerDown(ev: { clientX: number; clientY: number; pointerId: number }): void;
+  _handlePointerMove(ev: { clientX: number; clientY: number }): void;
 } {
   return app as unknown as ReturnType<typeof internals>;
 }
@@ -587,5 +588,63 @@ describe('pill geometry constants match the placed hotspots', () => {
     // 80 - 60 clamps up to the WCAG minimum touch target.
     expect(copy.width).toBe(Math.max(24, PILL_WIDTH_PX - 60));
     expect(like.height).toBe(PILL_HEIGHT_PX);
+  });
+});
+
+describe('pointer coords stay world-true at any device pixel ratio', () => {
+  // vectojs/bakudan#40: the handlers scaled client px by canvas.width /
+  // rect.width, which is the BACKING-STORE ratio. Harmless while maxDPR
+  // pinned the backing store to 1x (#29 raised it to min(dpr, 2)), then every
+  // hit-test evaluated dpr-fold down-right of the cursor: hover missed and
+  // taps selected nothing. These fixtures pin a 1.6x backing store under a
+  // CSS-sized rect, exactly what the live renderer builds on a 1.6-scaled
+  // panel.
+  function hiDpiFixture(width = 1280, height = 800, dpr = 1.6): Fixture {
+    const f = fixture(width, height);
+    const canvas = f.scene.canvas;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: width,
+        bottom: height,
+        width,
+        height,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    return f;
+  }
+
+  test('pointermove maps client px to scene/world px, not backing-store px', () => {
+    const { app } = hiDpiFixture();
+    const a = internals(app);
+    a._handlePointerMove({ clientX: 400, clientY: 300 });
+    expect(a.pointerX).toBe(400);
+    expect(a.pointerY).toBe(300);
+  });
+
+  test('hover follows the cursor when the backing store is scaled', () => {
+    const { app } = hiDpiFixture();
+    const s = primeSlot(app, { x: 350, y: 288, width: 100, fontSize: 24 });
+    const a = internals(app);
+    a._handlePointerMove({ clientX: s.x + s.width / 2, clientY: s.y + 12 });
+    (app as unknown as { _updateHover(): void })._updateHover();
+    expect(s.hovered).toBe(true);
+  });
+
+  test('click selects the danmaku under the cursor when the backing store is scaled', () => {
+    const { app } = hiDpiFixture();
+    const s = primeSlot(app, { x: 350, y: 288, width: 100, fontSize: 24 });
+    const a = internals(app);
+    a._handlePointerDown({
+      clientX: s.x + s.width / 2,
+      clientY: s.y + 12,
+      pointerId: 7,
+    });
+    expect(a._selectedSlotId).toBe(s.id);
   });
 });

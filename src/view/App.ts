@@ -1372,10 +1372,18 @@ export class App {
   }
 
   private readonly _handlePointerMove = (event: PointerEvent): void => {
-    const canvas = this.scene.canvas;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    // Client px -> scene/world px. World units are LOGICAL CSS px -- the
+    // renderer owns the backing-store scale internally -- so the correction
+    // factor is the logical-to-CSS ratio, never canvas.width/rect.width:
+    // since #29 raised the backing store to min(dpr, 2), that ratio equals
+    // the device DPR and every hit-test reacted dpr-fold down-right of the
+    // cursor (vectojs/bakudan#40).
+    const rect = this.scene.canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
+    this.pointerX = (event.clientX - rect.left) * scaleX;
+    this.pointerY = (event.clientY - rect.top) * scaleY;
+    this._interactiveMode = true;
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
     this._interactiveMode = true;
@@ -1402,9 +1410,11 @@ export class App {
   private _handlePointerDown = (event: PointerEvent) => {
     const canvas = this.scene.canvas;
     if (!canvas) return;
+    // Same world-unit mapping as the move handler: logical CSS px, never
+    // backing-store px (vectojs/bakudan#40).
     const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
 
