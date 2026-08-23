@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.6.0 - 2026-08-24
+
+### Added
+
+- **Fullscreen mode**: press `f` (or `F`) to toggle fullscreen; state
+  re-synchronizes on `fullscreenchange`, failures are announced through the
+  status region, and labels ship in all five languages.
+- **Paused micro-chip**: hovering a danmaku in stress mode now shows a
+  localized "paused" chip pinned to its top-right corner instead of an
+  anonymous gray veil.
+- **Complete zh-TW / ja / ko labels**: Traditional Chinese no longer falls
+  back to simplified characters and Japanese/Korean no longer fall back to
+  English.
+
+### Changed
+
+- **Sharper HiDPI rendering**: the backing store now renders at up to
+  `min(devicePixelRatio, 2)` instead of a fixed 1x, so canvas text stays
+  crisp on HiDPI displays and under browser zoom; fallback-rasterized text
+  (emoji, out-of-atlas glyphs, user-sent) re-keys to the live pixel ratio.
+- **Steady idle cadence**: render-on-demand idle now holds core's default
+  60fps floor instead of sleeping at 2fps; engine pins updated to
+  `@vectojs/core` 1.38.1, `@vectojs/ui` 2.19.2, `@vectojs/devtools` 0.11.1.
+- **Coherent visual chrome**: selection outlines, hover veils, and the
+  action bar paint from shared DANMAKU_CHROME theme tokens with a single
+  rose accent and one radius scale; the status/action-bar surface is fully
+  opaque; raised controls (Play/Lab/rate/inputs) gained contrast;
+  success/warning pills neutralized to slate so only loading and error
+  carry color signals.
+
+### Fixed
+
+- **Selection & action bar rebuilt**: liking works again (reactions now key
+  on text), the action bar no longer turns invisible and unclickable after
+  being dismissed, Escape dismisses even while a pill button holds focus,
+  taps survive a resting pointer, overlapping danmaku are picked in paint
+  order rather than slot order, hover resumes after moving off the bar, and
+  selecting freezes the danmaku with the bar anchored until it expires or
+  is dismissed.
+- **Pointer coordinates at DPR > 1**: hit-testing (hover, click-select,
+  pill actions, drag, overlay routing) scaled client pixels by the
+  backing-store ratio, so on HiDPI every hit landed below-right of the
+  cursor and hover missed entirely; pointers now map to world units.
+- **Status bar gap**: the status bar sat 16px below the visual-viewport
+  top, letting video and danmaku pass behind it; it is pinned flush to the
+  top.
+
+### Performance
+
+- **Stress fps regression fixed**: the paused chip paid an uncached
+  `measureText` per hovered slot per pass (~103k calls in 3s on the 5,000
+  pool, halving fps); plate width is memoized per label - stress at 5,000
+  returns to the vsync target from ~120fps p50.
+
 ## 0.5.0
 
 ### Performance — WebGL/MSDF GPU text path (the real 5,000-danmaku fix)
