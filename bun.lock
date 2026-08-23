@@ -7,7 +7,7 @@
       "dependencies": {
         "@vectojs/core": "1.38.1",
         "@vectojs/danmaku-core": "0.3.0",
-        "@vectojs/danmaku-kit": "0.6.0",
+        "@vectojs/danmaku-kit": "0.6.1",
         "@vectojs/ui": "2.19.2",
       },
       "devDependencies": {
@@ -403,7 +403,7 @@
 
     "@vectojs/danmaku-core": ["@vectojs/danmaku-core@0.3.0", "", {}, "sha512-QM7IkLTEJZEhluMKtzRPB9tKMPyO09XPBsyQTSGhkLGAekSJGFO20gD7LnPaz4c8tK7ozFLo8yeejNt9zJeF0A=="],
 
-    "@vectojs/danmaku-kit": ["@vectojs/danmaku-kit@0.6.0", "", { "peerDependencies": { "@vectojs/core": ">=1.24.0 <2.0.0", "@vectojs/danmaku-core": ">=0.2.0 <1.0.0", "@vectojs/ui": ">=2.5.0 <3.0.0" } }, "sha512-t4tMRqz+fUJAHEiPZiyBbtT8nbiYfa9e1EvZiT64C7h8VeS80cQP2upQDEBAuugPdrtEYsvrBNBNTphKliIgFw=="],
+    "@vectojs/danmaku-kit": ["@vectojs/danmaku-kit@0.6.1", "", { "peerDependencies": { "@vectojs/core": ">=1.24.0 <2.0.0", "@vectojs/danmaku-core": ">=0.2.0 <1.0.0", "@vectojs/ui": ">=2.5.0 <3.0.0" } }, "sha512-Pnk6TL9bisVRhp9Y+58DAS94HS8VKB4QgYdgYOfPRQ+7gA4wz4O34J/wm6nY5TprSlKFmjyjUvbzSGep77TfVA=="],
 
     "@vectojs/devtools": ["@vectojs/devtools@0.11.1", "", { "peerDependencies": { "@vectojs/core": ">=1.0.0 <2.0.0", "@vectojs/ui": ">=1.0.0 <3.0.0" }, "optionalPeers": ["@vectojs/ui"] }, "sha512-F7NEGmSkylQTPOvCkLEEv6qw+cfMOYe3MhMr9D42zPDOQhyVMRR6Z7SWaOt+mMjl/j6oAVqDDNor2Jur4ba0xA=="],
 
