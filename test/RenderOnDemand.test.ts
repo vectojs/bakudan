@@ -111,8 +111,8 @@ describe('render-on-demand idle gating', () => {
 
     // Scene.loop() clamps to the idle floor only when all four hold at once:
     //   isIdle && autoThrottle && renderMode === 'always' && maxFPS > 0
-    // core >=1.38.0 defaults that floor to 60fps; the app pins it back to 2
-    // via SceneOptions.idleFPS in main.ts.
+    // Since core >=1.38.0 that floor defaults to 60fps and the app keeps the
+    // default on purpose: idle must hold a fixed 60Hz cadence, not sleep.
     scene.renderMode = 'always';
     scene.maxFPS = 240;
     expect(scene.autoThrottle).toBe(true);

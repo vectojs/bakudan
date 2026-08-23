@@ -17,12 +17,6 @@ async function main(): Promise<void> {
     maxFPS: 240,
     maxDPR: 1,
     a11ySyncInterval: 100,
-    // core >=1.38.0 raised the idle floor for 'always' mode from 2fps to a
-    // default of 60fps. This app is render-on-demand by contract (see
-    // bakudan-docs/ARCHITECTURE.md): with the video paused and the pool empty,
-    // an unchanged full-frame composite — including the WebGL layer — must not
-    // repaint 60 times a second. Restore the aggressive sleep explicitly.
-    idleFPS: 2,
     // Stack a WebGL2 layer above the 2D canvas. The danmaku text layer draws
     // its glyphs through it (MSDF, one batched draw call for the whole frame),
     // which is the only way past the Canvas2D per-glyph draw + overdraw
