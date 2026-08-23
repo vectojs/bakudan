@@ -38,6 +38,7 @@ import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   DanmakuLayer,
+  paintOrderKey,
   PILL_BASELINE_FACTOR,
   PILL_COPY_OFFSET_PX,
   PILL_HEIGHT_PX,
@@ -53,7 +54,6 @@ const MOBILE_POOL = 5_000;
 const MOBILE_BREAKPOINT = 768;
 const STATUS_UPDATE_INTERVAL_MS = 500;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
-const INTERACTIVE_IDLE_MS = 1500;
 const DESKTOP_DRAWER_RATIO = 0.46;
 const MOBILE_DRAWER_RATIO = 0.69;
 const OVERLAY_MARGIN_DESKTOP = 16;
@@ -158,10 +158,16 @@ export class App {
     userAgent: navigator.userAgent,
   }));
 
+  /** Null only between construction and the store's first assignment below. */
   private _reactionStore: ReactionStore | null = null;
   private _selectedSlotId: number | null = null;
   /** Which action of the selected danmaku's pill the pointer is over. */
   private _hoveredAction: HoveredAction = null;
+  /**
+   * Persisted like count of the selected danmaku, cached here so the render
+   * path never calls ReactionStore.get() per frame (it parses localStorage).
+   */
+  private _selectedLikeCount = 0;
   private readonly _selectionHotspots: SelectionHotspots;
 
   private _disposeShortcuts: (() => void) | null = null;
@@ -246,7 +252,6 @@ export class App {
   private pointerActive = false;
 
   private _interactiveMode = false;
-  private _lastPointerMove = 0;
   private _dragSlot: PoolSlot | null = null;
   private _dragOffX = 0;
   private _dragOffY = 0;
@@ -274,9 +279,13 @@ export class App {
       { textSampler: () => ContentLibrary.sample() },
     );
 
+    // Reactions key off the default video until a real selection re-keys the
+    // store — stress mode must be able to like/copy too, not just video mode.
+    this._reactionStore = new ReactionStore(this.currentVideoId);
     this._selectionHotspots = new SelectionHotspots({
       onLikeToggle: () => this._handleLikeToggle(),
       onCopy: () => this._handleCopy(),
+      onDismiss: () => this.dismiss(),
       likeLabel: () => 'Like Danmaku',
       copyLabel: () => 'Copy Danmaku Text',
     });
@@ -307,6 +316,7 @@ export class App {
       h: this.stageH,
       interactive: this._interactiveMode,
       hoveredAction: this._hoveredAction,
+      likeCount: this._selectedLikeCount,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from
@@ -960,13 +970,6 @@ export class App {
     this._particlesActive = ParticleSystem.update(dt);
     this.profiler.endPhase('particles.update');
 
-    if (!this._dragSlot) {
-      const now = performance.now();
-      if (now - this._lastPointerMove > INTERACTIVE_IDLE_MS) {
-        this._interactiveMode = false;
-      }
-    }
-
     if (this.mode === 'video') {
       this._frameVideo();
     }
@@ -982,71 +985,61 @@ export class App {
     if (this._interactiveMode && !this._dragSlot) {
       this._updateHover();
     }
-
-    const slots = this.pool.slots;
-
-    if (!this._interactiveMode) {
-      for (let i = 0; i < slots.length; i++) {
-        const s = slots[i];
-        if (s.hovered) {
-          s.hovered = false;
-          s.paused = s.dragging;
-        }
-      }
-    }
     this.profiler.endPhase('app.frame(js)');
   }
 
   private _updateHover(): void {
     const slots = this.pool.slots;
-    let slotHovered = false;
+    const selected = this._selectedSlotId !== null ? slots[this._selectedSlotId] : null;
 
-    if (this._selectedSlotId !== null) {
-      const s = slots[this._selectedSlotId];
-      if (s?.active && s.interactionLocked) {
-        const pillW = PILL_WIDTH_PX;
-        const pillH = PILL_HEIGHT_PX;
-        const pillY = s.y + s.params.fontSize * PILL_BASELINE_FACTOR - pillH / 2;
-        this._selectionHotspots.liked = s.liked ?? false;
-        // Place the hotspots on the pill that DanmakuLayer._drawSelectedPill
-        // actually paints, not on the danmaku's own origin. The pill is drawn at
-        // pillY - fontSize * 1.4 below s.y - and its copy glyph sits at rx + 60,
-        // so passing (s.x, s.y, 44, 44) put the like rect over the like count
-        // and left the copy rect starting 16px before its glyph. Worse, at
-        // fontSize 32 the 44px-tall rects cleared the pill entirely, so neither
-        // action had any clickable area at all.
-        this._selectionHotspots.place(s.x, pillY, pillH, PILL_COPY_OFFSET_PX, pillW);
-        // Derive hover from the hotspots themselves, so the highlight and the
-        // click target can never disagree.
-        const hoveredAction = this._selectionHotspots.hitAction(this.pointerX, this.pointerY);
-        if (hoveredAction !== this._hoveredAction) {
-          this._hoveredAction = hoveredAction;
-          this.scene.markDirty();
-        }
-        if (hoveredAction !== null) slotHovered = true;
+    if (selected?.active && selected.interactionLocked) {
+      // Freeze is a property of selection, never a leftover of hover: a touch
+      // tap or a click after idle has no hover state to inherit it from.
+      selected.paused = true;
+      // Anchor the bar on the pill DanmakuLayer._drawSelectedPill actually
+      // paints: baseline `fontSize * PILL_BASELINE_FACTOR` below s.y, glyphs at
+      // rx / rx+20 / rx+60, total width PILL_WIDTH_PX. Both sides read these
+      // constants, so draw and hit-test cannot drift again.
+      const pillTop =
+        Math.round(selected.y) +
+        selected.params.fontSize * PILL_BASELINE_FACTOR -
+        PILL_HEIGHT_PX / 2;
+      this._selectionHotspots.liked = selected.liked ?? false;
+      this._selectionHotspots.place(
+        Math.round(selected.x),
+        pillTop,
+        PILL_HEIGHT_PX,
+        PILL_COPY_OFFSET_PX,
+        PILL_WIDTH_PX,
+      );
+      // Derive hover from the hotspots themselves, so the highlight and the
+      // click target can never disagree.
+      const hoveredAction = this._selectionHotspots.hitAction(this.pointerX, this.pointerY);
+      if (hoveredAction !== this._hoveredAction) {
+        this._hoveredAction = hoveredAction;
+        this.scene.markDirty();
       }
+    } else {
+      // The selected slot expired or was recycled out from under us — dismiss
+      // instead of leaving an action bar anchored to nothing.
+      if (this._selectedSlotId !== null) this._clearSelection();
     }
 
-    if (!slotHovered) {
-      for (let i = slots.length - 1; i >= 0; i--) {
-        const s = slots[i];
-        if (!s.active || s.interactionLocked) {
-          s.hovered = false;
-          continue;
-        }
+    // Maintain per-slot hover unconditionally. It used to be skipped whenever
+    // the pointer rested on the action bar, which left any danmaku hovered just
+    // before the pointer moved onto the bar frozen in place forever.
+    for (let i = slots.length - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (!s.active || s.interactionLocked) {
         s.hovered = false;
-        if (
-          !slotHovered &&
-          this.pointerX >= s.x &&
-          this.pointerX <= s.x + s.width + 44 &&
-          this.pointerY >= s.y &&
-          this.pointerY <= s.y + s.params.fontSize * 1.5
-        ) {
-          s.hovered = true;
-          slotHovered = true;
-        }
-        s.paused = s.dragging || s.hovered;
+        continue;
       }
+      s.hovered =
+        this.pointerX >= s.x &&
+        this.pointerX <= s.x + s.width &&
+        this.pointerY >= s.y &&
+        this.pointerY <= s.y + s.params.fontSize * 1.5;
+      s.paused = s.dragging || s.hovered;
     }
   }
 
@@ -1215,35 +1208,39 @@ export class App {
     }
   }
 
+  /**
+   * Danmaku under the pointer, chosen by PAINT order. A click must land on the
+   * glyph stack the user sees: plain slots bucketed by ascending font size,
+   * then special-effect slots, exactly what `paintOrderKey` encodes for the
+   * draw pass. The old reverse-slot-index scan picked whichever overlapping
+   * danmaku happened to spawn last, which could sit visually underneath.
+   */
   private _findSlotAtPointer(): PoolSlot | null {
-    const slots = this.pool.slots;
-    if (this._selectedSlotId !== null) {
-      const s = slots[this._selectedSlotId];
-      if (s?.active && s.interactionLocked) {
-        if (
-          this.pointerX >= s.x &&
-          this.pointerX <= s.x + s.width &&
-          this.pointerY >= s.y &&
-          this.pointerY <= s.y + s.params.fontSize * 1.5
-        ) {
-          return s;
-        }
-      }
-    }
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
+    let best: PoolSlot | null = null;
+    let bestKey = -1;
+    for (const s of this.pool.slots) {
       if (!s.active || s.interactionLocked) continue;
       const localX = this.pointerX - s.x;
       if (
-        localX >= 0 &&
-        localX <= s.width + (s.hovered ? 44 : 0) &&
-        this.pointerY >= s.y &&
-        this.pointerY <= s.y + s.params.fontSize * 1.5
+        localX < 0 ||
+        localX > s.width ||
+        this.pointerY < s.y ||
+        this.pointerY > s.y + s.params.fontSize * 1.5
       ) {
-        return s;
+        continue;
+      }
+      const key = paintOrderKey(s);
+      if (key > bestKey) {
+        bestKey = key;
+        best = s;
       }
     }
-    return null;
+    return best;
+  }
+
+  /** Stable reaction key for a slot. Engine params carry no `contentId`, so identical text shares its like count deliberately. */
+  private _reactionId(s: PoolSlot): string {
+    return s.params.contentId || `t:${s.params.text}`;
   }
 
   private _handleTapStage(): void {
@@ -1260,11 +1257,11 @@ export class App {
 
     if (!slot.interactionLocked) {
       slot.interactionLocked = true;
+      slot.paused = true;
       this._selectedSlotId = slot.id;
-      if (slot.params.contentId && this._reactionStore) {
-        const rx = this._reactionStore.get(slot.params.contentId);
-        slot.liked = rx.liked;
-      }
+      const rx = this._reactionStore!.get(this._reactionId(slot));
+      slot.liked = rx.liked;
+      this._selectedLikeCount = rx.count;
       this.scene.markDirty();
       return;
     }
@@ -1283,7 +1280,11 @@ export class App {
       }
       this._selectedSlotId = null;
       this._hoveredAction = null;
-      this._selectionHotspots.x = -1000;
+      this._selectedLikeCount = 0;
+      // Park container AND zero children together; parking the container alone
+      // left previously placed child rects composing back on-screen, where core
+      // happily projected clickable buttons over unrelated content.
+      this._selectionHotspots.hide();
       this.scene.markDirty();
     }
   }
@@ -1291,9 +1292,10 @@ export class App {
   private _handleLikeToggle(): void {
     if (this._selectedSlotId === null || !this._reactionStore) return;
     const s = this.pool.slots[this._selectedSlotId];
-    if (!s || !s.active || !s.params.contentId) return;
-    const rx = this._reactionStore.toggle(s.params.contentId);
+    if (!s || !s.active) return;
+    const rx = this._reactionStore.toggle(this._reactionId(s));
     s.liked = rx.liked;
+    this._selectedLikeCount = rx.count;
     this.scene.markDirty();
   }
 
@@ -1321,7 +1323,6 @@ export class App {
     const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
-    this._lastPointerMove = performance.now();
     this._interactiveMode = true;
     if (this._dragSlot) {
       this._dragSlot.x = this.pointerX - this._dragOffX;
@@ -1366,11 +1367,21 @@ export class App {
       return;
     }
 
-    if (inLab || inCommandDeck || !this._interactiveMode) return;
+    // No `_interactiveMode` gate here: a pointer resting >1.5s used to swallow
+    // the tap entirely, and hover-and-inspect invites exactly that pause. The
+    // coordinates were refreshed from this very event above, so the tap always
+    // acts on what is under the cursor right now.
+    if (inLab || inCommandDeck) return;
 
     this._handleTapStage();
 
-    this.scene.canvas.setPointerCapture(event.pointerId);
+    // Synthetic pointers (automation, some pen/touch drivers) have no active
+    // pointer id and this throws NotFoundError, killing everything after it.
+    try {
+      this.scene.canvas.setPointerCapture(event.pointerId);
+    } catch {
+      /* no active pointer with that id — capture is best-effort */
+    }
   };
 
   private readonly _handlePointerEnd = (): void => {
@@ -1381,12 +1392,20 @@ export class App {
     this._dragSlot = null;
   };
 
+  private readonly _handlePointerLeave = (): void => {
+    this.pointerActive = false;
+    this._interactiveMode = false;
+    for (const s of this.pool.slots) s.hovered = false;
+    this.scene.markDirty();
+  };
+
   private _setupPointerTracking(): void {
     const canvas = this.scene.canvas;
     canvas.addEventListener('pointermove', this._handlePointerMove);
     canvas.addEventListener('pointerdown', this._handlePointerDown);
     canvas.addEventListener('pointerup', this._handlePointerEnd);
-    canvas.addEventListener('pointerleave', this._handlePointerEnd);
+    canvas.addEventListener('pointercancel', this._handlePointerEnd);
+    canvas.addEventListener('pointerleave', this._handlePointerLeave);
   }
 
   destroy(): void {

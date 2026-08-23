@@ -21,6 +21,37 @@ export const PILL_WIDTH_PX = 80;
 export const PILL_HEIGHT_PX = 44;
 
 /**
+ * Pure slot predicates shared by the draw pass and App's hit-testing.
+ *
+ * App owns hit-testing (this layer returns `false` from `isPointInside`), and a
+ * click must land on the danmaku that is visually on top at that point. The
+ * paint order below is: plain slots bucketed by ascending integer font size,
+ * then the special pass, with the selected slot always painted last. Encoding
+ * that order as a single comparable key keeps the two sides from drifting —
+ * they drifted once before and every action became unclickable.
+ */
+export function isSpecialSlot(s: PoolSlot): boolean {
+  const eff = s.params.effects;
+  return (
+    s.params.preset === 'glitch' ||
+    s.params.preset === 'rotation' ||
+    eff.rainbow ||
+    eff.outline ||
+    eff.glow ||
+    eff.gradient
+  );
+}
+
+/**
+ * Paint z-order as one number: special above all plain, font-size buckets
+ * ascending within each group, insertion (slot id) breaking ties. The selected
+ * slot paints last and is excluded from hit-testing entirely.
+ */
+export function paintOrderKey(s: PoolSlot): number {
+  return (isSpecialSlot(s) ? 2 ** 32 : 0) + (s.params.fontSize | 0) * 65536 + s.id;
+}
+
+/**
  * Minimal structural view of the WebGL point layer the Scene owns (typed
  * `private` in core, but reachable at runtime — this is exactly how core's own
  * `MSDFTextEntity` renders). We only need the MSDF glyph-batch entry points.
@@ -173,6 +204,8 @@ export class DanmakuLayer extends Entity {
       h: number;
       interactive: boolean;
       hoveredAction?: 'like' | 'copy' | null;
+      /** Persisted like count for the selected danmaku, rendered on its pill. */
+      likeCount?: number;
     },
   ) {
     super();
@@ -310,14 +343,7 @@ export class DanmakuLayer extends Entity {
       }
       const cache = this._getSlotCache(s);
       if (cache.isSpecial === undefined || cache.lastText !== s.params.text) {
-        const eff = s.params.effects;
-        cache.isSpecial =
-          s.params.preset === 'glitch' ||
-          s.params.preset === 'rotation' ||
-          eff.rainbow ||
-          eff.outline ||
-          eff.glow ||
-          eff.gradient;
+        cache.isSpecial = isSpecialSlot(s);
       }
       if (cache.isSpecial) {
         this.drawStats.special++;
@@ -353,8 +379,11 @@ export class DanmakuLayer extends Entity {
         const rx = (s.x + 0.5) | 0;
         const ry = (s.y + 0.5) | 0;
         const textY = ry + fs * 0.8;
-        // Interaction chrome (user-sent box) stays on Canvas2D, behind glyphs.
-        if (s.userSent && s.width > 0) {
+        // Interaction chrome (user-sent box / hover-pause cue) stays on
+        // Canvas2D, behind glyphs. The hover box is the affordance that tells
+        // the user this danmaku is paused under their pointer; without it a
+        // freeze reads as a dropped frame.
+        if ((s.userSent || (interactive && s.hovered)) && s.width > 0) {
           if (curAlpha !== s.params.opacity) {
             renderer.setGlobalAlpha(s.params.opacity);
             curAlpha = s.params.opacity;
@@ -454,8 +483,9 @@ export class DanmakuLayer extends Entity {
     const ry = Math.round(s.y);
     const textY = ry + fontSize * 0.8;
 
-    if (isSelected || (s.userSent && s.width > 0))
-      this._drawUserBox(renderer, rx, ry, s.width, fontSize, isSelected);
+    if (isSelected || s.userSent || (interactive && s.hovered)) {
+      if (s.width > 0) this._drawUserBox(renderer, rx, ry, s.width, fontSize, isSelected);
+    }
 
     if (preset === 'glitch') {
       const t = s.age / 1000;
@@ -492,8 +522,8 @@ export class DanmakuLayer extends Entity {
       renderer.fillText(text, rx, textY, font, paint);
       if (effects.glow) renderer.fillText(text, rx, textY, font, color);
     }
-    if (s.hovered && interactive) this._drawActions(renderer, s, fontSize, rx, ry);
-    if (isSelected) this._drawSelectedPill(renderer, s, rx, ry, s.liked ? 1 : 0);
+    if (isSelected)
+      this._drawSelectedPill(renderer, s, rx, ry, this.getStage().likeCount ?? (s.liked ? 1 : 0));
     renderer.setGlobalAlpha(1);
   }
 
@@ -534,20 +564,6 @@ export class DanmakuLayer extends Entity {
       renderer.fill('rgba(255, 126, 95, 0.08)');
       renderer.stroke('rgba(255, 126, 95, 0.35)', 1);
     }
-  }
-
-  private _drawActions(
-    renderer: IRenderer,
-    s: PoolSlot,
-    fontSize: number,
-    rx: number,
-    ry: number,
-  ): void {
-    // Retained for unselected hover behavior
-    const textEnd = rx + s.width;
-    const btnFont = `${fontSize}px sans-serif`;
-    renderer.fillText(s.liked ? '❤️' : '🤍', textEnd + 4, ry + fontSize * 0.8, btnFont, '#fff');
-    renderer.fillText('📋', textEnd + 24, ry + fontSize * 0.8, btnFont, '#fff');
   }
 
   private _drawSelectedPill(
