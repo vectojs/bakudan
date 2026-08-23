@@ -103,14 +103,16 @@ describe('render-on-demand idle gating', () => {
     expect(tickerWouldReportPending(app)).toBe(true);
   });
 
-  it('satisfies every precondition core requires to clamp an idle frame to 2fps', () => {
+  it('satisfies every precondition core requires to clamp an idle frame to idleFPS', () => {
     const { app, scene, background } = fixture();
     background.mode = 'ambient';
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
-    // Scene.loop() clamps to 2fps only when all four hold at once:
+    // Scene.loop() clamps to the idle floor only when all four hold at once:
     //   isIdle && autoThrottle && renderMode === 'always' && maxFPS > 0
+    // core >=1.38.0 defaults that floor to 60fps; the app pins it back to 2
+    // via SceneOptions.idleFPS in main.ts.
     scene.renderMode = 'always';
     scene.maxFPS = 240;
     expect(scene.autoThrottle).toBe(true);
