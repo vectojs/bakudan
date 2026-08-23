@@ -45,6 +45,8 @@ describe('decodeShortcut', () => {
       kind: 'seekToEdge',
       edge: 'end',
     });
+    expect(decodeShortcut(key('f'))).toEqual({ kind: 'toggleFullscreen' });
+    expect(decodeShortcut(key('F'))).toEqual({ kind: 'toggleFullscreen' });
     expect(decodeShortcut(key('Escape'))).toEqual({ kind: 'dismiss' });
   });
 
@@ -70,6 +72,7 @@ describe('decodeShortcut', () => {
     expect(decodeShortcut(key('ArrowRight', { meta: true }))).toBeNull();
     expect(decodeShortcut(key('l', { alt: true }))).toBeNull();
     expect(decodeShortcut(key('5', { shift: true }))).toBeNull();
+    expect(decodeShortcut(key('f', { meta: true }))).toBeNull();
   });
 
   it('leaves unbound keys alone', () => {
@@ -117,6 +120,7 @@ function recordingTarget(enabled = true) {
     seekBy: (s) => void calls.push(`seekBy:${s}`),
     seekToFraction: (f) => void calls.push(`seekToFraction:${f}`),
     seekToEdge: (e) => void calls.push(`seekToEdge:${e}`),
+    toggleFullscreen: () => void calls.push('toggleFullscreen'),
     dismiss: () => {
       calls.push('dismiss');
       return true;
@@ -132,6 +136,7 @@ describe('applyShortcut', () => {
       [{ kind: 'seekBy', seconds: -5 }, 'seekBy:-5'],
       [{ kind: 'seekToFraction', fraction: 0.3 }, 'seekToFraction:0.3'],
       [{ kind: 'seekToEdge', edge: 'end' }, 'seekToEdge:end'],
+      [{ kind: 'toggleFullscreen' }, 'toggleFullscreen'],
       [{ kind: 'dismiss' }, 'dismiss'],
     ];
     for (const [intent, expected] of cases) {
@@ -153,6 +158,14 @@ describe('applyShortcut', () => {
     const { target, calls } = recordingTarget(false);
     expect(applyShortcut({ kind: 'dismiss' }, target)).toBe(true);
     expect(calls).toEqual(['dismiss']);
+  });
+
+  it('still toggles fullscreen while playback is unavailable', () => {
+    // Fullscreen is a shell concern: it must work in stress mode and before a
+    // video loads, exactly like Escape.
+    const { target, calls } = recordingTarget(false);
+    expect(applyShortcut({ kind: 'toggleFullscreen' }, target)).toBe(true);
+    expect(calls).toEqual(['toggleFullscreen']);
   });
 
   it('reports an unconsumed dismiss so the key stays available', () => {
@@ -398,5 +411,88 @@ describe('App shortcut operations', () => {
     expect(app.dismiss()).toBe(true);
     expect(app.getViewSnapshot().labOpen).toBe(false);
     expect(app.dismiss()).toBe(false);
+  });
+
+  it('toggles document fullscreen, tracking change events and announcing errors', () => {
+    // happy-dom ships no Fullscreen API at all, which doubles as the
+    // "unsupported platform" case: the first assertion set exercises the
+    // unavailable path, then the test installs stand-ins for a supporting
+    // browser and drives request -> fullscreenchange -> exit.
+    const { app } = appFixture();
+    app.start(); // Listeners are installed by start(), like the shortcut layer.
+    const summaries: string[] = [];
+    (app as unknown as { announcer: { setSummary(s: string): void } }).announcer = {
+      setSummary: (summary) => void summaries.push(summary),
+    };
+    expect(app.isFullscreen).toBe(false);
+
+    // Unsupported API (nothing patched yet): the toggle announces failure
+    // immediately instead of pretending a request was made.
+    app.toggleFullscreen();
+    expect(app.isFullscreen).toBe(false);
+    expect(summaries.at(-1)).toContain('unavailable');
+
+    // Now simulate a supporting browser.
+    const request = mock(() => Promise.resolve());
+    const exit = mock(() => Promise.resolve());
+    Object.defineProperties(document.documentElement, {
+      requestFullscreen: { configurable: true, value: request },
+    });
+    Object.defineProperty(document, 'exitFullscreen', {
+      configurable: true,
+      value: exit,
+    });
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      value: null,
+    });
+    const enterFullscreen = (): void => {
+      Object.defineProperty(document, 'fullscreenElement', {
+        configurable: true,
+        value: document.documentElement,
+      });
+    };
+    const leaveFullscreen = (): void => {
+      Object.defineProperty(document, 'fullscreenElement', {
+        configurable: true,
+        value: null,
+      });
+    };
+    try {
+      app.toggleFullscreen();
+      expect(request).toHaveBeenCalledTimes(1);
+
+      enterFullscreen();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(app.isFullscreen).toBe(true);
+      expect(summaries.at(-1)).toContain('Entered');
+
+      // While fullscreen, a toggle exits rather than requesting again.
+      app.toggleFullscreen();
+      expect(exit).toHaveBeenCalledTimes(1);
+
+      leaveFullscreen();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(app.isFullscreen).toBe(false);
+      expect(summaries.at(-1)).toContain('Exited');
+    } finally {
+      leaveFullscreen();
+      delete (document.documentElement as unknown as Record<string, unknown>).requestFullscreen;
+      delete (document as unknown as Record<string, unknown>).exitFullscreen;
+      delete (document as unknown as Record<string, unknown>).fullscreenElement;
+    }
+  });
+
+  it('announces a fullscreenerror and re-syncs state from the document', () => {
+    const { app } = appFixture();
+    app.start();
+    const summaries: string[] = [];
+    (app as unknown as { announcer: { setSummary(s: string): void } }).announcer = {
+      setSummary: (summary) => void summaries.push(summary),
+    };
+
+    document.dispatchEvent(new Event('fullscreenerror'));
+    expect(app.isFullscreen).toBe(false);
+    expect(summaries.at(-1)).toContain('unavailable');
   });
 });

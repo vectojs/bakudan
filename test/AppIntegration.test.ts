@@ -118,13 +118,18 @@ describe('App Cinema Overlay integration', () => {
     app.setLabOpen(true);
 
     let layout = app.getCinemaLayoutSnapshot();
+
     expect(layout.status.x).toBe(16);
+    // Flush at the visual-viewport top: viewportTop is already a boundary
+    // coordinate, so the old +margin left a 16px gap above the chrome.
+    expect(layout.status.y).toBe(0);
     expect(layout.drawer).toMatchObject({ x: 0, y: 486, width: 1440, height: 414, open: true });
     expect(layout.command.y + layout.command.height).toBeLessThanOrEqual(layout.drawer.y - 16);
 
     app.onResize(390, 844);
     layout = app.getCinemaLayoutSnapshot();
     expect(layout.status.x).toBe(8);
+    expect(layout.status.y).toBe(0);
     expect(layout.drawer).toMatchObject({ x: 0, y: 262, width: 390, height: 582, open: true });
     expect(layout.command.controls.lab.x + layout.command.controls.lab.width).toBeLessThanOrEqual(
       layout.command.width,
@@ -135,6 +140,8 @@ describe('App Cinema Overlay integration', () => {
 
     app.onViewportChange({ offsetTop: 100, height: 500 } as VisualViewport);
     layout = app.getCinemaLayoutSnapshot();
+    // The bar tracks the visible top boundary when it moves (keyboard, zoom).
+    expect(layout.status.y).toBe(100);
     expect(layout.drawer).toMatchObject({ y: 255, height: 345 });
     expect(layout.drawer.y + layout.drawer.height).toBe(600);
   });

@@ -38,6 +38,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.seeked': 'Seeked to',
     'a11y.selectionCleared': 'Selection cleared.',
     'a11y.labClosed': 'Lab panel closed.',
+    'a11y.fullscreenEntered': 'Entered fullscreen.',
+    'a11y.fullscreenExited': 'Exited fullscreen.',
+    'a11y.fullscreenError': 'Fullscreen is unavailable here.',
 
     'fps.max': 'Max (uncapped)',
 
@@ -110,6 +113,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.seeked': '已跳转到',
     'a11y.selectionCleared': '已取消选择。',
     'a11y.labClosed': '已关闭实验面板。',
+    'a11y.fullscreenEntered': '已进入全屏。',
+    'a11y.fullscreenExited': '已退出全屏。',
+    'a11y.fullscreenError': '当前环境不支持全屏。',
 
     'fps.max': '最大 (无限制)',
 
@@ -182,6 +188,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.seeked': '已跳轉到',
     'a11y.selectionCleared': '已取消選擇。',
     'a11y.labClosed': '已關閉實驗面板。',
+    'a11y.fullscreenEntered': '已進入全螢幕。',
+    'a11y.fullscreenExited': '已離開全螢幕。',
+    'a11y.fullscreenError': '目前環境不支援全螢幕。',
 
     'fps.max': '最大 (無限制)',
 
@@ -254,6 +263,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.seeked': 'シーク先',
     'a11y.selectionCleared': '選択を解除しました。',
     'a11y.labClosed': 'ラボパネルを閉じました。',
+    'a11y.fullscreenEntered': '全画面表示に切り替えました。',
+    'a11y.fullscreenExited': '全画面表示を解除しました。',
+    'a11y.fullscreenError': 'この環境では全画面表示を利用できません。',
 
     'fps.max': '最大 (制限なし)',
 
@@ -326,6 +338,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.seeked': '이동한 위치',
     'a11y.selectionCleared': '선택이 해제되었습니다.',
     'a11y.labClosed': '랩 패널을 닫았습니다.',
+    'a11y.fullscreenEntered': '전체 화면으로 전환했습니다.',
+    'a11y.fullscreenExited': '전체 화면을 해제했습니다.',
+    'a11y.fullscreenError': '이 환경에서는 전체 화면을 사용할 수 없습니다.',
 
     'fps.max': '최대 (제한 없음)',
 
