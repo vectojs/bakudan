@@ -37,6 +37,13 @@ import {
 import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
+  exitFullscreenIn,
+  fullscreenElementOf,
+  installFullscreenListeners,
+  requestFullscreenOn,
+} from './Fullscreen';
+
+import {
   DanmakuLayer,
   paintOrderKey,
   PILL_BASELINE_FACTOR,
@@ -171,6 +178,8 @@ export class App {
   private readonly _selectionHotspots: SelectionHotspots;
 
   private _disposeShortcuts: (() => void) | null = null;
+  private _disposeFullscreen: (() => void) | null = null;
+  private _isFullscreen = false;
 
   private labOpen = false;
 
@@ -916,6 +925,10 @@ export class App {
     this.started = true;
     this._setupPointerTracking();
     this._disposeShortcuts = installKeyboardShortcuts(this);
+    this._disposeFullscreen = installFullscreenListeners(document, {
+      onChange: (active) => this._handleFullscreenChange(active),
+      onError: () => this._handleFullscreenError(),
+    });
     this.ticker = new Ticker(this);
     this.scene.add(this.ticker);
     if (this.stageW === 0 || this.stageH === 0) {
@@ -1156,6 +1169,42 @@ export class App {
     const next = edge === 'start' ? 0 : duration;
     this._onSeek(next);
     this._announceSeek(next, duration);
+  }
+
+  /** Whether an element is currently presented fullscreen. */
+  get isFullscreen(): boolean {
+    return this._isFullscreen;
+  }
+
+  /**
+   * Enter or leave document fullscreen. Targets document.documentElement so
+   * both canvas layers and every projected element stay visible. An entirely
+   * unsupported API announces failure immediately; supported-but-rejected
+   * requests arrive as `fullscreenerror` via _handleFullscreenError.
+   */
+  toggleFullscreen(): void {
+    if (fullscreenElementOf(document) !== null) {
+      exitFullscreenIn(document);
+      return;
+    }
+    if (!requestFullscreenOn(document.documentElement)) {
+      this._isFullscreen = false;
+      this.announcer.setSummary(t('a11y.fullscreenError', this.currentLang));
+    }
+  }
+
+  private _handleFullscreenChange(active: boolean): void {
+    this._isFullscreen = active;
+    this.announcer.setSummary(
+      t(active ? 'a11y.fullscreenEntered' : 'a11y.fullscreenExited', this.currentLang),
+    );
+  }
+
+  private _handleFullscreenError(): void {
+    // A failed request leaves the previous element in charge; re-sync instead
+    // of trusting that the failure means "still ours".
+    this._isFullscreen = fullscreenElementOf(document) !== null;
+    this.announcer.setSummary(t('a11y.fullscreenError', this.currentLang));
   }
 
   /**
@@ -1419,6 +1468,8 @@ export class App {
     this._videoRequestId++;
     this._disposeShortcuts?.();
     this._disposeShortcuts = null;
+    this._disposeFullscreen?.();
+    this._disposeFullscreen = null;
     const canvas = this.scene.canvas;
     canvas.removeEventListener('pointermove', this._handlePointerMove);
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
