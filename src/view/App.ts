@@ -30,6 +30,7 @@ import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
 import {
   DEFAULT_VIDEO_ID,
+  LOCAL_FILE_VIDEO_ID,
   VIDEO_CATALOG,
   resolveVideoSelection,
   videoById,
@@ -192,6 +193,14 @@ export class App {
   };
   private pendingVideoSelection: VideoSelection | null = null;
   private pendingTrackProfileId: string | null = null;
+  /** Hidden picker behind the videos panel's "Open local file..." row. */
+  private _fileInput: HTMLInputElement | null = null;
+  /**
+   * Live blob: object URLs minted for local uploads, newest last. The active
+   * source's URL stays listed; everything else is revoked once a swap lands
+   * (or on destroy), so a failed load keeps the previous video usable.
+   */
+  private _localObjectUrls: string[] = [];
   private devtoolsAvailability: DevToolsAvailability = import.meta.env.DEV
     ? 'reload-required'
     : 'unavailable';
@@ -365,6 +374,16 @@ export class App {
         ? `${entry.attribution.label} · ${entry.attribution.license} · ${entry.attribution.url}`
         : '',
     }));
+    // Session-local upload entry: choosing it opens a file picker and the
+    // picked file re-enters the flow as a custom blob: URL selection. The
+    // panel itself stays kit-owned — this is data plus an id interception.
+    catalog.push({
+      id: LOCAL_FILE_VIDEO_ID,
+      title: labels.panels.localFileTitle,
+      source: { kind: 'external', url: '' },
+      metadata: [{ label: 'Source', value: 'Local file (session only)' }],
+      attribution: '',
+    });
     const profiles = [...TRACK_PROFILES.values()].map((profile) => ({
       id: profile.id,
       label: profile.label,
@@ -407,7 +426,13 @@ export class App {
       },
       catalog,
       profiles,
-      onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+      onChoose: (selection) => {
+        if (selection.source.kind === 'catalog' && selection.source.id === LOCAL_FILE_VIDEO_ID) {
+          this._openLocalFilePicker(selection.profileId);
+          return;
+        }
+        this.selectVideo(selection.source, selection.profileId);
+      },
       onRetry: () => this._retryVideo(),
     });
     this.throughputPanel = new ThroughputPanel({
@@ -545,6 +570,52 @@ export class App {
     this._loadVideoSelection(selection, profileId);
   }
 
+  /**
+   * True while the given source URL is a blob: object URL minted by this app
+   * for a local upload. Such sources are session-local by construction.
+   */
+  private _isLocalUploadUrl(url: string): boolean {
+    return url.startsWith('blob:') && this._localObjectUrls.includes(url);
+  }
+
+  /** Open the hidden file input backing the panel's local-file row. */
+  private _openLocalFilePicker(profileId?: string): void {
+    if (!this._fileInput) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'video/*';
+      input.style.display = 'none';
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        input.value = '';
+        if (file) this._onLocalFilePicked(file, profileId);
+      });
+      document.body.appendChild(input);
+      this._fileInput = input;
+    }
+    this._fileInput.click();
+  }
+
+  private _onLocalFilePicked(file: File, profileId?: string): void {
+    const url = URL.createObjectURL(file);
+    this._localObjectUrls.push(url);
+    // Custom selection => unique per upload (UUID inside the URL), so the
+    // same-selection comparison cannot mistake two files for one another.
+    this.selectVideo({ kind: 'custom', url }, profileId);
+  }
+
+  /**
+   * Revoke the tracked object URL unless it is the now-active source. Called
+   * only after StageBackground actually swapped; a failed load keeps the old
+   * video alive on its still-needed blob.
+   */
+  private _pruneLocalObjectUrl(activeUrl: string | null): void {
+    for (const url of this._localObjectUrls) {
+      if (url !== activeUrl) URL.revokeObjectURL(url);
+    }
+    this._localObjectUrls = activeUrl ? [activeUrl] : [];
+  }
+
   private _retryVideo(): void {
     if (!this.pendingVideoSelection || !this.pendingTrackProfileId) return;
     this._loadVideoSelection(this.pendingVideoSelection, this.pendingTrackProfileId);
@@ -572,7 +643,13 @@ export class App {
       .then(() => {
         if (requestId !== this._videoRequestId || this.destroyed) return;
         this.videoLoading = false;
-        this._reactionStore = new ReactionStore(candidate.id);
+        // The old source is fully disposed at this point (setVideo swapped),
+        // so its object URL can go. On failure we skip pruning: the previous
+        // video keeps playing from its still-live blob.
+        this._pruneLocalObjectUrl(selection.kind === 'custom' ? selection.url : null);
+        this._reactionStore = new ReactionStore(candidate.id, {
+          memoryOnly: this._isLocalUploadUrl(candidate.source.url),
+        });
         this.currentVideoSelection = selection;
         this.currentVideoId = candidate.id;
         this.currentTrackProfileId = profile.id;
@@ -1256,7 +1333,11 @@ export class App {
     this.scheduler.userSpawn(entry, true);
 
     if (this.mode === 'video') {
-      saveUserDanmaku(this.currentVideoId, entry);
+      // A local upload's id hashes its blob: URL, which is dead after reload;
+      // persisting would write entries no future session can ever list.
+      if (!this._isLocalUploadUrl(this.bg.currentSource ?? '')) {
+        saveUserDanmaku(this.currentVideoId, entry);
+      }
       const duration = this.bg.duration || 15;
       this._installVideoTrack(duration, this.currentVideoId, this.currentTrackProfileId);
       this.danmakuTrack.seek(this.bg.currentTime);
@@ -1477,6 +1558,9 @@ export class App {
     if (this.destroyed) return;
     this.destroyed = true;
     this._videoRequestId++;
+    this._pruneLocalObjectUrl(null);
+    this._fileInput?.remove();
+    this._fileInput = null;
     this._disposeShortcuts?.();
     this._disposeShortcuts = null;
     this._disposeFullscreen?.();

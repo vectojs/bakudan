@@ -130,6 +130,8 @@ export const DANMAKU_CHROME: Readonly<
 
 export interface BakudanPanelLabels {
   videos: VideosPanelLabels;
+  /** Title of the app-added "Open local file..." row in the videos panel. */
+  localFileTitle: string;
   throughput: ThroughputPanelLabels;
   interactions: InteractionsPanelLabels;
   devtools: DevToolsInfoPanelLabels;
@@ -258,6 +260,7 @@ const ENGLISH: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || 'No attribution required',
     },
+    localFileTitle: 'Open local file…',
     throughput: {
       panel: 'Throughput laboratory',
       scroll: 'Throughput laboratory controls',
@@ -349,6 +352,7 @@ const CHINESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}：${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '无需署名',
     },
+    localFileTitle: '打开本地视频…',
     throughput: {
       panel: '吞吐实验室',
       scroll: '吞吐实验室控件',
@@ -445,6 +449,7 @@ const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}：${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '無需署名',
     },
+    localFileTitle: '開啟本機影片…',
     throughput: {
       panel: '吞吐實驗室',
       scroll: '吞吐實驗室控制項',
@@ -537,6 +542,7 @@ const JAPANESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '出典の記載不要',
     },
+    localFileTitle: 'ローカル動画を開く…',
     throughput: {
       panel: 'スループットラボ',
       scroll: 'スループットラボのコントロール',
@@ -629,6 +635,7 @@ const KOREAN: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '출처 표시 불필요',
     },
+    localFileTitle: '로컬 동영상 열기…',
     throughput: {
       panel: '처리량 랩',
       scroll: '처리량 랩 컨트롤',

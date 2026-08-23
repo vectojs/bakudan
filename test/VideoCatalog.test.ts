@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { VideoSelection, VideoSourceDescriptor } from '@vectojs/danmaku-kit/model';
 import {
   DEFAULT_VIDEO_ID,
+  LOCAL_FILE_VIDEO_ID,
   VIDEO_CATALOG,
   resolveVideoSelection,
   videoById,
@@ -52,5 +53,29 @@ describe('VideoCatalog', () => {
     expect(custom.id.startsWith('custom-')).toBe(true);
     expect(custom.id).toBe(equivalent.id);
     expect(custom.source.kind).toBe('external');
+  });
+
+  it('accepts blob: object URLs as custom sources with stable per-URL ids', () => {
+    const blob = 'blob:http://localhost:4173/7c9d6a1e-1f2a-4b8e-9c3d-0a5b7e9d1f2c';
+    const resolved = resolveVideoSelection({ kind: 'custom', url: blob });
+    // Object URLs bypass fetch-normalization by design: they must survive
+    // resolution byte-for-byte so StageBackground receives the same URL.
+    expect(resolved.source.url).toBe(blob);
+    expect(resolved.source.kind).toBe('external');
+    expect(resolved.id.startsWith('custom-')).toBe(true);
+    // Stable across repeated resolution, distinct per URL (two uploads are
+    // never conflated by the same-selection comparison).
+    expect(resolveVideoSelection({ kind: 'custom', url: blob }).id).toBe(resolved.id);
+    const second = resolveVideoSelection({
+      kind: 'custom',
+      url: 'blob:http://localhost:4173/ffff6a1e-1f2a-4b8e-9c3d-0a5b7e9d1f2c',
+    });
+    expect(second.id.startsWith('custom-')).toBe(true);
+    expect(second.id).not.toBe(resolved.id);
+  });
+
+  it('keeps the synthetic local-file row out of the resolvable CDN catalog', () => {
+    expect(videoById(LOCAL_FILE_VIDEO_ID)).toBeUndefined();
+    expect(VIDEO_CATALOG.some((entry) => entry.id === LOCAL_FILE_VIDEO_ID)).toBe(false);
   });
 });
