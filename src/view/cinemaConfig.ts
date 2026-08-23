@@ -100,14 +100,19 @@ export const DANMAKU_CHROME: Readonly<
     | 'selectedTextOutline'
     | 'pillFill'
     | 'pillStroke'
-    | 'pillCount',
+    | 'pillCount'
+    | 'pillIcon'
+    | 'pillIconActive',
     string
   >
 > = Object.freeze({
   // Hover-pause is transient inspection, not identity: a quiet slate veil that
   // says "paused under your pointer" without shouting brand color.
   hoverFill: 'rgba(148, 163, 184, 0.12)',
-  hoverStroke: 'rgba(148, 163, 184, 0.40)',
+  // Alpha raised 0.40 -> 0.55 (round 3): at 0.40 the 1px ownership outline on
+  // a frozen-hovered danmaku all but vanished in QA stills. Still neutral
+  // slate - only the alpha moved.
+  hoverStroke: 'rgba(148, 163, 184, 0.55)',
   // User-sent marks ownership, which IS brand emphasis - rose at low alpha,
   // echoing menuSelected/menuHighlight's alpha-only separation language.
   userSentFill: 'rgba(244, 63, 94, 0.10)',
@@ -126,6 +131,11 @@ export const DANMAKU_CHROME: Readonly<
   // Promoted one step to the theme's own text color: the like count is the
   // pill's primary readout, not a muted afterthought (round-2 review).
   pillCount: '#f8fafc',
+  // Round-3 monochrome action icons take the fill colour the emoji never
+  // could: theme text normally, the accent itself once liked (rose =
+  // emphasis/ownership). CanvasChrome pins both derivations.
+  pillIcon: '#f8fafc',
+  pillIconActive: '#f43f5e',
 });
 
 export interface BakudanPanelLabels {

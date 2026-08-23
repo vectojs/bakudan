@@ -336,6 +336,10 @@ export class App {
       hoveredAction: this._hoveredAction,
       likeCount: this._selectedLikeCount,
       pausedLabel: cinemaLabelsFor(this.currentLang).kit.status.paused,
+      // Top-bar safe zone (round 3): chips must never paint under the opaque
+      // status bar - the r2 QA hover capture had a chip vanish behind it.
+      // Read live from the placed kit bar rather than duplicating its height.
+      safeTop: this.statusBar ? this.statusBar.y + this.statusBar.height : 0,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from

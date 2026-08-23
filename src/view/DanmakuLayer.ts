@@ -37,15 +37,20 @@ export const SELECTED_RADIUS_PX = BAKUDAN_THEME.radius;
 /** Corner radius of the per-danmaku interaction boxes ("chip" tier). */
 export const USER_BOX_RADIUS_PX = 6;
 /**
- * Fallback baseline nudges for the two emoji actions, used only where
- * TextMetrics ink extents are unavailable. Measured on a reference stack:
- * at one shared alphabetic baseline the clipboard's ink CENTER sits ~1.7px
- * BELOW the heart's (its top rides higher, which is what reads as "sitting
- * high"), so the copy glyph is drawn one pixel higher to bring both centers
- * onto the count text's optical line.
+ * Action-icon geometry (round 3): both actions are hand-drawn monochrome
+ * vector paths instead of color emoji. Each icon's geometric center lands
+ * exactly on the pill's optical line (the like count's ink center above the
+ * shared baseline), so alignment is deterministic - no font-metric offsets,
+ * and no cross-shot identity drift (the r2 review's strongest eyesore).
  */
-export const PILL_LIKE_BASELINE_OFFSET_PX = 0;
-export const PILL_COPY_BASELINE_OFFSET_PX = -1;
+/** Square icon box side, px. Both glyphs fit inside it. */
+export const PILL_ICON_SIZE_PX = 16;
+/** Horizontal center of the heart icon, from the pill's left edge. */
+export const PILL_LIKE_ICON_CENTER_PX = 10;
+/** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [60,84]). */
+export const PILL_COPY_ICON_CENTER_PX = 72;
+/** Hover affordance: the hovered icon scales by this factor about its center. */
+export const PILL_ICON_HOVER_SCALE = 1.15;
 /**
  * Paused-chip geometry ("chip" tier): height, corner radius, horizontal
  * padding. The chip labels a hover-frozen danmaku so the freeze reads as
@@ -54,6 +59,14 @@ export const PILL_COPY_BASELINE_OFFSET_PX = -1;
 export const PAUSE_CHIP_HEIGHT_PX = 18;
 export const PAUSE_CHIP_RADIUS_PX = 6;
 export const PAUSE_CHIP_PADDING_PX = 8;
+/**
+ * Frozen-hovered chips above this count collapse into ONE summary chip at the
+ * frozen set's centroid (round 3): ~9 individual chips stacked into an
+ * illegible overlapping band under a resting pointer in stress mode.
+ */
+export const PAUSE_CHIP_AGGREGATE_THRESHOLD = 3;
+/** Vertical gap kept between the top-bar safe zone and any paused chip. */
+export const PAUSE_CHIP_SAFE_GAP_PX = 4;
 /**
  * Chip label font, hoisted to a module constant: a fresh string per chip made
  * every paint pay allocation and font-string parsing again.
@@ -68,19 +81,53 @@ const pauseChipWidthCache = new Map<string, number>();
  * stationary pointer (the stream flows through the pointer column), so an
  * uncached measureText here ran once per hovered slot per frame - measured
  * 2026-08-23 at ~103k calls / 3 s on the 5k stress pool, halving fps (#38).
+ * The cap is 256 (was 32) because the aggregated summary label varies with
+ * the frozen count frame-to-frame; each distinct entry is one short string.
  */
 export function pausedChipWidth(text: string): number {
   const cached = pauseChipWidthCache.get(text);
   if (cached !== undefined) return cached;
-  if (pauseChipWidthCache.size > 32) pauseChipWidthCache.clear();
+  if (pauseChipWidthCache.size > 256) pauseChipWidthCache.clear();
   const w = PAUSE_CHIP_PADDING_PX * 2 + measureText(text, PAUSE_CHIP_FONT);
   pauseChipWidthCache.set(text, w);
   return w;
 }
 
-const COPY_GLYPH = '\uD83C\uDFCB\uFE0F';
 /** Digits have no descender; their ink center is ~half a cap-height up. */
 const COUNT_FALLBACK_INK_CENTER_PX = 5.5;
+
+/** One hand-drawn path op in unit space; `m` moves, `b` is a cubic segment. */
+type IconPathOp =
+  | { op: 'm'; pts: readonly [number, number] }
+  | { op: 'b'; pts: readonly [number, number, number, number, number, number] };
+
+/**
+ * Filled heart in unit space, pre-centered: the ink bounding box is symmetric
+ * around (0.5, 0.5), so drawing `(u - 0.5) * size` about an anchor point puts
+ * the glyph's optical center exactly on that anchor. Round 3 replaces the
+ * '\uD83E\uDD0D'/'\u2764\uFE0F' emoji pair, whose identity and metrics drifted
+ * between platforms and shots.
+ */
+const HEART_PATH: readonly IconPathOp[] = [
+  { op: 'm', pts: [0.5, 0.415] },
+  { op: 'b', pts: [0.2, 0.195, 0.04, 0.035, 0.04, -0.155] },
+  { op: 'b', pts: [0.04, -0.325, 0.17, -0.295, 0.29, -0.415] },
+  { op: 'b', pts: [0.38, -0.415, 0.46, -0.355, 0.5, -0.275] },
+  { op: 'b', pts: [0.54, -0.355, 0.62, -0.415, 0.71, -0.415] },
+  { op: 'b', pts: [0.83, -0.415, 0.96, -0.325, 0.96, -0.155] },
+  { op: 'b', pts: [0.96, 0.035, 0.8, 0.195, 0.5, 0.415] },
+];
+
+/**
+ * The copy glyph's two sheets (back then front), centered like the heart:
+ * x/y/w/h in unit space relative to the icon center. Proportions follow the
+ * classic two-rounded-squares mark (front sheet lower-left, overlapping the
+ * back sheet's diagonal), which replaces the '\uD83C\uDFCB' weightlifter emoji
+ * whose arbitrary identity broke the design system.
+ */
+const COPY_BACK_SHEET = { x: -0.417, y: -0.417, w: 0.583, h: 0.583 };
+const COPY_FRONT_SHEET = { x: -0.167, y: -0.167, w: 0.583, h: 0.583 };
+const COPY_SHEET_RADIUS_UNIT = 0.09;
 
 /** Scratch 2D context for ink-extent measurement (module singleton). */
 let emojiMeasureCtx: CanvasRenderingContext2D | null = null;
@@ -106,42 +153,6 @@ function glyphInkCenterAboveBaseline(text: string, font: string): number | null 
   return (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
 }
 
-const pillBaselineOffsetCache = new Map<string, number>();
-
-/**
- * Vertical offset (px) that draws `text` so its INK CENTER sits on the same
- * optical line as a reference element whose ink center is `referenceCenter`
- * px above the shared alphabetic baseline.
- *
- * Emoji fonts disagree wildly about how much of a glyph hangs above/below the
- * baseline - heart and clipboard differ by ~1.7px in ink-center on a stock
- * stack, which is exactly the misalignment the round-2 review flagged. Using
- * TextMetrics actualBoundingBox* when available makes the alignment
- * font-independent; without them we fall back to the exported constants.
- */
-export function pillGlyphBaselineOffset(
-  text: string,
-  font: string,
-  referenceCenter: number,
-): number {
-  // Keyed on the rounded reference center so varying like-count digits cannot
-  // grow it without bound.
-  const key = `${font}\u0000${text}\u0000${Math.round(referenceCenter)}`;
-  const cached = pillBaselineOffsetCache.get(key);
-  if (cached !== undefined) return cached;
-  if (pillBaselineOffsetCache.size > 64) pillBaselineOffsetCache.clear();
-  const inkCenter = glyphInkCenterAboveBaseline(text, font);
-  let offset: number;
-  if (inkCenter !== null) {
-    // Shifting the baseline by (referenceCenter - inkCenter) lines the two
-    // centers up. Clamped so a pathological metric cannot fling a glyph.
-    offset = Math.max(-3, Math.min(3, Math.round(referenceCenter - inkCenter)));
-  } else {
-    offset = text === COPY_GLYPH ? PILL_COPY_BASELINE_OFFSET_PX : PILL_LIKE_BASELINE_OFFSET_PX;
-  }
-  pillBaselineOffsetCache.set(key, offset);
-  return offset;
-}
 /**
  * Minimum hotspot width SelectionHotspots.place() applies per action
  * (mirrors its MIN_TOUCH_TARGET_PX, WCAG 2.5.8); needed here because the
@@ -350,6 +361,8 @@ export class DanmakuLayer extends Entity {
       likeCount?: number;
       /** Localized "Paused" label for the hover-freeze micro-chip. */
       pausedLabel?: string;
+      /** Top-bar safe zone: y below which no chip/plate may paint. */
+      safeTop?: number;
     },
   ) {
     super();
@@ -492,7 +505,7 @@ export class DanmakuLayer extends Entity {
     }
 
     this.profiler?.beginPhase('layer.cullBucket');
-    const { w: stageW, h: stageH, interactive, pausedLabel } = this.getStage();
+    const { w: stageW, h: stageH, interactive, pausedLabel, safeTop } = this.getStage();
     const slots = this.pool.slots;
     const buckets = this._buckets;
 
@@ -503,6 +516,9 @@ export class DanmakuLayer extends Entity {
     // batched text so their glyphs sit on top and each gets isolated state).
     let special: PoolSlot[] | null = null;
     let selected: PoolSlot | null = null;
+    // Frozen-hovered slots from BOTH draw passes; chips repaint once after
+    // everything else so the aggregation decision sees the whole frame.
+    let frozen: PoolSlot[] | null = null;
 
     for (let i = 0; i < slots.length; i++) {
       const s = slots[i];
@@ -567,7 +583,7 @@ export class DanmakuLayer extends Entity {
           // marker even while hovered, so ownership never flickers away under
           // the pointer.
           this._drawUserBox(renderer, rx, ry, s.width, fs, s.userSent ? 'userSent' : 'hover');
-          if (!s.userSent) this._drawPausedChip(renderer, rx, ry, s.width, pausedLabel);
+          if (!s.userSent) (frozen ||= []).push(s);
         }
 
         const cache = this._getSlotCache(s);
@@ -618,15 +634,18 @@ export class DanmakuLayer extends Entity {
     // --- Special pass: glitch / rotation / rainbow / outline / glow ---
     if (special) {
       for (let i = 0; i < special.length; i++) {
-        this._renderSpecial(renderer, special[i], stageW, stageH, interactive);
+        this._renderSpecial(renderer, special[i], stageW, stageH, interactive, false, frozen);
       }
     }
 
     if (selected) {
-      this._renderSpecial(renderer, selected, stageW, stageH, interactive, true);
+      this._renderSpecial(renderer, selected, stageW, stageH, interactive, true, frozen);
     }
 
     if (curAlpha !== 1) renderer.setGlobalAlpha(1);
+    // Paused chips repaint once for the whole frame, above the wall, so the
+    // aggregation decision sees every frozen slot from BOTH draw passes.
+    this._renderPausedChips(renderer, frozen, stageW, stageH, safeTop ?? 0, pausedLabel);
     // Ends here rather than at the GPU submit: everything above is JS work
     // (glyph-run lookup + addGlyph pushes into the vertex buffer). The actual
     // drawArrays happens later in the renderer's flush/present, so a large
@@ -642,6 +661,7 @@ export class DanmakuLayer extends Entity {
     _stageH: number,
     interactive: boolean,
     isSelected = false,
+    frozen: PoolSlot[] | null = null,
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
@@ -666,9 +686,7 @@ export class DanmakuLayer extends Entity {
       if (s.width > 0) {
         const kind: UserBoxKind = isSelected ? 'selected' : s.userSent ? 'userSent' : 'hover';
         this._drawUserBox(renderer, rx, ry, s.width, fontSize, kind);
-        if (kind === 'hover') {
-          this._drawPausedChip(renderer, rx, ry, s.width, this.getStage().pausedLabel);
-        }
+        if (kind === 'hover' && frozen) frozen.push(s);
       }
     }
 
@@ -707,8 +725,15 @@ export class DanmakuLayer extends Entity {
       renderer.fillText(text, rx, textY, font, paint);
       if (effects.glow) renderer.fillText(text, rx, textY, font, color);
     }
-    if (isSelected)
+    if (isSelected) {
       this._drawSelectedPill(renderer, s, rx, ry, this.getStage().likeCount ?? (s.liked ? 1 : 0));
+      // The backing plate painted over the selection outline's bottom stroke
+      // (round-2 QA crops). Re-stroke ABOVE the plate so the rose outline
+      // renders complete; paint-only - hotspots never see this.
+      renderer.beginPath();
+      this._userBoxPath(renderer, rx, ry, s.width, fontSize, SELECTED_RADIUS_PX);
+      renderer.stroke(DANMAKU_CHROME.selectedStroke, 1);
+    }
     renderer.setGlobalAlpha(1);
   }
 
@@ -738,6 +763,22 @@ export class DanmakuLayer extends Entity {
    * hover-pause (transient inspection), rose for user-sent ownership, and the
    * strongest rose for selection (emphasis - keyboard focus keeps blue).
    */
+  /**
+   * Shared interaction-box path. The draw pass AND the post-pill outline
+   * re-stroke read this one geometry, so they cannot drift.
+   */
+  private _userBoxPath(
+    renderer: IRenderer,
+    rx: number,
+    ry: number,
+    width: number,
+    fontSize: number,
+    radius: number,
+  ): void {
+    const pad = 4;
+    renderer.roundRect(rx - pad, ry - pad, width + pad * 2, fontSize * 1.2 + pad * 2, radius);
+  }
+
   private _drawUserBox(
     renderer: IRenderer,
     rx: number,
@@ -746,13 +787,13 @@ export class DanmakuLayer extends Entity {
     fontSize: number,
     kind: UserBoxKind = 'hover',
   ): void {
-    const pad = 4;
     renderer.beginPath();
-    renderer.roundRect(
-      rx - pad,
-      ry - pad,
-      width + pad * 2,
-      fontSize * 1.2 + pad * 2,
+    this._userBoxPath(
+      renderer,
+      rx,
+      ry,
+      width,
+      fontSize,
       kind === 'selected' ? SELECTED_RADIUS_PX : USER_BOX_RADIUS_PX,
     );
     switch (kind) {
@@ -794,41 +835,94 @@ export class DanmakuLayer extends Entity {
     renderer.fill(DANMAKU_CHROME.pillFill);
     renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
     const hovered = this.getStage().hoveredAction ?? null;
-    // Emoji glyphs ignore the fill colour, so hover is signalled by drawing the
-    // hovered action one size larger — the only affordance that actually reads
-    // on a colour-fixed glyph. Without it the pill gave no feedback at all.
-    const baseFont = `14px sans-serif`;
-    const hotFont = `17px sans-serif`;
     // The count is the pill's primary readout: promoted to semibold at the
     // next size up, painted in the theme's own text color (round-2 review).
     const countFont = `600 15px 'Inter', system-ui, sans-serif`;
-    // One optical line: the count text's ink center defines it, and both emoji
-    // are baseline-shifted onto that line (see pillGlyphBaselineOffset).
+    // One optical line: the count text's INK CENTER defines it, and every icon
+    // centers its exact vector geometry on that line. Unlike the old emoji
+    // TextMetrics offsets this needs no clamping and no per-font fallbacks.
     const countText = `${likeCount}`;
     const referenceCenter =
       glyphInkCenterAboveBaseline(countText, countFont) ?? COUNT_FALLBACK_INK_CENTER_PX;
-    const likeGlyph = s.liked ? '\u2764\uFE0F' : '\uD83E\uDD0D';
-    renderer.fillText(
-      likeGlyph,
-      rx,
-      pillY + pillGlyphBaselineOffset(likeGlyph, baseFont, referenceCenter),
-      hovered === 'like' ? hotFont : baseFont,
-      '#fff',
-    );
+    const centerY = pillY - referenceCenter;
     renderer.fillText(
       countText,
       rx + PILL_COUNT_OFFSET_PX,
       pillY,
       countFont,
-      hovered === 'like' ? '#fff' : DANMAKU_CHROME.pillCount,
+      DANMAKU_CHROME.pillCount,
     );
-    renderer.fillText(
-      COPY_GLYPH,
-      rx + PILL_COPY_OFFSET_PX,
-      pillY + pillGlyphBaselineOffset(COPY_GLYPH, baseFont, referenceCenter),
-      hovered === 'copy' ? hotFont : baseFont,
-      '#fff',
+
+    // Monochrome vector actions (round 3). Tint speaks the chrome language -
+    // theme text normally, accent rose once liked (rose = emphasis/ownership).
+    // Hover scales the hovered icon about its center: the same grow affordance
+    // the color-fixed emoji needed, now with exact bounds and no font reads.
+    this._drawHeartIcon(
+      renderer,
+      rx + PILL_LIKE_ICON_CENTER_PX,
+      centerY,
+      PILL_ICON_SIZE_PX * (hovered === 'like' ? PILL_ICON_HOVER_SCALE : 1),
+      s.liked ? DANMAKU_CHROME.pillIconActive : DANMAKU_CHROME.pillIcon,
     );
+    this._drawCopyIcon(
+      renderer,
+      rx + PILL_COPY_ICON_CENTER_PX,
+      centerY,
+      PILL_ICON_SIZE_PX * (hovered === 'copy' ? PILL_ICON_HOVER_SCALE : 1),
+      DANMAKU_CHROME.pillIcon,
+    );
+  }
+
+  /** Filled monochrome heart centered on (cx, cy), side `size`. */
+  private _drawHeartIcon(
+    renderer: IRenderer,
+    cx: number,
+    cy: number,
+    size: number,
+    tint: string,
+  ): void {
+    renderer.beginPath();
+    // HEART_PATH is pre-centered unit space (ink bbox symmetric around 0), so
+    // the anchor IS the optical center - no further 0.5 offset.
+    for (const seg of HEART_PATH) {
+      if (seg.op === 'm') {
+        renderer.moveTo(cx + seg.pts[0] * size, cy + seg.pts[1] * size);
+      } else {
+        renderer.bezierCurveTo(
+          cx + seg.pts[0] * size,
+          cy + seg.pts[1] * size,
+          cx + seg.pts[2] * size,
+          cy + seg.pts[3] * size,
+          cx + seg.pts[4] * size,
+          cy + seg.pts[5] * size,
+        );
+      }
+    }
+    renderer.closePath();
+    renderer.fill(tint);
+  }
+
+  /** Two-sheet copy glyph (stroked back sheet behind a filled front sheet). */
+  private _drawCopyIcon(
+    renderer: IRenderer,
+    cx: number,
+    cy: number,
+    size: number,
+    tint: string,
+  ): void {
+    const r = Math.max(1, COPY_SHEET_RADIUS_UNIT * size);
+    const sheet = (sh: typeof COPY_BACK_SHEET): void => {
+      renderer.roundRect(cx + sh.x * size, cy + sh.y * size, sh.w * size, sh.h * size, r);
+    };
+    // Back sheet first (stroke only), then the front sheet filled with the
+    // plate base so the overlap reads as occlusion, not intersection.
+    renderer.beginPath();
+    sheet(COPY_BACK_SHEET);
+    renderer.stroke(tint, 1.5);
+    renderer.beginPath();
+    sheet(COPY_FRONT_SHEET);
+    renderer.fill(DANMAKU_CHROME.pillFill);
+    renderer.stroke(tint, 1.5);
   }
 
   /**
@@ -846,12 +940,26 @@ export class DanmakuLayer extends Entity {
     ry: number,
     width: number,
     label?: string,
+    safeTop = 0,
   ): void {
     if (!label) return;
     const text = `⏸ ${label}`;
     const chipW = pausedChipWidth(text);
     const chipX = rx + width - chipW + PAUSE_CHIP_PADDING_PX;
-    const chipY = ry - PAUSE_CHIP_HEIGHT_PX / 2 - 2;
+    // Never inside the top-bar safe zone: the now-opaque bar fully hid a
+    // top-row chip in the round-2 QA captures.
+    const chipY = Math.max(ry - PAUSE_CHIP_HEIGHT_PX / 2 - 2, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
+    this._paintPausedChip(renderer, chipX, chipY, chipW, text);
+  }
+
+  /** One chip plate + label. All chip painting funnels through here. */
+  private _paintPausedChip(
+    renderer: IRenderer,
+    chipX: number,
+    chipY: number,
+    chipW: number,
+    text: string,
+  ): void {
     renderer.beginPath();
     renderer.roundRect(chipX, chipY, chipW, PAUSE_CHIP_HEIGHT_PX, PAUSE_CHIP_RADIUS_PX);
     renderer.fill(DANMAKU_CHROME.pillFill);
@@ -863,5 +971,48 @@ export class DanmakuLayer extends Entity {
       PAUSE_CHIP_FONT,
       BAKUDAN_THEME.text,
     );
+  }
+
+  /**
+   * Post-pass chip paint (round 3 anti-mush). At or below
+   * PAUSE_CHIP_AGGREGATE_THRESHOLD every frozen danmaku wears its own chip;
+   * past it the per-slot labels stacked into an illegible band, so they
+   * collapse into ONE localized summary chip ("⏸ N <label>") anchored at the
+   * frozen set's centroid, clamped fully inside the stage and below safeTop.
+   * Drawing last also lifts the labels above the wall instead of behind it.
+   */
+  private _renderPausedChips(
+    renderer: IRenderer,
+    frozen: PoolSlot[] | null,
+    stageW: number,
+    stageH: number,
+    safeTop: number,
+    label?: string,
+  ): void {
+    if (!label || !frozen || frozen.length === 0) return;
+    const n = frozen.length;
+    if (n > PAUSE_CHIP_AGGREGATE_THRESHOLD) {
+      let sumX = 0;
+      let sumY = 0;
+      for (let i = 0; i < n; i++) {
+        const f = frozen[i]!;
+        sumX += f.x + f.width / 2;
+        sumY += f.y + (f.params.fontSize | 0) * 0.5;
+      }
+      const text = `⏸ ${n} ${label}`;
+      const chipW = pausedChipWidth(text);
+      const x = Math.min(Math.max(4, sumX / n - chipW / 2), Math.max(4, stageW - chipW - 4));
+      const yFloor = safeTop + PAUSE_CHIP_SAFE_GAP_PX;
+      const y = Math.min(
+        Math.max(yFloor, sumY / n - PAUSE_CHIP_HEIGHT_PX / 2),
+        Math.max(yFloor, stageH - PAUSE_CHIP_HEIGHT_PX - 4),
+      );
+      this._paintPausedChip(renderer, x, y, chipW, text);
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      const f = frozen[i]!;
+      this._drawPausedChip(renderer, Math.round(f.x), Math.round(f.y), f.width, label, safeTop);
+    }
   }
 }

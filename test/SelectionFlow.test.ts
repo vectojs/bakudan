@@ -8,11 +8,10 @@ import {
   PAUSE_CHIP_PADDING_PX,
   PILL_BASELINE_FACTOR,
   PILL_HEIGHT_PX,
-  PILL_LIKE_BASELINE_OFFSET_PX,
-  PILL_COPY_BASELINE_OFFSET_PX,
+  PILL_PLATE_WIDTH_PX,
   PILL_WIDTH_PX,
 } from '../src/view/DanmakuLayer';
-import { BAKUDAN_THEME } from '../src/view/cinemaConfig';
+import { BAKUDAN_THEME, DANMAKU_CHROME } from '../src/view/cinemaConfig';
 import type { SelectionHotspots } from '../src/view/SelectionHotspots';
 import { StageBackground } from '../src/view/StageBackground';
 import type { PoolSlot } from '../src/model/types';
@@ -147,6 +146,10 @@ function makeRecordingRenderer() {
     },
     beginPath: () => calls.push({ op: 'beginPath', args: [] }),
     roundRect: (...args: unknown[]) => calls.push({ op: 'roundRect', args }),
+    moveTo: (...args: unknown[]) => calls.push({ op: 'moveTo', args }),
+    lineTo: (...args: unknown[]) => calls.push({ op: 'lineTo', args }),
+    bezierCurveTo: (...args: unknown[]) => calls.push({ op: 'bezierCurveTo', args }),
+    closePath: () => calls.push({ op: 'closePath', args: [] }),
     fill: (color?: string) => calls.push({ op: 'fill', args: [color] }),
     stroke: (color?: string, width?: number) => calls.push({ op: 'stroke', args: [color, width] }),
     drawImage: () => calls.push({ op: 'drawImage', args: [] }),
@@ -450,21 +453,98 @@ describe('round-2 pill paint details stay coherent with the hotspots', () => {
     return calls.filter((c) => c.op === 'fillText').map((c) => c.args as never);
   }
 
-  test('copy glyph rides exactly PILL_COPY_BASELINE_OFFSET_PX below the heart', () => {
-    const layer = makeLayer();
-    const draws = fillCalls(layer);
-    const heart = draws.find(([text]) => text === '\uD83E\uDD0D');
-    const copy = draws.find(([text]) => text === '\uD83C\uDFCB\uFE0F');
-    expect(heart).toBeDefined();
-    expect(copy).toBeDefined();
+  /** Y-extents of one traced icon path (moveTo/bezierCurveTo points). */
+  function pathYExtent(
+    calls: Array<{ op: string; args: unknown[] }>,
+    fromIdx: number,
+  ): {
+    min: number;
+    max: number;
+  } {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = fromIdx; i < calls.length; i++) {
+      const c = calls[i]!;
+      if (c.op === 'beginPath' && i !== fromIdx) break;
+      if (c.op === 'moveTo' || c.op === 'bezierCurveTo') {
+        for (let k = 1; k < c.args.length; k += 2) {
+          const y = c.args[k] as number;
+          min = Math.min(min, y);
+          max = Math.max(max, y);
+        }
+      }
+    }
+    return { min, max };
+  }
+
+  test('icons are monochrome vectors - no emoji glyph reaches the paint list', () => {
+    const { calls, texts, renderer } = makeRecordingRenderer();
+    makeLayer().render(renderer);
+    for (const emoji of ['\uD83E\uDD0D', '\u2764\uFE0F', '\uD83C\uDFCB\uFE0F']) {
+      expect(texts.some((t) => t.includes(emoji))).toBe(false);
+    }
+    // Heart traces beziers and fills with the neutral icon token.
+    expect(calls.some((c) => c.op === 'bezierCurveTo')).toBe(true);
+    expect(calls.some((c) => c.op === 'fill' && c.args[0] === DANMAKU_CHROME.pillIcon)).toBe(true);
+  });
+
+  test('a liked heart takes the accent token, not white', () => {
+    const slot = selectedSlot();
+    slot.liked = true;
+    const pool = { slots: [slot] } as unknown as DanmakuPool;
+    const layer = new DanmakuLayer(pool, () => ({
+      w: 800,
+      h: 600,
+      interactive: false,
+      hoveredAction: null,
+      likeCount: 3,
+    }));
+    const { calls, renderer } = makeRecordingRenderer();
+    layer.render(renderer);
+    expect(calls.some((c) => c.op === 'fill' && c.args[0] === DANMAKU_CHROME.pillIconActive)).toBe(
+      true,
+    );
+    expect(calls.some((c) => c.op === 'fill' && c.args[0] === DANMAKU_CHROME.pillIcon)).toBe(false);
+  });
+
+  test('both icon centers share one optical line above the pill baseline', () => {
+    const { calls, renderer } = makeRecordingRenderer();
+    makeLayer().render(renderer);
+    const heartStart = calls.findIndex((c) => c.op === 'moveTo');
+    const heart = pathYExtent(calls, heartStart);
+    // The copy glyph is two roundRect sheets; each sheet center is its own
+    // optical center, so average them.
+    const sheetRects = calls
+      .filter((c) => c.op === 'roundRect')
+      .map((c) => c.args as [number, number, number, number, unknown])
+      .filter(([, , w, h]) => (w as number) > 6 && (w as number) < 14 && (h as number) > 6);
+    expect(sheetRects.length).toBe(2);
+    const copyCenter =
+      sheetRects.reduce((acc, [, y, , h]) => acc + (y as number) + (h as number) / 2, 0) / 2;
+    const heartCenter = (heart.min + heart.max) / 2;
+    // One optical line, sub-pixel tolerance.
+    expect(Math.abs(heartCenter - copyCenter)).toBeLessThanOrEqual(0.75);
     const pillY = Math.round(50) + 24 * PILL_BASELINE_FACTOR;
-    expect(heart![2]).toBe(pillY + PILL_LIKE_BASELINE_OFFSET_PX);
-    expect(copy![2]).toBe(pillY + PILL_COPY_BASELINE_OFFSET_PX);
-    // Independent floor: on the reference stack the clipboard's ink CENTER
-    // sits ~1.7px BELOW the heart's at a shared baseline, so a real upward
-    // correction must exist - a 0 offset is the pre-R2 misalignment.
-    expect(PILL_COPY_BASELINE_OFFSET_PX).toBeLessThanOrEqual(-1);
-    expect(copy![2] - heart![2]).toBe(PILL_COPY_BASELINE_OFFSET_PX);
+    expect(heartCenter).toBeLessThan(pillY);
+  });
+
+  test('the selection outline re-strokes ABOVE the pill plate (no clipped stroke)', () => {
+    const { calls, renderer } = makeRecordingRenderer();
+    makeLayer().render(renderer);
+    const plateIdx = calls.findIndex(
+      (c) => c.op === 'roundRect' && (c.args[2] as number) === PILL_PLATE_WIDTH_PX,
+    );
+    expect(plateIdx).toBeGreaterThan(-1);
+    // A selectedStroke call must exist AFTER the plate was painted, otherwise
+    // the plate covers the outline's bottom stroke (the r2 QA defect).
+    const restroke = calls.findIndex(
+      (c, i) =>
+        i > plateIdx &&
+        c.op === 'stroke' &&
+        c.args[0] === DANMAKU_CHROME.selectedStroke &&
+        c.args[1] === 1,
+    );
+    expect(restroke).toBeGreaterThan(plateIdx);
   });
 
   test('like count paints promoted semibold typography', () => {

@@ -214,6 +214,23 @@ describe('round-2 chrome coherence', () => {
   });
 });
 
+describe('round-3 icon + ownership-cue tokens', () => {
+  it('pill icon tints speak the theme language (text normal, accent liked)', () => {
+    // The monochrome action icons take the fill colour the emoji never could:
+    // theme text normally, the accent itself once liked (rose = emphasis).
+    expect(parseRgba(DANMAKU_CHROME.pillIcon).rgb).toEqual(parseRgba(BAKUDAN_THEME.text).rgb);
+    expect(parseRgba(DANMAKU_CHROME.pillIconActive).rgb).toEqual(
+      parseRgba(BAKUDAN_THEME.accent).rgb,
+    );
+  });
+
+  it('frozen-hovered ownership stroke stays legible at 1px (alpha raised)', () => {
+    // Round 3: at alpha 0.40 the 1px outline all but vanished in QA stills.
+    // Still neutral slate - only the alpha moved.
+    expect(parseRgba(DANMAKU_CHROME.hoverStroke).a).toBeGreaterThanOrEqual(0.5);
+  });
+});
+
 describe('every supported language has real labels', () => {
   const LANGUAGES: Language[] = ['en', 'zh-CN', 'zh-TW', 'ja', 'ko'];
 
