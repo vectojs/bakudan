@@ -885,7 +885,12 @@ export class App {
     const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
     this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
     this.statusBar.x = margin;
-    this.statusBar.y = viewportTop + margin;
+    // Flush against the visible top boundary: viewportTop is already a boundary
+    // coordinate (visualViewport.offsetTop, 0 unless pinch-zoom/keyboard shifts
+    // it), so adding the overlay margin here opened a gap above the chrome that
+    // video and danmaku passed through. Vertical breathing room belongs to the
+    // bar itself, which centres its content in a fixed 34/44px height.
+    this.statusBar.y = viewportTop;
     this.commandDeck.setCompact(compact).setWidth(deckWidth);
     this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
 

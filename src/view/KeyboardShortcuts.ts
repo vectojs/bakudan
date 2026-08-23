@@ -24,6 +24,7 @@ export type ShortcutIntent =
   | { kind: 'seekBy'; seconds: number }
   | { kind: 'seekToFraction'; fraction: number }
   | { kind: 'seekToEdge'; edge: 'start' | 'end' }
+  | { kind: 'toggleFullscreen' }
   | { kind: 'dismiss' };
 
 /** The subset of a keyboard event this layer decides from. */
@@ -40,7 +41,7 @@ export interface ShortcutKeyInput {
  *
  * Bindings follow the conventions a media player is expected to honour, so they
  * need no discovery: Space/`k` toggle, `j`/`l` and arrows seek, `0`–`9` jump to
- * a percentage, Home/End to the edges, Escape dismisses.
+ * a percentage, Home/End to the edges, `f` toggles fullscreen, Escape dismisses.
  *
  * Any chord carrying a modifier is ignored so browser and OS shortcuts keep
  * working — Cmd/Ctrl+R must reload, not seek. Shift is exempted from that rule
@@ -72,6 +73,10 @@ export function decodeShortcut(e: ShortcutKeyInput): ShortcutIntent | null {
       return { kind: 'seekToEdge', edge: 'start' };
     case 'End':
       return { kind: 'seekToEdge', edge: 'end' };
+
+    case 'f':
+    case 'F':
+      return { kind: 'toggleFullscreen' };
 
     case 'Escape':
       return { kind: 'dismiss' };
@@ -144,6 +149,8 @@ export interface ShortcutTarget {
   seekBy(seconds: number): void;
   seekToFraction(fraction: number): void;
   seekToEdge(edge: 'start' | 'end'): void;
+  /** Enter or leave document fullscreen. Works with or without a video. */
+  toggleFullscreen(): void;
   /** Returns true when something was actually dismissed. */
   dismiss(): boolean;
 }
@@ -158,6 +165,11 @@ export interface ShortcutTarget {
  */
 export function applyShortcut(intent: ShortcutIntent, target: ShortcutTarget): boolean {
   if (intent.kind === 'dismiss') return target.dismiss();
+  // Fullscreen is a shell concern, orthogonal to whether a video is loaded.
+  if (intent.kind === 'toggleFullscreen') {
+    target.toggleFullscreen();
+    return true;
+  }
 
   if (!target.playbackShortcutsEnabled) return false;
 
