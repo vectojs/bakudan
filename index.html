@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Matches the theme surface base (BAKUDAN_THEME.surface rgb(7,9,13)) so the
+         pre-video frame, the browser chrome, and the floating panels read as one
+         depth stack instead of three different near-blacks. -->
+    <meta name="theme-color" content="#07090d" />
     <title>Bakudan — Danmaku Playground</title>
     <meta
       name="description"
@@ -31,7 +35,9 @@
     />
     <style>
       :root {
-        --bg-color: #0f1420;
+        /* Same base as BAKUDAN_THEME.surface; #0f1420 here used to flash a
+           visibly different near-black behind the panels before video load. */
+        --bg-color: #07090d;
         --text-color: #e2e8f0;
       }
       * {
@@ -75,8 +81,16 @@
         z-index: 0;
         overflow: hidden;
       }
+      /* Dark-coherent with the theme (the old cream/peach gradient belonged to
+          a light "glassmorphic peach" era and clashed with every panel). Static
+          radial gradient on purpose - no keyframes, so render-on-demand keeps
+          holding at idle (see App.hasAmbientAnimation). Unreachable while App
+          pins bg.mode='video', kept correct for when ambient mode returns. */
       #bakudan-bg.ambient {
-        background: radial-gradient(circle at 50% 30%, #fffbf8 0%, #fdf5f0 55%, #f7eae1 100%);
+        background:
+          radial-gradient(circle at 50% 30%, rgba(96, 165, 250, 0.10) 0%, rgba(96, 165, 250, 0.04) 32%, rgba(7, 9, 13, 0) 62%),
+          radial-gradient(circle at 82% 78%, rgba(244, 63, 94, 0.07) 0%, rgba(7, 9, 13, 0) 55%),
+          linear-gradient(180deg, #0b101b 0%, #07090d 100%);
       }
       #bakudan-bg > video {
         position: absolute;

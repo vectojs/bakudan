@@ -17,12 +17,15 @@ export class ParticleSystem {
     const count = 15 + Math.floor(Math.random() * 10);
     let spawned = 0;
 
-    // Glassmorphic Peach theme colors
+    // Burst palette follows the app's accent family (BAKUDAN_THEME.accent is
+    // rose #f43f5e) plus a white spark - the old "Glassmorphic Peach" set
+    // (#ff7e5f era) predated the theme and clashed with every panel. No test
+    // pins these; kept in step by review only.
     const colors = [
       baseColor,
-      '#ff7e5f', // peach
-      '#feb47b', // warm peach-orange
-      '#ff9a9e', // pink-peach
+      '#f43f5e', // rose (theme accent)
+      '#fb7185', // light rose (theme danger)
+      '#fda4af', // pale rose tint
       '#ffffff', // white spark
     ];
 
