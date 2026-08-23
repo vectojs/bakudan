@@ -10,15 +10,19 @@ import type {
 import type { Language } from '../model/i18n';
 
 export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
-  // Near-opaque on purpose. This token backs the status bar, the command deck,
-  // and the laboratory drawer, all of which float directly over the danmaku
-  // wall. Readability is not the constraint - text clears 11.7:1 even at 0.82 -
-  // but at 0.82 a full 18% of a chaotic, fast-moving 20k-danmaku stream shows
-  // through, and the drawer is a large panel holding scrollable controls, so
-  // the motion behind it reads as visual noise rather than depth. 0.97 cuts
-  // the bleed to 3% (text 18.15:1) and matches menuSurface's rationale below.
-  surface: 'rgba(7, 9, 13, 0.97)',
-  surfaceRaised: 'rgba(18, 23, 34, 0.94)',
+  // Fully opaque on purpose. This token backs the status bar, the command
+  // deck, and the laboratory drawer, all of which float directly over the
+  // danmaku wall. Translucency itself became the defect: at 0.97 the remaining
+  // 3% of a chaotic stream still bled through the thin 34px bar and read as a
+  // rendering bug rather than glass (round-2 review). The kit paints flat
+  // canvas fills and the renderer exposes no backdrop blur, so "true glass" is
+  // not reachable app-side; alpha 1 kills the artifact deterministically.
+  surface: 'rgba(7, 9, 13, 1)',
+  // One step above surface so secondary controls (Play / Lab / rate / input
+  // wells) read as raised instead of near-flat: at the old value the fill sat
+  // within ~10% contrast of the plate behind it (round-2 review). Slate-800
+  // keeps the ramp; textMuted still clears AA over it (ThemeContrast recomputes).
+  surfaceRaised: 'rgba(30, 41, 59, 0.98)',
   border: 'rgba(248, 250, 252, 0.18)',
   text: '#f8fafc',
   // Slate-400, joining the slate ramp the rest of the app paints with
@@ -28,11 +32,19 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   accent: '#f43f5e',
   accentHover: '#e11d48',
   signal: '#60a5fa',
-  warning: '#f59e0b',
+  warning: '#94a3b8',
+
   danger: '#fb7185',
-  success: '#4ade80',
-  // One radius scale across the whole app: kit surfaces 14 (this token),
-  // floating control plates 12 (PILL_RADIUS_PX), tight text chips 6
+  // State pills are neutral slate under the one-accent policy (DEC-0011):
+  // the kit's stateColor() is the only consumer of these tokens, so
+  // neutralizing them here de-colors the Video/Throughput pill outlines
+  // without touching anything else. Meaning moves to the label text; loading
+  // stays blue (signal = focus/information) and error stays rose because an
+  // error must shout.
+  success: '#94a3b8',
+  // One radius scale across the whole app: kit surfaces AND the app's
+  // floating control plates derive from this token (PILL_RADIUS_PX and
+  // SELECTED_RADIUS_PX in DanmakuLayer); tight text chips stay 6
   // (USER_BOX_RADIUS_PX in DanmakuLayer).
   radius: 14,
   fontUi: "500 13px 'Inter', system-ui, sans-serif",
@@ -111,7 +123,9 @@ export const DANMAKU_CHROME: Readonly<
   // near-opaque so actions survive bright video frames.
   pillFill: 'rgba(7, 9, 13, 0.92)',
   pillStroke: 'rgba(248, 250, 252, 0.18)',
-  pillCount: '#e2e8f0',
+  // Promoted one step to the theme's own text color: the like count is the
+  // pill's primary readout, not a muted afterthought (round-2 review).
+  pillCount: '#f8fafc',
 });
 
 export interface BakudanPanelLabels {

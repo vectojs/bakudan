@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 import { BAKUDAN_THEME, DANMAKU_CHROME, cinemaLabelsFor } from '../src/view/cinemaConfig';
 import type { Language } from '../src/model/i18n';
-import { PILL_PLATE_WIDTH_PX, PILL_COPY_OFFSET_PX, PILL_WIDTH_PX } from '../src/view/DanmakuLayer';
+import {
+  PILL_PLATE_WIDTH_PX,
+  PILL_PLATE_MARGIN_PX,
+  PILL_COPY_OFFSET_PX,
+  PILL_WIDTH_PX,
+  PILL_RADIUS_PX,
+  SELECTED_RADIUS_PX,
+  USER_BOX_RADIUS_PX,
+} from '../src/view/DanmakuLayer';
 
 /**
  * These tests pin the round-1 design decisions, not specific pixel values:
@@ -138,10 +146,71 @@ describe('muted text legibility', () => {
 });
 
 describe('pill plate covers the clickable span', () => {
-  it('plate width >= hotspot span plus two margins', () => {
+  it('plate width >= hotspot span plus the configured margin on both sides', () => {
     const copyWidth = Math.max(24, PILL_WIDTH_PX - PILL_COPY_OFFSET_PX);
     const spanEnd = PILL_COPY_OFFSET_PX + copyWidth;
-    expect(PILL_PLATE_WIDTH_PX).toBeGreaterThanOrEqual(spanEnd + 24);
+    expect(PILL_PLATE_WIDTH_PX).toBeGreaterThanOrEqual(spanEnd + PILL_PLATE_MARGIN_PX * 2);
+  });
+
+  it('hotspots stay independent of the visual margin (no geometry drift)', () => {
+    // The margin pads only the painted plate; the placed hotspot split is a
+    // function of the glyph offsets alone. Pin that independence: changing
+    // padding must never move like/copy click targets.
+    expect(PILL_COPY_OFFSET_PX).toBe(60);
+    expect(PILL_WIDTH_PX).toBe(80);
+  });
+});
+
+describe('round-2 chrome coherence', () => {
+  const roseAccent = parseRgba(BAKUDAN_THEME.accent).rgb;
+
+  it('pill plate and selection outline share the theme radius', () => {
+    expect(PILL_RADIUS_PX).toBe(BAKUDAN_THEME.radius);
+    expect(SELECTED_RADIUS_PX).toBe(BAKUDAN_THEME.radius);
+    // Tight chips stay a distinct tier below the plates.
+    expect(USER_BOX_RADIUS_PX).toBeLessThan(PILL_RADIUS_PX);
+  });
+
+  it('like count is promoted to the theme text color', () => {
+    expect(parseRgba(DANMAKU_CHROME.pillCount).rgb).toEqual(parseRgba(BAKUDAN_THEME.text).rgb);
+  });
+
+  it('status bar surface is fully opaque (bleed-through killed)', () => {
+    expect(parseRgba(BAKUDAN_THEME.surface).a).toBe(1);
+  });
+
+  it('surfaceRaised sits visibly above surface (secondary control affordance)', () => {
+    // Composite both over the stage black at their real alphas and compare:
+    // the old raised value scored ~1.10x, the lift must hold >= 1.2x.
+    const stage: Rgb = [7, 9, 13];
+    const raised = over(
+      parseRgba(BAKUDAN_THEME.surfaceRaised).rgb,
+      parseRgba(BAKUDAN_THEME.surfaceRaised).a,
+      stage,
+    );
+    const base = over(
+      parseRgba(BAKUDAN_THEME.surface).rgb,
+      parseRgba(BAKUDAN_THEME.surface).a,
+      stage,
+    );
+    expect(contrast(raised, base)).toBeGreaterThanOrEqual(1.2);
+  });
+
+  it('state pills speak one accent language (DEC-0011)', () => {
+    // Video/Throughput pills are neutral slate now: cool-gray family, not the
+    // brand accent, not a saturated semantic hue.
+    for (const key of ['success', 'warning'] as const) {
+      const { rgb } = parseRgba(BAKUDAN_THEME[key]);
+      const spread = Math.max(...rgb) - Math.min(...rgb);
+      expect(spread).toBeLessThanOrEqual(40);
+      expect(rgb).not.toEqual(roseAccent);
+    }
+    // Loading keeps the blue signal/focus language; error keeps a saturated
+    // rose so an error still shouts.
+    expect(BAKUDAN_THEME.signal).toBe(BAKUDAN_THEME.focusRing);
+    const danger = parseRgba(BAKUDAN_THEME.danger);
+    const dangerSpread = Math.max(...danger.rgb) - Math.min(...danger.rgb);
+    expect(dangerSpread).toBeGreaterThan(60);
   });
 });
 
