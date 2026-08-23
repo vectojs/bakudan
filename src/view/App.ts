@@ -326,6 +326,7 @@ export class App {
       interactive: this._interactiveMode,
       hoveredAction: this._hoveredAction,
       likeCount: this._selectedLikeCount,
+      pausedLabel: cinemaLabelsFor(this.currentLang).kit.status.paused,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from

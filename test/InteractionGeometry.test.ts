@@ -198,12 +198,12 @@ describe('selection pill hotspots match the drawn pill', () => {
 });
 
 describe('overlay surface stays readable over the danmaku wall', () => {
-  it('is near-opaque so the moving danmaku behind it does not bleed through', () => {
+  it('is fully opaque so no danmaku bleeds through as a rendering artifact', () => {
     const match = /rgba\(\s*\d+,\s*\d+,\s*\d+,\s*([\d.]+)\)/.exec(BAKUDAN_THEME.surface);
     expect(match).not.toBeNull();
     const alpha = Number(match![1]);
-    // At 0.82 a full 18% of a 20k-danmaku stream showed through the drawer.
-    expect(alpha).toBeGreaterThanOrEqual(0.95);
-    expect(alpha).toBeLessThan(1);
+    // Round-2: translucency itself became the defect - at 0.97 the remaining
+    // 3% still bled through the thin bar. Fully opaque kills it for good.
+    expect(alpha).toBe(1);
   });
 });
