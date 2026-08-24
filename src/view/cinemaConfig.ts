@@ -149,8 +149,6 @@ export const DANMAKU_CHROME: Readonly<
 
 export interface BakudanPanelLabels {
   videos: VideosPanelLabels;
-  /** Title of the app-added "Open local file..." row in the videos panel. */
-  localFileTitle: string;
   throughput: ThroughputPanelLabels;
   interactions: InteractionsPanelLabels;
   devtools: DevToolsInfoPanelLabels;
@@ -269,6 +267,7 @@ const ENGLISH: BakudanCinemaLabels = {
       customSource: 'Custom URL',
       choose: 'Choose video',
       retry: 'Retry source',
+      uploadFile: 'Upload local file',
       loadState: 'Source status',
       formatLoadState: (state) => {
         if (state.status === 'loading') return `Loading ${state.candidateId}`;
@@ -279,7 +278,6 @@ const ENGLISH: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || 'No attribution required',
     },
-    localFileTitle: 'Open local file…',
     throughput: {
       panel: 'Throughput laboratory',
       scroll: 'Throughput laboratory controls',
@@ -361,6 +359,7 @@ const CHINESE: BakudanCinemaLabels = {
       customSource: '自定义 URL',
       choose: '选择视频',
       retry: '重试视频源',
+      uploadFile: '上传本地视频',
       loadState: '视频源状态',
       formatLoadState: (state) => {
         if (state.status === 'loading') return `正在加载 ${state.candidateId}`;
@@ -371,7 +370,6 @@ const CHINESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}：${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '无需署名',
     },
-    localFileTitle: '打开本地视频…',
     throughput: {
       panel: '吞吐实验室',
       scroll: '吞吐实验室控件',
@@ -458,6 +456,7 @@ const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
       customSource: '自訂 URL',
       choose: '選擇影片',
       retry: '重試影片來源',
+      uploadFile: '上傳本機影片',
       loadState: '影片來源狀態',
       formatLoadState: (state) => {
         if (state.status === 'loading') return `正在載入 ${state.candidateId}`;
@@ -468,7 +467,6 @@ const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}：${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '無需署名',
     },
-    localFileTitle: '開啟本機影片…',
     throughput: {
       panel: '吞吐實驗室',
       scroll: '吞吐實驗室控制項',
@@ -551,6 +549,7 @@ const JAPANESE: BakudanCinemaLabels = {
       customSource: 'カスタム URL',
       choose: 'ビデオを選択',
       retry: 'ソースを再試行',
+      uploadFile: 'ローカル動画をアップロード',
       loadState: 'ソースの状態',
       formatLoadState: (state) => {
         if (state.status === 'loading') return `読み込み中 ${state.candidateId}`;
@@ -561,7 +560,6 @@ const JAPANESE: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '出典の記載不要',
     },
-    localFileTitle: 'ローカル動画を開く…',
     throughput: {
       panel: 'スループットラボ',
       scroll: 'スループットラボのコントロール',
@@ -644,6 +642,7 @@ const KOREAN: BakudanCinemaLabels = {
       customSource: '사용자 지정 URL',
       choose: '비디오 선택',
       retry: '소스 다시 시도',
+      uploadFile: '로컬 동영상 업로드',
       loadState: '소스 상태',
       formatLoadState: (state) => {
         if (state.status === 'loading') return `${state.candidateId} 로딩 중`;
@@ -654,7 +653,6 @@ const KOREAN: BakudanCinemaLabels = {
       formatMetadata: (rows) => rows.map(({ label, value }) => `${label}: ${value}`).join(' · '),
       formatAttribution: (attribution) => attribution || '출처 표시 불필요',
     },
-    localFileTitle: '로컬 동영상 열기…',
     throughput: {
       panel: '처리량 랩',
       scroll: '처리량 랩 컨트롤',

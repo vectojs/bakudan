@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import type { VideoSelection, VideoSourceDescriptor } from '@vectojs/danmaku-kit/model';
 import {
   DEFAULT_VIDEO_ID,
-  LOCAL_FILE_VIDEO_ID,
   VIDEO_CATALOG,
   resolveVideoSelection,
   videoById,
@@ -72,10 +71,5 @@ describe('VideoCatalog', () => {
     });
     expect(second.id.startsWith('custom-')).toBe(true);
     expect(second.id).not.toBe(resolved.id);
-  });
-
-  it('keeps the synthetic local-file row out of the resolvable CDN catalog', () => {
-    expect(videoById(LOCAL_FILE_VIDEO_ID)).toBeUndefined();
-    expect(VIDEO_CATALOG.some((entry) => entry.id === LOCAL_FILE_VIDEO_ID)).toBe(false);
   });
 });
