@@ -77,7 +77,7 @@ describe('render-on-demand idle gating', () => {
   });
 
   it('goes fully idle with an empty pool so core can throttle', () => {
-    const { app, background } = fixture();
+    const { app } = fixture();
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
@@ -88,7 +88,7 @@ describe('render-on-demand idle gating', () => {
   });
 
   it('still reports pending work while danmaku are active', () => {
-    const { app, background } = fixture();
+    const { app } = fixture();
     app.scheduler.setTargetCount(50);
     // Spawning is paced, so one tick is not enough to reach the target.
     for (let i = 0; i < 120; i++) app.frame(16.7);
@@ -98,7 +98,7 @@ describe('render-on-demand idle gating', () => {
   });
 
   it('satisfies every precondition core requires to clamp an idle frame to idleFPS', () => {
-    const { app, scene, background } = fixture();
+    const { app, scene } = fixture();
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
@@ -118,7 +118,7 @@ describe('render-on-demand idle gating', () => {
   });
 
   it('keeps a non-visual entity from forcing frames', () => {
-    const { app, scene, background } = fixture();
+    const { app, scene } = fixture();
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
