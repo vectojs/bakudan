@@ -449,11 +449,7 @@ export class App {
           ],
       rateRange: { min: 1, max: 2000, step: 10 },
       onTargetChange: (target) => {
-        this._setAppMode('stress');
-        this._stressTargetBeforeVideo = target;
-        this._profTargetCount = target;
-        this.scheduler.setTargetCount(target);
-        this._syncThroughputState();
+        this.applyStressTarget(target);
       },
       onRateChange: (rate) => {
         this._setAppMode('stress');
@@ -551,6 +547,22 @@ export class App {
       return;
     }
     this._loadVideoSelection(selection, profileId);
+  }
+
+  /**
+   * Enter stress mode at the given target pool count.
+   *
+   * The single entry point for driving stress mode programmatically: the
+   * throughput panel's target callback and the `?stress=<n>` startup seam in
+   * `main.ts` both land here, so the bench harness exercises exactly the code
+   * path a user's panel interaction does.
+   */
+  applyStressTarget(target: number): void {
+    this._setAppMode('stress');
+    this._stressTargetBeforeVideo = target;
+    this._profTargetCount = target;
+    this.scheduler.setTargetCount(target);
+    this._syncThroughputState();
   }
 
   /**
