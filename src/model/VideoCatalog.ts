@@ -113,14 +113,6 @@ export const VIDEO_CATALOG: readonly VideoCatalogEntry[] = Object.freeze([
   }),
 ]);
 
-/**
- * Id of the synthetic "Open local file..." catalog row. It never resolves
- * through `videoById` — App intercepts it in the panel's onChoose and opens a
- * file picker instead; the picked file then flows through as a `{kind:
- * 'custom'}` selection whose URL is a session-local blob: object URL.
- */
-export const LOCAL_FILE_VIDEO_ID = 'local-file';
-
 export const DEFAULT_VIDEO_ID = 'flower-seek-loop';
 
 export function videoById(id: string): VideoCatalogEntry | undefined {

@@ -31,7 +31,6 @@ import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
 import {
   DEFAULT_VIDEO_ID,
-  LOCAL_FILE_VIDEO_ID,
   VIDEO_CATALOG,
   resolveVideoSelection,
   videoById,
@@ -195,8 +194,6 @@ export class App {
   };
   private pendingVideoSelection: VideoSelection | null = null;
   private pendingTrackProfileId: string | null = null;
-  /** Hidden picker behind the videos panel's "Open local file..." row. */
-  private _fileInput: HTMLInputElement | null = null;
   /**
    * Live blob: object URLs minted for local uploads, newest last. The active
    * source's URL stays listed; everything else is revoked once a swap lands
@@ -371,16 +368,6 @@ export class App {
         ? `${entry.attribution.label} · ${entry.attribution.license} · ${entry.attribution.url}`
         : '',
     }));
-    // Session-local upload entry: choosing it opens a file picker and the
-    // picked file re-enters the flow as a custom blob: URL selection. The
-    // panel itself stays kit-owned — this is data plus an id interception.
-    catalog.push({
-      id: LOCAL_FILE_VIDEO_ID,
-      title: labels.panels.localFileTitle,
-      source: { kind: 'external', url: '' },
-      metadata: [{ label: 'Source', value: 'Local file (session only)' }],
-      attribution: '',
-    });
     const profiles = [...TRACK_PROFILES.values()].map((profile) => ({
       id: profile.id,
       label: profile.label,
@@ -425,13 +412,10 @@ export class App {
       },
       catalog,
       profiles,
-      onChoose: (selection) => {
-        if (selection.source.kind === 'catalog' && selection.source.id === LOCAL_FILE_VIDEO_ID) {
-          this._openLocalFilePicker(selection.profileId);
-          return;
-        }
-        this.selectVideo(selection.source, selection.profileId);
-      },
+      onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+      // Kit 0.8.0 renders its own local-file upload button when this is set;
+      // the kit owns the picker, App owns the blob: object-URL lifecycle.
+      onUploadFile: (file) => this._onLocalFilePicked(file),
       onRetry: () => this._retryVideo(),
     });
     this.throughputPanel = new ThroughputPanel({
@@ -577,30 +561,16 @@ export class App {
     return url.startsWith('blob:') && this._localObjectUrls.includes(url);
   }
 
-  /** Open the hidden file input backing the panel's local-file row. */
-  private _openLocalFilePicker(profileId?: string): void {
-    if (!this._fileInput) {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'video/*';
-      input.style.display = 'none';
-      input.addEventListener('change', () => {
-        const file = input.files?.[0];
-        input.value = '';
-        if (file) this._onLocalFilePicked(file, profileId);
-      });
-      document.body.appendChild(input);
-      this._fileInput = input;
-    }
-    this._fileInput.click();
-  }
-
-  private _onLocalFilePicked(file: File, profileId?: string): void {
+  /**
+   * A local file handed over by the kit panel's upload button becomes a
+   * session-local blob: object URL routed through the custom-source pipeline.
+   */
+  private _onLocalFilePicked(file: File): void {
     const url = URL.createObjectURL(file);
     this._localObjectUrls.push(url);
     // Custom selection => unique per upload (UUID inside the URL), so the
     // same-selection comparison cannot mistake two files for one another.
-    this.selectVideo({ kind: 'custom', url }, profileId);
+    this.selectVideo({ kind: 'custom', url });
   }
 
   /**
@@ -1553,8 +1523,6 @@ export class App {
     this.destroyed = true;
     this._videoRequestId++;
     this._pruneLocalObjectUrl(null);
-    this._fileInput?.remove();
-    this._fileInput = null;
     this._disposeShortcuts?.();
     this._disposeShortcuts = null;
     this._disposeFullscreen?.();

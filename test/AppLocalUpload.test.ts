@@ -4,21 +4,27 @@ import { StageBackground } from '../src/view/StageBackground';
 import { App } from '../src/view/App';
 
 /**
- * Local video upload (CTX-0015d): a picked file becomes a session-local blob:
- * object URL routed through the custom-source pipeline. The invariants pinned
- * here:
- *  1. the swap reuses the existing loadState precedence chain (loading ->
+ * Local video upload: a picked file becomes a session-local blob: object URL
+ * routed through the custom-source pipeline. Since kit 0.8.0 the picking
+ * mechanism lives behind VideosPanelOptions.onUploadFile - the kit renders the
+ * upload button and owns the transient <input type="file">, then hands App the
+ * raw File; App mints and revokes the object URLs. The invariants pinned here:
+ *  1. App actually passes an onUploadFile into the panel options (the button
+ *     renders only when set), and that callback routes a File through the same
+ *     custom-source pipeline,
+ *  2. the swap reuses the existing loadState precedence chain (loading ->
  *     ready, or error rung),
- *  2. a superseded object URL is revoked only AFTER the new source actually
+ *  3. a superseded object URL is revoked only AFTER the new source actually
  *     swapped (a failed load keeps the previous video alive on its blob),
- *  3. destroy revokes whatever is left,
- *  4. NOTHING persists while a local upload is active: user danmaku and
+ *  4. destroy revokes whatever is left,
+ *  5. NOTHING persists while a local upload is active: user danmaku and
  *     reactions would land under `custom-<hash-of-blob-url>` keys that no
  *     future session can ever list.
  *
- * Sabotage: drop the `_pruneLocalObjectUrl` call from the load-success path
- * (tests 2/3 go red), drop the memoryOnly flag / saveUserDanmaku guard
- * (test 4 goes red).
+ * Sabotage: drop the `onUploadFile` wiring in App (test 1 and every pickFile
+ * call go red), drop the `_pruneLocalObjectUrl` call from the load-success
+ * path (tests 3/4 go red), drop the memoryOnly flag / saveUserDanmaku guard
+ * (test 5 goes red).
  */
 
 interface ControlledVideo {
@@ -98,12 +104,21 @@ URL.revokeObjectURL = ((url: string) => {
   revokedUrls.push(url);
 }) as typeof URL.revokeObjectURL;
 
+type PanelWithOptions = {
+  videosPanel: { options: { onUploadFile?: (file: File) => void } };
+};
+
+function panelUploadOption(app: App): (file: File) => void {
+  const { onUploadFile } = (app as unknown as PanelWithOptions).videosPanel.options;
+  if (!onUploadFile) throw new Error('App did not pass onUploadFile into VideosPanel options');
+  return onUploadFile;
+}
+
 function pickFile(app: App, name: string): void {
   const file = new File(['bytes'], name, { type: 'video/webm' });
-  (app as unknown as { _onLocalFilePicked: (f: File, p?: string) => void })._onLocalFilePicked(
-    file,
-    undefined,
-  );
+  // Production entry point: exactly the callback the kit's upload button
+  // invokes after its own file picker closes.
+  panelUploadOption(app)(file);
 }
 
 async function loadReady(
@@ -142,6 +157,20 @@ afterEach(() => {
 });
 
 describe('local video upload flow', () => {
+  it('wires the kit panel onUploadFile option so the upload button renders', async () => {
+    const { app, videos } = fixture();
+    // The kit renders its local-file upload button only when this callback is
+    // set; its absence would silently remove the affordance.
+    const onUploadFile = panelUploadOption(app);
+
+    const file = new File(['bytes'], 'via-button.webm', { type: 'video/webm' });
+    onUploadFile(file);
+    expect(createdUrls).toHaveLength(1);
+    await loadReady(app, videos, 0);
+    expect(app.getViewSnapshot().videoId.startsWith('custom-')).toBe(true);
+    expect(videos[0]!.element.getAttribute('src')).toBe(createdUrls[0]);
+  });
+
   it('routes a picked file through the custom pipeline to a ready state', async () => {
     const { app, videos } = fixture();
     expect(createdUrls).toHaveLength(0);
@@ -185,15 +214,14 @@ describe('local video upload flow', () => {
     expect(app.getViewSnapshot().videoId.startsWith('custom-')).toBe(true);
   });
 
-  it('destroy revokes any remaining object URL and removes the hidden input', async () => {
-    const { app, videos, host } = fixture();
+  it('destroy revokes any remaining object URL', async () => {
+    const { app, videos } = fixture();
     pickFile(app, 'kept.webm');
     await loadReady(app, videos, 0);
     expect(revokedUrls).toEqual([]);
 
     app.destroy();
     expect(revokedUrls).toHaveLength(1);
-    expect(host.querySelector('input[type=file]')).toBeNull();
   });
 
   it('persists nothing while a local upload is active', async () => {
