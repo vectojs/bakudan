@@ -31,7 +31,6 @@ function fixture() {
       return video.element;
     },
   });
-  background.mode = 'video';
   return { background, host, videos };
 }
 

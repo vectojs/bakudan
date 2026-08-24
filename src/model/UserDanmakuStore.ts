@@ -95,12 +95,3 @@ export function saveUserDanmaku(videoId: string, entry: StoredUserDanmaku): void
     // Quota and privacy-mode failures leave the current video store unchanged.
   }
 }
-
-export function clearUserDanmakus(videoId: string): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.removeItem(storageKeyForVideo(videoId));
-  } catch {
-    // Storage access is unavailable; there is nothing else to clear.
-  }
-}

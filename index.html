@@ -67,7 +67,7 @@
         left: 0;
       }
       /* Layer stack (bottom → top):
-         - #bakudan-bg (z0): ambient gradient / <video> background
+         - #bakudan-bg (z0): <video> background over the page surface
          - Scene's stacked WebGL canvas (z1, set in main.ts): plain danmaku glyphs
          - #bakudan-canvas (z2): Canvas2D special-pass danmaku + HUD/panel UI
          The danmaku must sit ABOVE the background but BELOW the UI, which is why
@@ -80,17 +80,6 @@
         height: 100vh;
         z-index: 0;
         overflow: hidden;
-      }
-      /* Dark-coherent with the theme (the old cream/peach gradient belonged to
-          a light "glassmorphic peach" era and clashed with every panel). Static
-          radial gradient on purpose - no keyframes, so render-on-demand keeps
-          holding at idle (see App.hasAmbientAnimation). Unreachable while App
-          pins bg.mode='video', kept correct for when ambient mode returns. */
-      #bakudan-bg.ambient {
-        background:
-          radial-gradient(circle at 50% 30%, rgba(96, 165, 250, 0.10) 0%, rgba(96, 165, 250, 0.04) 32%, rgba(7, 9, 13, 0) 62%),
-          radial-gradient(circle at 82% 78%, rgba(244, 63, 94, 0.07) 0%, rgba(7, 9, 13, 0) 55%),
-          linear-gradient(180deg, #0b101b 0%, #07090d 100%);
       }
       #bakudan-bg > video {
         position: absolute;
@@ -107,7 +96,7 @@
     </style>
   </head>
   <body>
-    <div id="bakudan-bg" class="ambient"></div>
+    <div id="bakudan-bg"></div>
     <canvas id="bakudan-canvas"></canvas>
     <script type="module" src="/src/main.ts"></script>
   </body>

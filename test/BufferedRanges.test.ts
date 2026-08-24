@@ -47,7 +47,6 @@ function fixture(buffered?: FakeRanges) {
   document.body.appendChild(host);
   const element = video(buffered);
   const background = new StageBackground({ host, videoFactory: () => element });
-  background.mode = 'video';
   return { background, element };
 }
 
