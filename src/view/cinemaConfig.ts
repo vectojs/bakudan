@@ -47,6 +47,15 @@ export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   // SELECTED_RADIUS_PX in DanmakuLayer); tight text chips stay 6
   // (USER_BOX_RADIUS_PX in DanmakuLayer).
   radius: 14,
+  // Command-deck row height (kit 0.7.0): every deck control sits on this row,
+  // and the desktop deck plate derives its full height from it (row + 2x8px
+  // padding). The historical 40px row left the deck visibly taller than the
+  // status bar it hangs under; 34 aligns the two surfaces with the bar's own
+  // fixed 34/44px desktop height (round-2 review deferred ROW_HEIGHT=40
+  // upstream with exactly this ask). The status bar deliberately keeps its own
+  // geometry -- one token resizing another surface would be surprising
+  // coupling, so only the deck follows this value.
+  controlHeight: 34,
   fontUi: "500 13px 'Inter', system-ui, sans-serif",
   fontLabel: "600 11px 'Inter', system-ui, sans-serif",
   fontDisplay: "600 14px 'Outfit', 'Inter', sans-serif",

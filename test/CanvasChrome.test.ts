@@ -231,6 +231,22 @@ describe('round-3 icon + ownership-cue tokens', () => {
   });
 });
 
+describe('round-4 kit 0.7.0 theme tokens', () => {
+  it('controlHeight aligns the deck row with the status bar line', () => {
+    // Round 2 deferred the kit's ROW_HEIGHT=40 upstream asking for a control
+    // height consistent with the 34px desktop bar; kit 0.7.0's controlHeight
+    // closes that ask. The status bar keeps its own geometry by design, so
+    // this value must stay 34 unless the bar itself moves off 34.
+    expect(BAKUDAN_THEME.controlHeight).toBe(34);
+  });
+
+  it('statusDot stays unadopted (one-accent policy, DEC-0011)', () => {
+    // Available in 0.7.0 and deliberately NOT adopted: colored state dots
+    // intersect the one-accent policy and are held for human vision review.
+    expect(BAKUDAN_THEME.statusDot).toBeUndefined();
+  });
+});
+
 describe('every supported language has real labels', () => {
   const LANGUAGES: Language[] = ['en', 'zh-CN', 'zh-TW', 'ja', 'ko'];
 

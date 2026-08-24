@@ -17,6 +17,7 @@ import {
   VideosPanel,
 } from '@vectojs/danmaku-kit/ui';
 import type {
+  CommandDeckGroupId,
   DanmakuStatusKind,
   DevToolsAvailability,
   VideoCatalogRow,
@@ -65,6 +66,21 @@ const MOBILE_DRAWER_RATIO = 0.69;
 const OVERLAY_MARGIN_DESKTOP = 16;
 const OVERLAY_MARGIN_MOBILE = 8;
 const COMMAND_DECK_MAX_WIDTH = 960;
+// Compose / transport / utility clusters (danmaku-kit#15): the flat uniform-gap
+// row read as one loose ~760px spread at desktop width, where modern players
+// cluster controls into three plates. groupGap only widens boundaries BETWEEN
+// clusters; intra-cluster spacing keeps the ordinary gap. The compact layout
+// ignores grouping by design -- its two width-starved rows collapse clusters
+// rather than risk unusable control widths.
+const COMMAND_DECK_GROUPS: readonly CommandDeckGroupId[][] = [
+  ['input', 'send'],
+  ['play', 'timeline', 'elapsed'],
+  ['rate', 'lab'],
+];
+// Cluster-boundary separation. At the narrowest desktop viewport (768px ->
+// deck 736px) fixed control widths plus two 24px boundaries still leave the
+// flexible input well ~95px; below 768px compact takes over and ignores this.
+const COMMAND_DECK_GROUP_GAP_PX = 24;
 const FRAME_METRICS = ['fps', 'frame-time'] as const;
 const DRAW_METRICS = ['gl-runs', 'gl-glyphs', 'canvas-slots'] as const;
 const DISTRIBUTIONS = ['steady', 'bursty'] as const;
@@ -386,6 +402,8 @@ export class App {
       theme: BAKUDAN_THEME,
       compact: this.isMobile,
       labOpen: this.labOpen,
+      groups: COMMAND_DECK_GROUPS,
+      groupGap: COMMAND_DECK_GROUP_GAP_PX,
       callbacks: {
         onSend: (text) => this._onUserSend(text),
         onPlayPause: () => this._togglePlayback(),
