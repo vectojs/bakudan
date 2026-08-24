@@ -3,8 +3,8 @@ import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
 
 import { Entity, Scene } from '@vectojs/core';
-import type { IRenderer } from '@vectojs/core';
 import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
+import type { CharacterEffects, PoolSlot, PresetId } from '@vectojs/danmaku-core';
 import { VideoSourceError } from '@vectojs/danmaku-kit/model';
 import type { VideoLoadState, VideoSelection } from '@vectojs/danmaku-kit/model';
 import {
@@ -35,7 +35,6 @@ import {
   resolveVideoSelection,
   videoById,
 } from '../model/VideoCatalog';
-import type { CharacterEffects, PoolSlot, PresetId } from '../model/types';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   exitFullscreenIn,
@@ -53,7 +52,6 @@ import {
   PILL_WIDTH_PX,
 } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
-import { ParticleSystem } from './ParticleSystem';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 
@@ -109,19 +107,8 @@ class Ticker extends Entity {
       this.app.pool.activeCount > 0 ||
       this.app.isDragging ||
       this.app.isVideoPlaying ||
-      this.app.hasAmbientAnimation ||
-      this.app.hasActiveParticles
+      this.app.hasAmbientAnimation
     );
-  }
-}
-
-class ParticleOverlay extends Entity {
-  isPointInside(_gx: number, _gy: number): boolean {
-    return false;
-  }
-
-  render(renderer: IRenderer): void {
-    ParticleSystem.render(renderer);
   }
 }
 
@@ -145,7 +132,6 @@ export class App {
   private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
   private devtoolsPanel!: DevToolsInfoPanel;
   private ticker: Ticker | null = null;
-  private particleOverlay: ParticleOverlay | null = null;
   private started = false;
   private destroyed = false;
   private _profSpawnRate: number | null = null;
@@ -219,7 +205,6 @@ export class App {
   currentVideoId = DEFAULT_VIDEO_ID;
   currentTrackProfileId = videoById(DEFAULT_VIDEO_ID)!.defaultTrackProfileId;
 
-  private _particlesActive = false;
   private _frameTimeMs = 16.67;
   private _measureTextHitRate = 100;
   private _heapUsedMB: number | null = null;
@@ -237,25 +222,20 @@ export class App {
   /**
    * True while the background itself needs a redraw every frame.
    *
-   * Always `false` today, deliberately. Ambient mode is a *static* CSS
-   * `radial-gradient` on the `#bakudan-bg` DOM layer — no `@keyframes`, no
-   * `transition` — and video mode is already covered by `isVideoPlaying`, so
-   * neither background gives the canvas anything new to draw.
+   * Always `false` today, deliberately. The DOM background layer shows either
+   * a `<video>` element — already covered by `isVideoPlaying` — or the page
+   * surface itself; neither gives the canvas anything new to draw, so no
+   * background state forces frames.
    *
-   * This getter previously returned `true` for ambient mode, which is the
-   * default. That single stale predicate defeated render-on-demand for the whole
-   * app: `hasPendingAnimations()` never went false at idle, so the scene stayed
-   * pinned at `maxFPS: 240` forever and the status bar's own "idle throttle"
-   * state was unreachable. Keep the seam — if the gradient is ever actually
-   * animated, this is where it gets reported.
+   * This getter previously returned `true` for the removed ambient-gradient
+   * background mode, then its default. That single stale predicate defeated
+   * render-on-demand for the whole app: `hasPendingAnimations()` never went
+   * false at idle, so the scene stayed pinned at `maxFPS: 240` forever and the
+   * status bar's own "idle throttle" state was unreachable. Keep the seam — if
+   * an animated background ever ships, this is where it gets reported.
    */
   get hasAmbientAnimation(): boolean {
     return false;
-  }
-
-  /** True while there are active explosion particles. */
-  get hasActiveParticles(): boolean {
-    return this._particlesActive;
   }
 
   private activePreset: PresetId = 'scroll';
@@ -310,7 +290,6 @@ export class App {
     this.scene.add(this._selectionHotspots);
 
     this.bg = options.stageBackground ?? new StageBackground(options.stageBackgroundOptions);
-    this.bg.mode = 'video';
     this.bg.onBufferingChange((buffering) => {
       if (this.destroyed) return;
       this._videoBuffering = buffering;
@@ -360,8 +339,6 @@ export class App {
     scene.add(this.danmakuLayer);
     scene.add(this.announcer);
     this._buildUI();
-    this.particleOverlay = new ParticleOverlay();
-    scene.showOverlay(this.particleOverlay);
   }
 
   /** Compose package surfaces once with Bakudan-owned data and actions. */
@@ -1066,10 +1043,6 @@ export class App {
       this._lastA11y = Date.now();
     }
 
-    this.profiler.beginPhase('particles.update');
-    this._particlesActive = ParticleSystem.update(dt);
-    this.profiler.endPhase('particles.update');
-
     if (this.mode === 'video') {
       this._frameVideo();
     }
@@ -1150,7 +1123,6 @@ export class App {
     this._profMode = mode;
     if (mode === 'video') {
       this.scheduler.setTargetCount(0);
-      this.bg.mode = 'video';
       this.danmakuTrack.seek(this.bg.currentTime);
     } else {
       this._stressTargetBeforeVideo = Math.max(0, this._stressTargetBeforeVideo);
@@ -1578,13 +1550,11 @@ export class App {
     if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
     if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
     if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
-    if (this.particleOverlay?.parent) this.scene.hideOverlay(this.particleOverlay);
     if (this.ticker?.parent) this.scene.remove(this.ticker);
     if (this.announcer.parent) this.scene.remove(this.announcer);
     if (this.danmakuLayer.parent) this.scene.remove(this.danmakuLayer);
     this.bg.destroy();
     if (this.bg.parent) this.scene.remove(this.bg);
     this.ticker = null;
-    this.particleOverlay = null;
   }
 }

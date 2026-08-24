@@ -273,8 +273,6 @@ function charWidth(ch: string, fontSize: number): number {
   return w;
 }
 
-export type ActionKind = 'like' | 'copy';
-
 const FONT_STRINGS = Array.from(
   { length: 64 },
   (_, fs) => `400 ${fs}px system-ui, -apple-system, sans-serif`,

@@ -51,8 +51,7 @@ function tickerWouldReportPending(app: App): boolean {
     app.pool.activeCount > 0 ||
     app.isDragging ||
     app.isVideoPlaying ||
-    app.hasAmbientAnimation ||
-    app.hasActiveParticles
+    app.hasAmbientAnimation
   );
 }
 
@@ -66,35 +65,30 @@ afterEach(() => {
 });
 
 describe('render-on-demand idle gating', () => {
-  it('reports no ambient animation, because the ambient background is a static gradient', () => {
-    const { app, background } = fixture();
+  it('reports no ambient animation, so the background never forces a frame', () => {
+    const { app } = fixture();
 
-    // #bakudan-bg.ambient is a plain radial-gradient: no @keyframes, no
-    // transition anywhere in index.html or src/. Claiming animation here pinned
-    // the scene at maxFPS forever and made the idle throttle unreachable.
-    background.mode = 'ambient';
-    expect(app.hasAmbientAnimation).toBe(false);
-
-    background.mode = 'video';
+    // The DOM background layer is either a <video> element (covered by
+    // isVideoPlaying) or the static page surface. It once reported animation
+    // for the removed ambient-gradient mode, which pinned the scene at maxFPS
+    // forever and made the idle throttle unreachable. This guard keeps that
+    // regression dead even though nothing else can observe the old mode.
     expect(app.hasAmbientAnimation).toBe(false);
   });
 
   it('goes fully idle with an empty pool so core can throttle', () => {
     const { app, background } = fixture();
-    background.mode = 'ambient';
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
     expect(app.pool.activeCount).toBe(0);
     expect(app.isDragging).toBe(false);
     expect(app.isVideoPlaying).toBe(false);
-    expect(app.hasActiveParticles).toBe(false);
     expect(tickerWouldReportPending(app)).toBe(false);
   });
 
   it('still reports pending work while danmaku are active', () => {
     const { app, background } = fixture();
-    background.mode = 'ambient';
     app.scheduler.setTargetCount(50);
     // Spawning is paced, so one tick is not enough to reach the target.
     for (let i = 0; i < 120; i++) app.frame(16.7);
@@ -105,7 +99,6 @@ describe('render-on-demand idle gating', () => {
 
   it('satisfies every precondition core requires to clamp an idle frame to idleFPS', () => {
     const { app, scene, background } = fixture();
-    background.mode = 'ambient';
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 
@@ -126,7 +119,6 @@ describe('render-on-demand idle gating', () => {
 
   it('keeps a non-visual entity from forcing frames', () => {
     const { app, scene, background } = fixture();
-    background.mode = 'ambient';
     app.scheduler.setTargetCount(0);
     app.pool.reset();
 

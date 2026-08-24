@@ -14,7 +14,7 @@ import {
 import { BAKUDAN_THEME, DANMAKU_CHROME } from '../src/view/cinemaConfig';
 import type { SelectionHotspots } from '../src/view/SelectionHotspots';
 import { StageBackground } from '../src/view/StageBackground';
-import type { PoolSlot } from '../src/model/types';
+import type { PoolSlot } from '@vectojs/danmaku-core';
 
 /**
  * The Bilibili-style select -> actions flow: hover pauses, clicking selects,

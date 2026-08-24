@@ -1,8 +1,6 @@
 import { Entity, type IRenderer } from '@vectojs/core';
 import { VideoSourceError } from '@vectojs/danmaku-kit/model';
 
-type BgMode = 'none' | 'ambient' | 'video';
-
 export interface StageBackgroundOptions {
   host?: HTMLElement | null;
   videoFactory?: () => HTMLVideoElement;
@@ -15,7 +13,6 @@ export interface StageBackgroundOptions {
 export class StageBackground extends Entity {
   width = 1920;
   height = 1080;
-  private _mode: BgMode = 'ambient';
   private _video: HTMLVideoElement | null = null;
   private _videoSrc: string | null = null;
   private _candidate: HTMLVideoElement | null = null;
@@ -37,31 +34,14 @@ export class StageBackground extends Entity {
           : null
         : options.host;
     this._videoFactory = options.videoFactory ?? (() => document.createElement('video'));
-    this._applyModeClass();
   }
 
   isPointInside(_globalX: number, _globalY: number): boolean {
     return false;
   }
 
-  get mode(): BgMode {
-    return this._mode;
-  }
-
-  set mode(mode: BgMode) {
-    if (this._mode === mode) return;
-    this._mode = mode;
-    this._applyModeClass();
-  }
-
   get currentSource(): string | null {
     return this._videoSrc;
-  }
-
-  private _applyModeClass(): void {
-    if (!this._host) return;
-    this._host.classList.toggle('ambient', this._mode === 'ambient');
-    if (this._video) this._video.style.display = this._mode === 'video' ? 'block' : 'none';
   }
 
   private _configureVideo(video: HTMLVideoElement, src: string): void {
@@ -142,7 +122,7 @@ export class StageBackground extends Entity {
         this._videoSrc = src;
         this._setBuffering(false);
         this._attachBufferingListeners();
-        candidate.style.display = this._mode === 'video' ? 'block' : 'none';
+        candidate.style.display = 'block';
         if (previous) this._disposeVideo(previous);
         resolve();
       };

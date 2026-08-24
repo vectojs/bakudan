@@ -314,7 +314,6 @@ function appFixture(duration = 100): AppFixture {
       return element;
     },
   });
-  background.mode = 'video';
 
   const scene = new Scene(canvas, {
     maxFPS: 0,
