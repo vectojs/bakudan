@@ -1,22 +1,27 @@
 /**
  * Global keyboard shortcut layer.
  *
- * ## Why this listens on the window rather than on an Entity
+ * ## Why this rides the scene keyboard channel (core >= 1.39.0)
  *
- * `@vectojs/core` dispatches `keydown` only to the Entity whose projected a11y
- * element currently has DOM focus (`Scene.ts:3787`). That is exactly right for
- * per-control keys — a focused `Slider` owning Arrow keys, a focused `Dropdown`
- * owning Escape — but it cannot express an *application* shortcut, which by
- * definition must fire when nothing in particular is focused. There is no
- * scene-level key dispatch in core today, so the only place a global shortcut
- * can be observed is the window.
+ * Application shortcuts must fire when nothing in particular is focused, and
+ * `@vectojs/core` dispatched `keydown` only to the Entity whose projected a11y
+ * element held DOM focus — so this layer originally hung a listener on
+ * `window` and carried its own copy of core's keyboard-ownership rules. Core
+ * 1.39.0 shipped the scene-level channel (`scene.on/off('keydown')`) with
+ * exactly the suppression the workaround had to reimplement: native
+ * `defaultPrevented`, key auto-repeat, and `ownsKeyboard(document.activeElement)`
+ * (text-entry tags, contentEditable, interactive roles) all gate dispatch
+ * inside the Scene before any handler runs. This module now registers on that
+ * channel and owns only what is app policy: decoding keys into intents and
+ * deciding whether an intent consumed the key.
  *
- * The paradigm cost is contained deliberately: this module never reads layout
- * from the DOM, never queries for elements, and never styles anything. It reads
- * one fact the engine does not expose (which element owns the keyboard) and
- * translates key presses into intents. All resulting state changes go through
- * `App`'s public methods, so behaviour stays testable without a browser.
+ * The paradigm cost stays contained: no DOM layout reads, no element queries,
+ * no styling. All resulting state changes go through `App`'s public methods,
+ * so behaviour stays testable without a browser (the install seam accepts any
+ * `{ on, off }` pair).
  */
+
+import type { SceneKeyEvent } from '@vectojs/core';
 
 /** A single decoded user intent. Pure data — no side effects, no DOM. */
 export type ShortcutIntent =
@@ -96,51 +101,6 @@ export function decodeShortcut(e: ShortcutKeyInput): ShortcutIntent | null {
   return null;
 }
 
-/**
- * Roles whose projected element owns the keyboard while focused.
- *
- * Mirrors core's own `INTERACTIVE_A11Y_ROLES` (`index.mjs:1324`). A focused
- * `Slider` must keep its Arrow keys and a focused `Dropdown` its Escape, so a
- * global shortcut must stand down for these.
- */
-const KEYBOARD_OWNING_ROLES: ReadonlySet<string> = new Set([
-  'button',
-  'switch',
-  'checkbox',
-  'radio',
-  'link',
-  'tab',
-  'menuitem',
-  'slider',
-  'combobox',
-  'option',
-  'listbox',
-  'textbox',
-  'searchbox',
-  'spinbutton',
-]);
-
-/**
- * True when `el` is a control that should consume the key itself.
- *
- * Text entry is the case that matters most: the danmaku composer is a real
- * projected `<input>`, and typing a space in it must insert a space rather than
- * pause the video.
- */
-export function ownsKeyboard(el: Element | null): boolean {
-  if (!el) return false;
-
-  const tag = el.tagName.toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
-
-  if (el instanceof HTMLElement && el.isContentEditable) return true;
-
-  const role = el.getAttribute('role');
-  if (role && KEYBOARD_OWNING_ROLES.has(role)) return true;
-
-  return false;
-}
-
 /** Side-effecting operations a decoded intent needs. Implemented by `App`. */
 export interface ShortcutTarget {
   /** Whether playback shortcuts currently apply (video mode, loaded, ready). */
@@ -190,22 +150,33 @@ export function applyShortcut(intent: ShortcutIntent, target: ShortcutTarget): b
 }
 
 /**
- * Install the shortcut layer on `window`.
- *
- * Returns a disposer; call it from the owner's `destroy()` so a re-mounted app
- * does not accumulate listeners.
+ * The slice of `Scene` the shortcut layer needs. Structural rather than a hard
+ * `Scene` reference so tests can drive handlers without a browser.
  */
-export function installKeyboardShortcuts(target: ShortcutTarget): () => void {
-  const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.defaultPrevented) return;
-    if (ownsKeyboard(document.activeElement)) return;
+export interface ShortcutEventSource {
+  on(event: 'keydown', callback: (e: SceneKeyEvent) => void): unknown;
+  off(event: 'keydown', callback: (e: SceneKeyEvent) => void): unknown;
+}
 
+/**
+ * Install the shortcut layer on `source` (the Scene in production).
+ *
+ * Suppression of defaultPrevented / auto-repeat / keyboard-owning focus is the
+ * scene channel's job — see the module docstring. Returns a disposer; call it
+ * from the owner's `destroy()` so a re-mounted app does not accumulate
+ * listeners.
+ */
+export function installKeyboardShortcuts(
+  source: ShortcutEventSource,
+  target: ShortcutTarget,
+): () => void {
+  const onKeyDown = (e: SceneKeyEvent): void => {
     const intent = decodeShortcut(e);
     if (!intent) return;
 
     if (applyShortcut(intent, target)) e.preventDefault();
   };
 
-  window.addEventListener('keydown', onKeyDown);
-  return () => window.removeEventListener('keydown', onKeyDown);
+  source.on('keydown', onKeyDown);
+  return () => source.off('keydown', onKeyDown);
 }

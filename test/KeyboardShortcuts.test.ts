@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { Scene } from '@vectojs/core';
+import { ownsKeyboard as coreOwnsKeyboard, Scene } from '@vectojs/core';
+import type { SceneKeyEvent } from '@vectojs/core';
 import { StageBackground } from '../src/view/StageBackground';
 import { App } from '../src/view/App';
 import {
   applyShortcut,
   decodeShortcut,
   installKeyboardShortcuts,
-  ownsKeyboard,
 } from '../src/view/KeyboardShortcuts';
-import type { ShortcutIntent, ShortcutTarget } from '../src/view/KeyboardShortcuts';
+import type {
+  ShortcutEventSource,
+  ShortcutIntent,
+  ShortcutTarget,
+} from '../src/view/KeyboardShortcuts';
 
 function key(k: string, mods: Partial<Record<'ctrl' | 'meta' | 'alt' | 'shift', boolean>> = {}) {
   return {
@@ -83,32 +87,18 @@ describe('decodeShortcut', () => {
   });
 });
 
-describe('ownsKeyboard', () => {
-  it('yields to text entry, which is the case that actually breaks', () => {
-    // The danmaku composer is a real projected <input>. Typing a space there
-    // must insert a space, not pause the video.
-    expect(ownsKeyboard(document.createElement('input'))).toBe(true);
-    expect(ownsKeyboard(document.createElement('textarea'))).toBe(true);
-    expect(ownsKeyboard(document.createElement('select'))).toBe(true);
-  });
-
-  it('yields to every role core treats as interactive', () => {
-    // Mirrors core's INTERACTIVE_A11Y_ROLES: a focused Slider must keep its
-    // Arrow keys and a focused Dropdown its Escape.
-    for (const role of ['button', 'slider', 'combobox', 'checkbox', 'tab', 'option']) {
-      const el = document.createElement('div');
-      el.setAttribute('role', role);
-      expect(ownsKeyboard(el)).toBe(true);
-    }
-  });
-
-  it('does not yield to non-interactive elements or to nothing focused', () => {
-    expect(ownsKeyboard(null)).toBe(false);
-    expect(ownsKeyboard(document.createElement('div'))).toBe(false);
-    expect(ownsKeyboard(document.createElement('canvas'))).toBe(false);
-    const status = document.createElement('div');
-    status.setAttribute('role', 'status');
-    expect(ownsKeyboard(status)).toBe(false);
+describe('core ownsKeyboard parity', () => {
+  it("the scene channel's gate covers the cases this app relies on", () => {
+    // Since the shortcut layer moved onto the scene keyboard channel, the
+    // stand-down rules live in core (Scene.ownsKeyboard). These are the two
+    // cases that actually break bakudan if core ever drops them: typing a
+    // space in the danmaku composer must not pause the video, and a focused
+    // Slider must keep its Arrow keys. The full truth table is core's suite.
+    expect(coreOwnsKeyboard(document.createElement('input'))).toBe(true);
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    expect(coreOwnsKeyboard(slider)).toBe(true);
+    expect(coreOwnsKeyboard(null)).toBe(false);
   });
 });
 
@@ -178,89 +168,78 @@ describe('applyShortcut', () => {
 });
 
 describe('installKeyboardShortcuts', () => {
-  const disposers: Array<() => void> = [];
-
-  afterEach(() => {
-    for (const dispose of disposers.splice(0)) dispose();
-    document.body.replaceChildren();
-  });
+  /**
+   * A minimal stand-in for the Scene keyboard channel. Production passes the
+   * real `scene`, whose channel gates defaultPrevented / auto-repeat /
+   * keyboard-owning focus before handlers run (core's suite owns that truth
+   * table); these tests exercise what the layer itself is responsible for:
+   * decode, apply, consume-to-preventDefault, and disposal.
+   */
+  function makeSource() {
+    const listeners = new Set<(e: SceneKeyEvent) => void>();
+    const source: ShortcutEventSource = {
+      on: (_event, callback) => void listeners.add(callback),
+      off: (_event, callback) => void listeners.delete(callback),
+    };
+    const fire = (
+      k: string,
+      mods: Partial<Record<'ctrl' | 'meta' | 'alt' | 'shift', boolean>> = {},
+    ) => {
+      const event: SceneKeyEvent = {
+        type: 'keydown',
+        key: k,
+        code: k,
+        repeat: false,
+        ctrlKey: mods.ctrl ?? false,
+        altKey: mods.alt ?? false,
+        shiftKey: mods.shift ?? false,
+        metaKey: mods.meta ?? false,
+        target: window,
+        nativeEvent: new KeyboardEvent('keydown'),
+        stopPropagation: () => {},
+        preventDefault: mock(() => {}),
+      };
+      for (const listener of listeners) listener(event);
+      return event;
+    };
+    return { source, fire, count: () => listeners.size };
+  }
 
   function install(enabled = true) {
     const { target, calls } = recordingTarget(enabled);
-    const dispose = installKeyboardShortcuts(target);
-    disposers.push(dispose);
-    return { calls, dispose };
-  }
-
-  function press(k: string, init: KeyboardEventInit = {}) {
-    const event = new KeyboardEvent('keydown', {
-      key: k,
-      cancelable: true,
-      ...init,
-    });
-    window.dispatchEvent(event);
-    return event;
+    const { source, fire, count } = makeSource();
+    const dispose = installKeyboardShortcuts(source, target);
+    return { calls, dispose, fire, count };
   }
 
   it('acts on a bound key and prevents the default', () => {
-    const { calls } = install();
+    const { calls, fire } = install();
     // Space would otherwise scroll the page as well as toggling playback.
-    expect(press(' ').defaultPrevented).toBe(true);
+    const event = fire(' ');
+    expect(event.preventDefault).toHaveBeenCalled();
     expect(calls).toEqual(['togglePlayback']);
   });
 
   it('leaves an unbound key untouched', () => {
-    const { calls } = install();
-    expect(press('q').defaultPrevented).toBe(false);
+    const { calls, fire } = install();
+    const event = fire('q');
+    expect(event.preventDefault).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
-  });
-
-  it('stands down while a text field has focus', () => {
-    const { calls } = install();
-    const input = document.createElement('input');
-    document.body.appendChild(input);
-    input.focus();
-
-    expect(press(' ').defaultPrevented).toBe(false);
-    expect(calls).toEqual([]);
-  });
-
-  it('stands down while a focused control owns the key', () => {
-    const { calls } = install();
-    const slider = document.createElement('div');
-    slider.setAttribute('role', 'slider');
-    slider.tabIndex = 0;
-    document.body.appendChild(slider);
-    slider.focus();
-
-    expect(press('ArrowRight').defaultPrevented).toBe(false);
-    expect(calls).toEqual([]);
-  });
-
-  it('respects an event a listener registered earlier already handled', () => {
-    // Ordering matters: a listener added before the layer sees the key first,
-    // and the layer must then stand down. A listener added after cannot help.
-    const consumer = (e: KeyboardEvent): void => e.preventDefault();
-    window.addEventListener('keydown', consumer);
-    try {
-      const { calls } = install();
-      press(' ');
-      expect(calls).toEqual([]);
-    } finally {
-      window.removeEventListener('keydown', consumer);
-    }
   });
 
   it('does not prevent the default when the intent could not act', () => {
-    const { calls } = install(false);
-    expect(press(' ').defaultPrevented).toBe(false);
+    const { calls, fire } = install(false);
+    const event = fire(' ');
+    expect(event.preventDefault).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
   });
 
-  it('stops listening once disposed', () => {
-    const { calls, dispose } = install();
+  it('registers exactly one handler and stops listening once disposed', () => {
+    const { calls, dispose, fire, count } = install();
+    expect(count()).toBe(1);
     dispose();
-    press(' ');
+    expect(count()).toBe(0);
+    fire(' ');
     expect(calls).toEqual([]);
   });
 });
