@@ -983,7 +983,7 @@ export class App {
     if (this.started || this.destroyed) return;
     this.started = true;
     this._setupPointerTracking();
-    this._disposeShortcuts = installKeyboardShortcuts(this);
+    this._disposeShortcuts = installKeyboardShortcuts(this.scene, this);
     this._disposeFullscreen = installFullscreenListeners(document, {
       onChange: (active) => this._handleFullscreenChange(active),
       onError: () => this._handleFullscreenError(),
