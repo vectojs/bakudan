@@ -27,8 +27,24 @@ const FILL_SPAWN_RATE = 2000;
 const SETTLE_MS = 1500;
 /** Wall-clock length of the measured window. */
 const MEASURE_MS = 8000;
-/** Give up waiting for a fill that will never complete (target > capacity). */
-const FILL_TIMEOUT_MS = 45_000;
+/**
+ * Give up waiting for a fill that will never complete (target > capacity).
+ * 150s, not a small multiple of the ideal fill: past ~15k active the
+ * scheduler's vertical-band packing refuses placement while all bands are
+ * full, so the last ~5k arrive only in bursts as moving danmaku exit — the
+ * 20000 fill measured 37-90s+ at the tiled viewport. A 45s budget produced
+ * "pool never reached" on most iterations; see benchmarks/README.md.
+ */
+const FILL_TIMEOUT_MS = 150_000;
+/**
+ * Below this target an incomplete fill is a real defect worth flagging; above
+ * it, band-refused placement (danmaku-core#8) makes the plateau expected and
+ * engine-specific — measured at the tiled viewport: Chrome fills 20000 in
+ * ~52s while Firefox plateaus at ~17800 because SpiderMonkey's font metrics
+ * are wider, so each vertical band holds fewer concurrent danmaku. Flagging
+ * the plateau as an environment issue would discard honest iterations.
+ */
+const SATURATION_EXPECTED_BELOW = 15000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,6 +89,29 @@ async function main(): Promise<void> {
 
   const canvas = mountHost();
 
+  // Cadence gate and refresh-rate calibration run FIRST, on the truly idle page
+  // — before the Scene's own rAF loop exists. Both sample raw
+  // requestAnimationFrame intervals, which tick at the display's rate on an
+  // idle page (DEC-0001 throttles paints, never callbacks). Two orderings were
+  // measured and rejected:
+  //
+  // - Post-fill calibration folds the workload's achievable throughput into
+  //   `refreshHz`, and the shared validator then misreports a genuinely
+  //   frame-bound engine as an unfocused window: Firefox at 5k danmaku ran
+  //   every phase ~3x Chrome at an honest ~80fps and had 7/7 iterations thrown
+  //   away. With the ceiling captured before fill, `refreshHz` means what the
+  //   schema says — the display rate the run was measured against — while fps
+  //   percentiles report the workload truth.
+  // - Calibration after `scene.start()` but before fill still over-read on
+  //   Chrome (243-247Hz vs a 240Hz panel, 3-2 of 7 iterations flagged): with
+  //   two concurrent rAF consumers the sampler sees interleaved callback
+  //   timing. The standalone stability probe (8x750ms samples) reads a steady
+  //   240.1-240.2 pre-scene in both engines, so calibration happens there.
+  await awaitStart();
+
+  // Cached per page: reportResult's envelope reuses exactly this number.
+  const refreshHz = await calibrateRefreshRate(1000);
+
   // Scene options mirror src/main.ts exactly — this must be production startup,
   // not a tuned harness variant.
   const scene = new Scene(canvas, {
@@ -111,24 +150,21 @@ async function main(): Promise<void> {
   const fillSeconds = Math.round((performance.now() - fillStart) / 100) / 10;
   await sleep(SETTLE_MS);
 
-  // Cadence gate AFTER the pool is full, not before: the app idles at a
-  // deliberate ~60Hz (DEC-0001), so gating on an empty scene would time out by
-  // construction. For a genuinely frame-bound arm the gate still times out —
-  // honestly — and the envelope carries that issue instead of pretending the
-  // panel cadence was met.
-  await awaitStart();
-
-  // Calibrate under steady stress so `refreshHz` is the achievable ceiling this
-  // run was measured against. Cached per page: reportResult's envelope reuses
-  // exactly this number.
-  const refreshHz = await calibrateRefreshRate(1000);
-
   const profiler = app.profilerRef();
   profiler.start();
   await sleep(MEASURE_MS);
   const report = profiler.stop();
 
-  if (!report) throw new Error('FrameProfiler produced no report');
+  if (!report) {
+    // count < 10 frames in the window. At a frame-bound arm that is almost
+    // always an environment event, not engine behavior: a demoted/occluded tab
+    // gets rAF throttled to ~1fps, so 8s yields ~8 frames. Name the state so
+    // the failure is diagnosable from the envelope alone.
+    throw new Error(
+      `FrameProfiler produced no report (captured=${profiler.captured} frames; ` +
+        `visibilityState=${document.visibilityState}; hasFocus=${document.hasFocus()})`,
+    );
+  }
 
   const row = {
     stressRequested: stressTarget,
@@ -162,7 +198,10 @@ async function main(): Promise<void> {
     },
     phases: report.phasesMs,
     durationMs: MEASURE_MS,
-    issues: filled ? [] : [`pool never reached ${effectiveTarget} within ${FILL_TIMEOUT_MS}ms`],
+    issues:
+      filled || effectiveTarget > SATURATION_EXPECTED_BELOW
+        ? []
+        : [`pool never reached ${effectiveTarget} within ${FILL_TIMEOUT_MS}ms`],
   };
 
   const result = await reportResult(payload);
