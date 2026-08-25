@@ -63,6 +63,18 @@ async function main(): Promise<void> {
   resize();
   scene.start();
   app.start();
+
+  // Stress-mode startup seam: `?stress=<n>` enters stress mode at n danmaku
+  // after the app boots, through the same App.applyStressTarget path the
+  // throughput panel uses. This is what lets a benchmark harness mount the real
+  // app at a parameterized pool count without touching kit-panel internals.
+  const stressParam = Number.parseInt(
+    new URLSearchParams(window.location.search).get('stress') ?? '',
+    10,
+  );
+  if (Number.isFinite(stressParam) && stressParam > 0) {
+    app.applyStressTarget(stressParam);
+  }
 }
 
 window.addEventListener('DOMContentLoaded', main);

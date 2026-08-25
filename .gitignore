@@ -12,3 +12,7 @@ tmp/
 
 .carryctx/config.local.toml
 .worktrees/
+
+# benchmark artifacts (generated)
+benchmarks/**/page/
+benchmarks/**/results/
