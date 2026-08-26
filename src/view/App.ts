@@ -1,4 +1,6 @@
 import { ReactionStore } from '../model/ReactionStore';
+import { runInPageBench, type BenchProgress } from '../model/InPageBench';
+import { BenchmarkPanel, type BenchmarkPanelState } from './BenchmarkPanel';
 import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
 
@@ -88,7 +90,7 @@ const RENDER_CLASSES = ['backend', 'glyphs', 'canvas'] as const;
 
 type AppMode = 'stress' | 'video';
 
-type LabTab = 'videos' | 'throughput' | 'interactions' | 'devtools';
+type LabTab = 'videos' | 'throughput' | 'benchmark' | 'interactions' | 'devtools';
 type FrameMetricId = (typeof FRAME_METRICS)[number];
 type DrawMetricId = (typeof DRAW_METRICS)[number];
 type DistributionId = (typeof DISTRIBUTIONS)[number];
@@ -146,6 +148,7 @@ export class App {
   private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
   private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
   private devtoolsPanel!: DevToolsInfoPanel;
+  private benchPanel!: BenchmarkPanel;
   private ticker: Ticker | null = null;
   private started = false;
   private destroyed = false;
@@ -184,6 +187,21 @@ export class App {
   private _isFullscreen = false;
 
   private labOpen = false;
+
+  /**
+   * In-page benchmark state. While a run is in flight, hover-freeze and drag
+   * are suspended: a danmaku paused under a resting cursor would contaminate
+   * exactly the figure the run exists to produce.
+   */
+  private _benchRunning = false;
+  private _benchJson: string | null = null;
+  private _benchCopied = false;
+  private _benchStatusLine = '';
+  private _benchResultLines: readonly string[] = [];
+  /** Plateau detector: last active count and when it was first seen. */
+  private _plateauActive = -1;
+  private _plateauSince = 0;
+  private _saturationLine: string | null = null;
 
   private activeLabTab: LabTab = 'videos';
   private distributionId: DistributionId = 'steady';
@@ -447,7 +465,11 @@ export class App {
             { value: 10_000, label: '10K' },
             { value: 20_000, label: '20K' },
           ],
-      rateRange: { min: 1, max: 2000, step: 10 },
+      // 2000/s sat exactly at the ~20k equilibrium (a 20k pool with a ~10s
+      // lifetime exits ~2000/s), so the old cap could never fill a 20K
+      // target: exits matched inflow and band-refused placement did the rest.
+      // 6000/s lets inflow outrun exits between band openings.
+      rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
       onTargetChange: (target) => {
         this.applyStressTarget(target);
       },
@@ -498,6 +520,14 @@ export class App {
       },
       onReload: () => this._loadDevtools(),
     });
+    this.benchPanel = new BenchmarkPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.benchmark,
+      state: this._benchState(),
+      onRun: () => void this._runBenchmark(),
+      onCopy: () => void this._copyBenchJson(),
+      onDownload: () => this._downloadBenchJson(),
+    });
     this.labDrawer = new DanmakuLabDrawer<LabTab>({
       theme: BAKUDAN_THEME,
       labels: labels.kit.lab,
@@ -507,6 +537,11 @@ export class App {
           id: 'throughput',
           label: labels.kit.lab.throughput,
           panel: this.throughputPanel,
+        },
+        {
+          id: 'benchmark',
+          label: labels.panels.benchmark.tab,
+          panel: this.benchPanel,
         },
         {
           id: 'interactions',
@@ -789,6 +824,132 @@ export class App {
     this.interactionsPanel.setState(this._interactionsState());
   }
 
+  private _benchState(): BenchmarkPanelState {
+    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    return {
+      running: this._benchRunning,
+      statusLine: this._benchRunning ? this._benchStatusLine : labels.idle,
+      resultLines: this._benchResultLines,
+      saturationLine: this._saturationLine,
+      copied: this._benchCopied,
+    };
+  }
+
+  private _syncBenchState(): void {
+    this.benchPanel.setState(this._benchState());
+  }
+
+  /**
+   * Run the in-page benchmark at the current stress target. Hover-freeze and
+   * drag are suspended for the duration: a danmaku paused under a resting
+   * cursor would contaminate exactly the figure the run exists to produce.
+   */
+  private async _runBenchmark(): Promise<void> {
+    if (this._benchRunning) return;
+    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    this._benchRunning = true;
+    this._benchCopied = false;
+    this._benchResultLines = [];
+    this._benchStatusLine = '';
+    this._syncBenchState();
+    try {
+      const result = await runInPageBench(
+        {
+          now: () => performance.now(),
+          sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+          requestAnimationFrame: (cb) => requestAnimationFrame(cb),
+          applyStressTarget: (target) => {
+            this.applyStressTarget(target);
+            return Math.min(target, this.pool.capacity);
+          },
+          setSpawnRate: (rate) => {
+            this._profSpawnRate = rate;
+            this.scheduler.setSpawnRate(rate);
+          },
+          activeCount: () => this.pool.activeCount,
+          startProfiler: () => this.profiler.start(),
+          stopProfiler: () => this.profiler.stop(),
+        },
+        this._stressTargetBeforeVideo,
+        (progress: BenchProgress) => {
+          this._benchStatusLine = progress.detail;
+          this._syncBenchState();
+        },
+        labels,
+      );
+      this._benchJson = result.json;
+      this._benchResultLines = labels.resultLines({
+        fpsP50: result.report.fps.p50,
+        frameTimeMsP99: result.report.frameTimeMs.p99,
+        activeAtEnd: result.activeAtEnd,
+        target: result.effectiveTarget,
+        refreshHz: result.refreshHz,
+        filled: result.filled,
+      });
+      this._benchStatusLine = '';
+    } catch (error) {
+      this._benchStatusLine = labels.benchFailed(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      this._benchRunning = false;
+      this._syncBenchState();
+    }
+  }
+
+  private async _copyBenchJson(): Promise<void> {
+    if (!this._benchJson) return;
+    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    try {
+      await navigator.clipboard.writeText(this._benchJson);
+      this._benchCopied = true;
+    } catch {
+      this._benchCopied = false;
+      this._benchStatusLine = labels.copyFailed;
+    }
+    this._syncBenchState();
+  }
+
+  private _downloadBenchJson(): void {
+    if (!this._benchJson) return;
+    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    const url = URL.createObjectURL(new Blob([this._benchJson], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = labels.downloadName;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /**
+   * Plateau detector: in stress mode with the spawn slider maxed, an active
+   * count that stops climbing while below target means band-refused
+   * placement (danmaku-core#8) — say so instead of under-filling silently.
+   */
+  private _updateSaturation(): void {
+    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    if (this.mode !== 'stress' || this._benchRunning) {
+      this._saturationLine = null;
+      this._plateauActive = -1;
+      return;
+    }
+    const active = this.pool.activeCount;
+    const target = this._stressTargetBeforeVideo;
+    const maxed = this.scheduler.rate >= (this.isMobile ? 3000 : 6000);
+    if (target > 0 && active < target && maxed) {
+      if (active !== this._plateauActive) {
+        this._plateauActive = active;
+        this._plateauSince = performance.now();
+      } else if (performance.now() - this._plateauSince > 4000) {
+        this._saturationLine = labels.saturation(active, target);
+        return;
+      }
+    } else {
+      this._plateauActive = -1;
+    }
+    this._saturationLine = null;
+  }
+
   private _statusKind(): DanmakuStatusKind {
     if (this.videoLoading) return 'loading';
     if (this.videoLoadState.status === 'error') return 'error';
@@ -1025,8 +1186,10 @@ export class App {
       }
       this._syncStatus();
       this._syncThroughputState();
+      this._syncBenchState();
       this._syncInteractionsState();
       this._syncPlaybackState();
+      this._updateSaturation();
       this._frameAccumMs = 0;
       this._frameCount = 0;
     }
@@ -1063,6 +1226,15 @@ export class App {
 
   private _updateHover(): void {
     const slots = this.pool.slots;
+    if (this._benchRunning) {
+      // A danmaku frozen under a resting cursor would contaminate the run.
+      for (let i = slots.length - 1; i >= 0; i--) {
+        const s = slots[i]!;
+        s.hovered = false;
+        if (!s.interactionLocked) s.paused = false;
+      }
+      return;
+    }
     const selected = this._selectedSlotId !== null ? slots[this._selectedSlotId] : null;
 
     if (selected?.active && selected.interactionLocked) {

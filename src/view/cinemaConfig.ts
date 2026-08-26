@@ -147,7 +147,37 @@ export const DANMAKU_CHROME: Readonly<
   pillIconActive: '#f43f5e',
 });
 
+export interface BenchmarkLabels {
+  tab: string;
+  panel: string;
+  scroll: string;
+  run: string;
+  running: string;
+  copy: string;
+  download: string;
+  copied: string;
+  copyFailed: string;
+  downloadName: string;
+  idle: string;
+  resultHeading: string;
+  benchFailed: (message: string) => string;
+  filling: (filled: number, target: number) => string;
+  settling: () => string;
+  calibrating: () => string;
+  measuring: () => string;
+  resultLines: (summary: {
+    fpsP50: number;
+    frameTimeMsP99: number;
+    activeAtEnd: number;
+    target: number;
+    refreshHz: number;
+    filled: boolean;
+  }) => readonly string[];
+  saturation: (active: number, target: number) => string;
+}
+
 export interface BakudanPanelLabels {
+  benchmark: BenchmarkLabels;
   videos: VideosPanelLabels;
   throughput: ThroughputPanelLabels;
   interactions: InteractionsPanelLabels;
@@ -311,6 +341,33 @@ const ENGLISH: BakudanCinemaLabels = {
         'reload-required': 'Load on demand',
       },
     },
+    benchmark: {
+      tab: 'Benchmark',
+      panel: 'Benchmark laboratory',
+      scroll: 'Benchmark laboratory controls',
+      run: 'Run benchmark',
+      running: 'Running…',
+      copy: 'Copy JSON',
+      download: 'Download JSON',
+      copied: 'Copied!',
+      copyFailed: 'Copy failed — use Download instead.',
+      downloadName: 'bakudan-benchmark.json',
+      idle: 'Fills to the current target, settles, then measures 8s through the live profiler.',
+      resultHeading: 'Last result',
+      benchFailed: (message) => `Benchmark failed: ${message}`,
+      filling: (filled, target) =>
+        `Filling ${filled.toLocaleString()} / ${target.toLocaleString()}…`,
+      settling: () => 'Settling…',
+      calibrating: () => 'Calibrating display cadence…',
+      measuring: () => 'Measuring 8s…',
+      resultLines: (summary) => [
+        `FPS p50 ${summary.fpsP50} · frame ms p99 ${summary.frameTimeMsP99}`,
+        `Live ${summary.activeAtEnd.toLocaleString()} / ${summary.target.toLocaleString()}${summary.filled ? '' : ' (ceiling)'}`,
+        `Display ${summary.refreshHz} Hz`,
+      ],
+      saturation: (active, target) =>
+        `Placement ceiling: ${active.toLocaleString()} / ${target.toLocaleString()} — spawn rate maxed, vertical bands full (danmaku-core#8)`,
+    },
   },
 };
 
@@ -402,6 +459,33 @@ const CHINESE: BakudanCinemaLabels = {
         unavailable: '此构建不可用',
         'reload-required': '按需加载',
       },
+    },
+    benchmark: {
+      tab: '基准测试',
+      panel: '基准测试实验室',
+      scroll: '基准测试实验室控制',
+      run: '运行基准测试',
+      running: '运行中…',
+      copy: '复制 JSON',
+      download: '下载 JSON',
+      copied: '已复制！',
+      copyFailed: '复制失败——请改用下载。',
+      downloadName: 'bakudan-benchmark.json',
+      idle: '填充到当前目标，稳定后通过实时性能剖析器测量 8 秒。',
+      resultHeading: '上次结果',
+      benchFailed: (message: string) => `基准测试失败：${message}`,
+      filling: (filled: number, target: number) =>
+        `填充中 ${filled.toLocaleString()} / ${target.toLocaleString()}…`,
+      settling: () => '稳定中…',
+      calibrating: () => '正在校准显示刷新率…',
+      measuring: () => '测量 8 秒…',
+      resultLines: (summary) => [
+        `FPS p50 ${summary.fpsP50} · 帧耗时 p99 ${summary.frameTimeMsP99}ms`,
+        `活跃 ${summary.activeAtEnd.toLocaleString()} / ${summary.target.toLocaleString()}${summary.filled ? '' : '（已达上限）'}`,
+        `显示器 ${summary.refreshHz} Hz`,
+      ],
+      saturation: (active: number, target: number) =>
+        `已达放置上限：${active.toLocaleString()} / ${target.toLocaleString()}——生成速率已满，垂直带已满（danmaku-core#8）`,
     },
   },
 };
@@ -500,6 +584,33 @@ const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
         'reload-required': '按需載入',
       },
     },
+    benchmark: {
+      tab: '基準測試',
+      panel: '基準測試實驗室',
+      scroll: '基準測試實驗室控制',
+      run: '執行基準測試',
+      running: '執行中…',
+      copy: '複製 JSON',
+      download: '下載 JSON',
+      copied: '已複製！',
+      copyFailed: '複製失敗——請改用下載。',
+      downloadName: 'bakudan-benchmark.json',
+      idle: '填充到目前目標，穩定後透過即時效能剖析器測量 8 秒。',
+      resultHeading: '上次結果',
+      benchFailed: (message: string) => `基準測試失敗：${message}`,
+      filling: (filled: number, target: number) =>
+        `填充中 ${filled.toLocaleString()} / ${target.toLocaleString()}…`,
+      settling: () => '穩定中…',
+      calibrating: () => '正在校準顯示更新率…',
+      measuring: () => '測量 8 秒…',
+      resultLines: (summary) => [
+        `FPS p50 ${summary.fpsP50} · 幀耗時 p99 ${summary.frameTimeMsP99}ms`,
+        `活躍 ${summary.activeAtEnd.toLocaleString()} / ${summary.target.toLocaleString()}${summary.filled ? '' : '（已達上限）'}`,
+        `顯示器 ${summary.refreshHz} Hz`,
+      ],
+      saturation: (active: number, target: number) =>
+        `已達放置上限：${active.toLocaleString()} / ${target.toLocaleString()}——生成速率已滿，垂直帶已滿（danmaku-core#8）`,
+    },
   },
 };
 
@@ -593,6 +704,33 @@ const JAPANESE: BakudanCinemaLabels = {
         'reload-required': 'オンデマンドで読み込む',
       },
     },
+    benchmark: {
+      tab: 'ベンチマーク',
+      panel: 'ベンチマーク実験室',
+      scroll: 'ベンチマーク実験室操作',
+      run: 'ベンチマーク実行',
+      running: '実行中…',
+      copy: 'JSON をコピー',
+      download: 'JSON をダウンロード',
+      copied: 'コピーしました！',
+      copyFailed: 'コピーに失敗——ダウンロードをご利用ください。',
+      downloadName: 'bakudan-benchmark.json',
+      idle: '現在の目標までフィリングし、安定後、ライブプロファイラで 8 秒測定します。',
+      resultHeading: '前回の結果',
+      benchFailed: (message: string) => `ベンチマーク失敗：${message}`,
+      filling: (filled: number, target: number) =>
+        `フィリング ${filled.toLocaleString()} / ${target.toLocaleString()}…`,
+      settling: () => '安定中…',
+      calibrating: () => '表示のリフレッシュレートを校正中…',
+      measuring: () => '8 秒測定中…',
+      resultLines: (summary) => [
+        `FPS p50 ${summary.fpsP50} · フレーム ms p99 ${summary.frameTimeMsP99}`,
+        `稼働 ${summary.activeAtEnd.toLocaleString()} / ${summary.target.toLocaleString()}${summary.filled ? '' : '（上限）'}`,
+        `ディスプレイ ${summary.refreshHz} Hz`,
+      ],
+      saturation: (active: number, target: number) =>
+        `配置上限に到達：${active.toLocaleString()} / ${target.toLocaleString()}——生成レート最大、垂直帯が満杯（danmaku-core#8）`,
+    },
   },
 };
 
@@ -685,6 +823,33 @@ const KOREAN: BakudanCinemaLabels = {
         unavailable: '이 빌드에서는 사용 불가',
         'reload-required': '필요 시 로드',
       },
+    },
+    benchmark: {
+      tab: '벤치마크',
+      panel: '벤치마크 실험실',
+      scroll: '벤치마크 실험실 컨트롤',
+      run: '벤치마크 실행',
+      running: '실행 중…',
+      copy: 'JSON 복사',
+      download: 'JSON 다운로드',
+      copied: '복사됨!',
+      copyFailed: '복사 실패——다운로드를 이용하세요.',
+      downloadName: 'bakudan-benchmark.json',
+      idle: '현재 목표까지 채운 뒤 안정화하고, 라이브 프로파일러로 8초 측정합니다.',
+      resultHeading: '마지막 결과',
+      benchFailed: (message: string) => `벤치마크 실패: ${message}`,
+      filling: (filled: number, target: number) =>
+        `채우는 중 ${filled.toLocaleString()} / ${target.toLocaleString()}…`,
+      settling: () => '안정화 중…',
+      calibrating: () => '디스플레이 주사율 캘리브레이션 중…',
+      measuring: () => '8초 측정 중…',
+      resultLines: (summary) => [
+        `FPS p50 ${summary.fpsP50} · 프레임 ms p99 ${summary.frameTimeMsP99}`,
+        `활성 ${summary.activeAtEnd.toLocaleString()} / ${summary.target.toLocaleString()}${summary.filled ? '' : ' (상한)'}`,
+        `디스플레이 ${summary.refreshHz} Hz`,
+      ],
+      saturation: (active: number, target: number) =>
+        `배치 상한 도달: ${active.toLocaleString()} / ${target.toLocaleString()}——생성 속도 최대, 수직 밴드 포화 (danmaku-core#8)`,
     },
   },
 };
