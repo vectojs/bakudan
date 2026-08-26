@@ -78,6 +78,9 @@ const FREEZE_HOLD_MS = 1800;
 /** Zone padding around the pointer point, so grazing danmaku count as crossing. */
 const FREEZE_PAD_PX = 4;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
+// Canvas fallback geometry — kept for happy-dom tests where #bakudan-header /
+// #command-deck / #lab-drawer are absent. HTML shell uses CSS Grid + fixed
+// sheet (header 44/36, lab 46vh/69vh, command max-width 960) via shell.css.
 const DESKTOP_DRAWER_RATIO = 0.46;
 const MOBILE_DRAWER_RATIO = 0.69;
 const OVERLAY_MARGIN_DESKTOP = 16;
@@ -1598,13 +1601,12 @@ export class App {
   }
 
   /**
-   * Hybrid shell: stageW/H now come from #stage-container's rect via main.ts
-   * (disableWindowResize island) rather than window.innerWidth/Height directly.
-   * Overlays still use stageW/H, so no other change is needed for phase 1 —
-   * later phases replace these overlays with HTML and delete this method.
-   *
-   * In HTML command-deck mode (CTX-0028) the footer is CSS-positioned; only
-   * status and drawer are laid out via VMT, the deck lives in #command-deck.
+   * Hybrid shell (final, CTX-0030): stageW/H come from #stage-container's rect
+   * via main.ts (disableWindowResize island). Grid owns header/footer, stage
+   * is the canvas island. HTML chrome (headerBar, commandDeckHTML,
+   * labDrawerHTML) is CSS-positioned; canvas overlays (statusBar,
+   * commandDeck, labDrawer) remain only as fallback when HTML mounts are
+   * missing (e.g. happy-dom tests). Keep fallback path intact.
    */
   private _layoutCinema(): void {
     if (!this.labDrawer && !this.labDrawerHTML) return;

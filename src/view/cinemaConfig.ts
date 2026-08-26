@@ -9,6 +9,12 @@ import type {
 } from '@vectojs/danmaku-kit/ui';
 import type { Language } from '../model/i18n';
 
+/**
+ * Hybrid shell (final, CTX-0030): BAKUDAN_THEME is the single source of truth
+ * for CSS vars (--bakudan-*) consumed by header.css / command.css / lab.css.
+ * Kit label sets below remain for canvas fallback when HTML mounts are
+ * missing (happy-dom tests exercise DanmakuStatusBar/CommandDeck/LabDrawer).
+ */
 export const BAKUDAN_THEME: Readonly<DanmakuKitTheme> = Object.freeze({
   // Fully opaque on purpose. This token backs the status bar, the command
   // deck, and the laboratory drawer, all of which float directly over the
