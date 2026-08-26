@@ -1,0 +1,305 @@
+/* Bakudan HTML command deck — CTX-0028 phase 3
+ * Transport + composer. Theme tokens from BAKUDAN_THEME via CSS vars set in
+ * CommandDeck.ts; this file never hardcodes a palette value.
+ * Desktop: single flex row, gap 12px, max-width 960px centered.
+ * Mobile <768px: two rows via media query — row1 play+timeline+Lab, row2 input+Send.
+ */
+
+#command-deck {
+  grid-area: footer;
+  /* Shell reserves footer height via --shell-footer-height; deck's own
+   * padding lives inside .bakudan-command so the grid cell stays tight. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  /* In hybrid grid the footer stretches; center inner deck. */
+}
+
+.bakudan-command {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 8px 12px;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  border-radius: 14px;
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+}
+
+.bakudan-command__play,
+.bakudan-command__lab,
+.bakudan-command__send,
+.bakudan-command__rate,
+.bakudan-command__input {
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+}
+
+.bakudan-command__play,
+.bakudan-command__lab {
+  flex: 0 0 auto;
+  height: 34px;
+  min-width: 64px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bakudan-command__play[aria-pressed="true"] {
+  background: var(--bakudan-pulse, var(--bakudan-accent, #f43f5e));
+  border-color: transparent;
+  color: #fff;
+}
+
+.bakudan-command__lab[aria-pressed="true"] {
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  border-color: var(--bakudan-signal, #60a5fa);
+  color: var(--bakudan-signal, #60a5fa);
+}
+
+.bakudan-command__timeline-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 160px;
+  min-width: 120px;
+  position: relative;
+}
+
+.bakudan-command__timeline {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  cursor: pointer;
+  /* JS writes 0..1 floats; CSS converts to percent */
+  --progress: 0;
+  --buffered-end: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* Buffered track painted behind the progress via wrapper ::before */
+.bakudan-command__timeline-wrap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 6px;
+  width: calc(var(--buffered-end, 0) * 100%);
+  max-width: 100%;
+  background: var(--bakudan-buffered-track, rgba(148, 163, 184, 0.55));
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bakudan-command__timeline::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--bakudan-pulse, var(--bakudan-accent, #f43f5e)) 0%
+      calc(var(--progress, 0) * 100%),
+    var(--bakudan-track, rgba(248, 250, 252, 0.18))
+      calc(var(--progress, 0) * 100%) 100%
+  );
+}
+
+.bakudan-command__timeline::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--bakudan-pulse, var(--bakudan-accent, #f43f5e)) 0%
+      calc(var(--progress, 0) * 100%),
+    var(--bakudan-track, rgba(248, 250, 252, 0.18))
+      calc(var(--progress, 0) * 100%) 100%
+  );
+}
+
+.bakudan-command__timeline::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bakudan-text, #f8fafc);
+  border: 2px solid var(--bakudan-surface, #07090d);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  margin-top: -5px;
+  cursor: pointer;
+}
+
+.bakudan-command__timeline::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bakudan-text, #f8fafc);
+  border: 2px solid var(--bakudan-surface, #07090d);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.bakudan-command__elapsed {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  color: var(--bakudan-text-muted, #94a3b8);
+  white-space: nowrap;
+  min-width: 92px;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.bakudan-command__rate {
+  flex: 0 0 auto;
+  height: 34px;
+  min-width: 68px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  cursor: pointer;
+}
+
+.bakudan-command__composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.bakudan-command__input {
+  flex: 1;
+  height: 34px;
+  min-width: 0;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  outline: none;
+}
+
+.bakudan-command__input::placeholder {
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-command__send {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--bakudan-accent, #f43f5e);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bakudan-command__send:hover {
+  background: var(--bakudan-accent-hover, #e11d48);
+}
+
+.bakudan-command__send:disabled,
+.bakudan-command__play:disabled,
+.bakudan-command__timeline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Keyboard focus ring — Signal-blue double ring per ARCHITECTURE.md
+ * Inner ring is surface, outer is signal, so it pops on both dark and light. */
+.bakudan-command__play:focus-visible,
+.bakudan-command__lab:focus-visible,
+.bakudan-command__send:focus-visible,
+.bakudan-command__input:focus-visible,
+.bakudan-command__rate:focus-visible,
+.bakudan-command__timeline:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bakudan-surface, #07090d),
+    0 0 0 4px var(--bakudan-signal, #60a5fa);
+}
+
+/* Also handle focus (not only focus-visible) for programmatic focus */
+.bakudan-command__play:focus,
+.bakudan-command__lab:focus,
+.bakudan-command__send:focus,
+.bakudan-command__input:focus,
+.bakudan-command__rate:focus,
+.bakudan-command__timeline:focus {
+  outline: none;
+}
+
+.bakudan-command__play:focus-visible,
+.bakudan-command__lab:focus-visible,
+.bakudan-command__send:focus-visible,
+.bakudan-command__input:focus-visible,
+.bakudan-command__rate:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--bakudan-surface, #07090d),
+    0 0 0 4px var(--bakudan-focus-ring, var(--bakudan-signal, #60a5fa));
+}
+
+/* Mobile two-row layout — no JS isMobile branch */
+@media (max-width: 767px) {
+  #command-deck {
+    padding: 6px 8px;
+  }
+
+  .bakudan-command {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  /* Row 1: play + timeline + rate + Lab */
+  .bakudan-command__play {
+    order: 0;
+    min-width: 56px;
+    padding: 0 10px;
+  }
+
+  .bakudan-command__timeline-wrap {
+    order: 1;
+    flex: 1 1 0;
+    min-width: 80px;
+  }
+
+  .bakudan-command__rate {
+    order: 2;
+    min-width: 64px;
+  }
+
+  .bakudan-command__lab {
+    order: 3;
+    min-width: 56px;
+    padding: 0 10px;
+  }
+
+  .bakudan-command__elapsed {
+    display: none;
+  }
+
+  /* Row 2: input + Send full width */
+  .bakudan-command__composer {
+    order: 4;
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+}
