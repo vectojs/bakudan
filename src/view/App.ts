@@ -1134,6 +1134,12 @@ export class App {
     this.scene.markDirty();
   }
 
+  /**
+   * Hybrid shell: stageW/H now come from #stage-container's rect via main.ts
+   * (disableWindowResize island) rather than window.innerWidth/Height directly.
+   * Overlays still use stageW/H, so no other change is needed for phase 1 —
+   * later phases replace these overlays with HTML and delete this method.
+   */
   private _layoutCinema(): void {
     if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
     const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
