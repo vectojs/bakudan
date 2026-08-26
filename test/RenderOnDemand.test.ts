@@ -48,10 +48,7 @@ function fixture(width = 1440, height = 900): Fixture {
  */
 function tickerWouldReportPending(app: App): boolean {
   return (
-    app.pool.activeCount > 0 ||
-    app.isDragging ||
-    app.isVideoPlaying ||
-    app.hasAmbientAnimation
+    app.pool.activeCount > 0 || app.isDragging || app.isVideoPlaying || app.hasAmbientAnimation
   );
 }
 

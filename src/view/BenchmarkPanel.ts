@@ -11,12 +11,13 @@
  * Result lines are a fixed Text set blanked when absent — Text has no
  * visibility toggle, and an empty string renders nothing.
  */
-import { Button, Text } from '@vectojs/ui';
+import { Button, RadioGroup, Text } from '@vectojs/ui';
 import { LabPanel } from '@vectojs/danmaku-kit/ui';
 
 export interface BenchmarkPanelLabels {
   panel: string;
   scroll: string;
+  fpsHeading: string;
   run: string;
   running: string;
   copy: string;
@@ -27,6 +28,10 @@ export interface BenchmarkPanelLabels {
 }
 
 export interface BenchmarkPanelState {
+  /** Rendered-frame cap the selector applies to `Scene.maxFPS`. */
+  frameRate: number;
+  /** Honest renderer readout, e.g. "WebGL/MSDF" (WebGPU has no danmaku path). */
+  backendLabel: string;
   running: boolean;
   /** Live phase/detail line while running; the idle hint when not. */
   statusLine: string;
@@ -41,9 +46,10 @@ export interface BenchmarkPanelState {
 export const BENCH_RESULT_ROWS = 4;
 
 export interface BenchmarkPanelOptions {
-  theme: { fontUi: string; text: string; accent: string; border: string };
+  theme: { fontUi: string; text: string; accent: string; border: string; focusRing: string };
   labels: BenchmarkPanelLabels;
   state: BenchmarkPanelState;
+  onFrameRateChange(hz: number): void;
   onRun(): void;
   onCopy(): void;
   onDownload(): void;
@@ -53,6 +59,8 @@ export class BenchmarkPanel extends LabPanel<BenchmarkPanelState> {
   private readonly options: BenchmarkPanelOptions;
   private readonly statusText: Text;
   private readonly saturationText: Text;
+  private readonly fpsGroup: RadioGroup;
+  private readonly backendText: Text;
   private readonly resultHeading: Text;
   private readonly resultTexts: Text[] = [];
   private readonly runButton: Button;
@@ -74,6 +82,29 @@ export class BenchmarkPanel extends LabPanel<BenchmarkPanelState> {
       color: options.theme.accent,
     });
     this.content.add(this.saturationText);
+
+    this.fpsGroup = new RadioGroup({
+      label: options.labels.fpsHeading,
+      options: [60, 120, 144, 240].map((hz) => ({
+        value: String(hz),
+        label: `${hz} Hz`,
+      })),
+      value: String(options.state.frameRate),
+      direction: 'horizontal',
+      gap: 16,
+      font: options.theme.fontUi,
+      color: options.theme.text,
+      accent: options.theme.accent,
+      border: options.theme.border,
+      onChange: (value) => options.onFrameRateChange(Number(value)),
+    });
+    this.content.add(this.fpsGroup);
+
+    this.backendText = new Text('', {
+      font: options.theme.fontUi,
+      color: options.theme.text,
+    });
+    this.content.add(this.backendText);
 
     this.runButton = new Button(options.labels.run, {
       onClick: () => options.onRun(),
@@ -133,6 +164,7 @@ export class BenchmarkPanel extends LabPanel<BenchmarkPanelState> {
 
     this.statusText.setText(state.statusLine);
     this.saturationText.setText(state.saturationLine ?? '');
+    this.backendText.setText(state.backendLabel);
 
     this.resultHeading.setText(hasResult ? labels.resultHeading : '');
     for (let i = 0; i < this.resultTexts.length; i++) {

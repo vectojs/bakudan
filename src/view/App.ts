@@ -210,6 +210,8 @@ export class App {
   private _plateauActive = -1;
   private _plateauSince = 0;
   private _saturationLine: string | null = null;
+  /** Rendered-frame cap; the Benchmark tab's selector writes Scene.maxFPS. */
+  private _frameRate = 240;
 
   private activeLabTab: LabTab = 'videos';
   private distributionId: DistributionId = 'steady';
@@ -542,6 +544,13 @@ export class App {
       theme: BAKUDAN_THEME,
       labels: labels.panels.benchmark,
       state: this._benchState(),
+      onFrameRateChange: (hz) => {
+        // Scene.maxFPS is public and settable at runtime (core docs: "Also
+        // settable later via Scene.maxFPS").
+        this._frameRate = hz;
+        this.scene.maxFPS = hz;
+        this._syncBenchState();
+      },
       onRun: () => void this._runBenchmark(),
       onCopy: () => void this._copyBenchJson(),
       onDownload: () => this._downloadBenchJson(),
@@ -844,7 +853,12 @@ export class App {
 
   private _benchState(): BenchmarkPanelState {
     const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
+    const backend = (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
+      ? 'WebGL/MSDF'
+      : 'Canvas2D';
     return {
+      frameRate: this._frameRate,
+      backendLabel: `${labels.renderer}: ${backend}`,
       running: this._benchRunning,
       statusLine: this._benchRunning ? this._benchStatusLine : labels.idle,
       resultLines: this._benchResultLines,
@@ -894,6 +908,7 @@ export class App {
           this._syncBenchState();
         },
         labels,
+        this._frameRate,
       );
       this._benchJson = result.json;
       this._benchResultLines = labels.resultLines({
