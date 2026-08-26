@@ -156,8 +156,8 @@ describe('pill plate covers the clickable span', () => {
     // The margin pads only the painted plate; the placed hotspot split is a
     // function of the glyph offsets alone. Pin that independence: changing
     // padding must never move like/copy click targets.
-    expect(PILL_COPY_OFFSET_PX).toBe(60);
-    expect(PILL_WIDTH_PX).toBe(80);
+    expect(PILL_COPY_OFFSET_PX).toBe(62);
+    expect(PILL_WIDTH_PX).toBe(118);
   });
 });
 

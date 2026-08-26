@@ -14,11 +14,11 @@ import { BAKUDAN_THEME, DANMAKU_CHROME } from './cinemaConfig';
 /** Vertical offset of the pill baseline from the danmaku origin, in font sizes. */
 export const PILL_BASELINE_FACTOR = 1.4;
 /** Horizontal offset of the like count from the pill's left edge. */
-export const PILL_COUNT_OFFSET_PX = 20;
+export const PILL_COUNT_OFFSET_PX = 40;
 /** Horizontal offset of the copy glyph from the pill's left edge. */
-export const PILL_COPY_OFFSET_PX = 60;
+export const PILL_COPY_OFFSET_PX = 62;
 /** Total pill width, covering the like glyph, the count, and the copy glyph. */
-export const PILL_WIDTH_PX = 80;
+export const PILL_WIDTH_PX = 118;
 /** Pill height; the hotspots span it fully. */
 export const PILL_HEIGHT_PX = 44;
 /**
@@ -44,11 +44,11 @@ export const USER_BOX_RADIUS_PX = 6;
  * and no cross-shot identity drift (the r2 review's strongest eyesore).
  */
 /** Square icon box side, px. Both glyphs fit inside it. */
-export const PILL_ICON_SIZE_PX = 16;
+export const PILL_ICON_SIZE_PX = 18;
 /** Horizontal center of the heart icon, from the pill's left edge. */
-export const PILL_LIKE_ICON_CENTER_PX = 10;
+export const PILL_LIKE_ICON_CENTER_PX = 28;
 /** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [60,84]). */
-export const PILL_COPY_ICON_CENTER_PX = 72;
+export const PILL_COPY_ICON_CENTER_PX = 94;
 /** Hover affordance: the hovered icon scales by this factor about its center. */
 export const PILL_ICON_HOVER_SCALE = 1.15;
 /**
@@ -161,7 +161,7 @@ function glyphInkCenterAboveBaseline(text: string, font: string): number | null 
  */
 const COPY_HOTSPOT_MIN_PX = 24;
 /** Uniform margin between the pill plate's edge and the hotspot span. */
-export const PILL_PLATE_MARGIN_PX = 16;
+export const PILL_PLATE_MARGIN_PX = 12;
 /**
  * Total pill plate width: the hotspot span (like [0,60] + copy [60,84])
  * plus one margin each side.
