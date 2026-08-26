@@ -58,6 +58,7 @@ import {
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
+import { HeaderBar, type StatusState } from './html/HeaderBar';
 
 const DESKTOP_POOL = 20_000;
 const MOBILE_POOL = 5_000;
@@ -149,7 +150,8 @@ export class App {
   private bg: StageBackground;
   private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
-  private statusBar!: DanmakuStatusBar;
+  private statusBar: DanmakuStatusBar | null = null;
+  private headerBar: HeaderBar | null = null;
   private commandDeck!: DanmakuCommandDeck;
   private labDrawer!: DanmakuLabDrawer<LabTab>;
   private videosPanel!: VideosPanel<string>;
@@ -369,7 +371,14 @@ export class App {
       // Top-bar safe zone (round 3): chips must never paint under the opaque
       // status bar - the r2 QA hover capture had a chip vanish behind it.
       // Read live from the placed kit bar rather than duplicating its height.
-      safeTop: this.statusBar ? this.statusBar.y + this.statusBar.height : 0,
+      // In hybrid header mode the bar is HTML (44px desktop / 36px mobile).
+      safeTop: this.headerBar
+        ? this.isMobile
+          ? 36
+          : 44
+        : this.statusBar
+          ? this.statusBar.y + this.statusBar.height
+          : 0,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from
@@ -414,13 +423,20 @@ export class App {
         `${Math.round(profile.clusterRatio * 100)}% clustered`,
     }));
 
-    this.statusBar = new DanmakuStatusBar({
-      width: window.innerWidth,
-      product: labels.kit.product,
-      labels: labels.kit,
-      theme: BAKUDAN_THEME,
-      compact: this.isMobile,
-    });
+    const headerContainer = document.getElementById('bakudan-header');
+    if (headerContainer) {
+      this.headerBar = new HeaderBar(headerContainer, {
+        getState: () => this._headerState(),
+      });
+    } else {
+      this.statusBar = new DanmakuStatusBar({
+        width: window.innerWidth,
+        product: labels.kit.product,
+        labels: labels.kit,
+        theme: BAKUDAN_THEME,
+        compact: this.isMobile,
+      });
+    }
     this.commandDeck = new DanmakuCommandDeck({
       width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
       labels: labels.kit,
@@ -589,7 +605,7 @@ export class App {
 
     this._syncStatus();
     this._syncPlaybackState();
-    this.scene.showOverlay(this.statusBar);
+    if (this.statusBar) this.scene.showOverlay(this.statusBar);
     this.scene.showOverlay(this.commandDeck);
     this.scene.showOverlay(this.labDrawer);
   }
@@ -995,7 +1011,31 @@ export class App {
     return 'video';
   }
 
+  private _headerState(): StatusState {
+    const kind = this._statusKind();
+    const videoEntry = videoById(this.currentVideoId);
+    const profile = TRACK_PROFILES.get(this.currentTrackProfileId);
+    return {
+      kind,
+      videoTitle: videoEntry?.title ?? this.currentVideoId,
+      trackProfileLabel: profile?.label ?? this.currentTrackProfileId,
+      fps: this._lastFps,
+      frameTime: this._frameTimeMs,
+      liveCount: this.pool.activeCount,
+      capacity: this.pool.capacity,
+      backend: (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
+        ? 'webgl'
+        : 'canvas2d',
+      language: this.currentLang,
+    };
+  }
+
   private _syncStatus(): void {
+    if (this.headerBar) {
+      this.headerBar.update(this._headerState());
+      return;
+    }
+    if (!this.statusBar) return;
     this.statusBar.setStatus({
       state: this._statusKind(),
       fps: this._lastFps,
@@ -1091,12 +1131,39 @@ export class App {
   }
 
   getCinemaLayoutSnapshot() {
+    if (this.headerBar) {
+      const headerEl = document.getElementById('bakudan-header');
+      const rect = headerEl?.getBoundingClientRect();
+      return {
+        status: {
+          x: 0,
+          y: 0,
+          width: rect?.width ?? this.stageW,
+          height: rect?.height ?? (this.isMobile ? 36 : 44),
+        },
+        command: {
+          x: this.commandDeck.x,
+          y: this.commandDeck.y,
+          width: this.commandDeck.width,
+          height: this.commandDeck.height,
+          controls: this.commandDeck.layoutSnapshot(),
+        },
+        drawer: {
+          x: this.labDrawer.x,
+          y: this.labDrawer.y,
+          width: this.labDrawer.width,
+          height: this.labDrawer.height,
+          open: this.labDrawer.isOpen,
+          childCount: this.labDrawer.children.length,
+        },
+      };
+    }
     return {
       status: {
-        x: this.statusBar.x,
-        y: this.statusBar.y,
-        width: this.statusBar.width,
-        height: this.statusBar.height,
+        x: this.statusBar!.x,
+        y: this.statusBar!.y,
+        width: this.statusBar!.width,
+        height: this.statusBar!.height,
       },
       command: {
         x: this.commandDeck.x,
@@ -1141,7 +1208,37 @@ export class App {
    * later phases replace these overlays with HTML and delete this method.
    */
   private _layoutCinema(): void {
-    if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
+    if (!this.commandDeck || !this.labDrawer) return;
+    // Hybrid header owns its own layout (CSS Grid, 44px/36px). When active,
+    // skip the canvas status bar placement and anchor the deck to the viewport
+    // top + margin instead of the bar's bottom.
+    if (this.headerBar) {
+      const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
+      const compact = this.isMobile;
+      const viewportTop = Math.max(0, this._viewportTop);
+      const viewportBottom = Math.min(
+        this.stageH,
+        Math.max(viewportTop, this._viewportBottom ?? this.stageH),
+      );
+      const viewportHeight = Math.max(0, viewportBottom - viewportTop);
+      const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
+      this.commandDeck.setCompact(compact).setWidth(deckWidth);
+      this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
+      const drawerHeight = Math.round(
+        viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
+      );
+      const drawerY = viewportBottom - drawerHeight;
+      this.labDrawer.setAvailableBounds({
+        width: this.stageW,
+        height: drawerHeight,
+      });
+      this.labDrawer.x = 0;
+      this.labDrawer.y = drawerY;
+      const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
+      this.commandDeck.y = Math.max(viewportTop + margin, commandBottom - this.commandDeck.height);
+      return;
+    }
+    if (!this.statusBar) return;
     const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
     const compact = this.isMobile;
     const viewportTop = Math.max(0, this._viewportTop);
@@ -1803,7 +1900,11 @@ export class App {
     canvas.removeEventListener('pointerup', this._handlePointerEnd);
     canvas.removeEventListener('pointerleave', this._handlePointerEnd);
     this.labDrawer.setOpen(false);
-    if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
+    if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
+    if (this.headerBar) {
+      this.headerBar.destroy();
+      this.headerBar = null;
+    }
     if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
     if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
     if (this.ticker?.parent) this.scene.remove(this.ticker);
