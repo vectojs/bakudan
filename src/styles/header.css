@@ -1,0 +1,187 @@
+/* Bakudan HTML header — CTX-0027 phase 2
+ * Replaces DanmakuStatusBar (canvas) with a flex HTML bar.
+ * Theme tokens come from BAKUDAN_THEME via CSS vars set in HeaderBar.ts;
+ * this file never hardcodes a palette value.
+ */
+
+#bakudan-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Grid-aware: occupies the header row of body.hybrid */
+  grid-area: header;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  gap: 12px;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  color: var(--bakudan-text, #f8fafc);
+  /* Backdrop blur where supported — fallback is solid surface above */
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* Fallback for browsers without backdrop-filter support */
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  #bakudan-header {
+    background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  }
+}
+
+.bakudan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1920px;
+  gap: 16px;
+  /* Inter UI per BAKUDAN_THEME.fontUi (500 13px 'Inter', system-ui, sans-serif) */
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+}
+
+.bakudan-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.bakudan-header__wordmark {
+  font: var(--bakudan-font-display, 600 14px "Outfit", "Inter", sans-serif);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--bakudan-text, #f8fafc);
+  white-space: nowrap;
+}
+
+.bakudan-header__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: transparent;
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bakudan-text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+/* Kind-specific subtle tint — remains neutral per one-accent policy,
+ * only error uses rose so it shouts. Loading uses signal (blue) for information. */
+.bakudan-header__pill--loading {
+  color: var(--bakudan-signal, #60a5fa);
+  border-color: var(--bakudan-signal, #60a5fa);
+}
+
+.bakudan-header__pill--error {
+  color: var(--bakudan-accent, #f43f5e);
+  border-color: var(--bakudan-accent, #f43f5e);
+}
+
+.bakudan-header__pill--stress {
+  color: var(--bakudan-text, #f8fafc);
+  border-color: var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-header__pill--paused {
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-header__pill--video {
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-header__center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.bakudan-header__video,
+.bakudan-header__track {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.bakudan-header__video {
+  color: var(--bakudan-text, #f8fafc);
+  font-weight: 500;
+}
+
+.bakudan-header__track::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-header__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.bakudan-header__metric {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  font-size: 11px;
+  color: var(--bakudan-text, #f8fafc);
+  white-space: nowrap;
+}
+
+.bakudan-header__metric.secondary {
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-header__metric--fps {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+}
+
+/* Responsive: <768px hide secondary metrics (frameTime, backend), keep wordmark + pill + fps */
+@media (max-width: 767px) {
+  #bakudan-header {
+    height: 36px;
+    min-height: 36px;
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .bakudan-header {
+    gap: 8px;
+  }
+
+  .bakudan-header__center {
+    display: none;
+  }
+
+  /* Hide secondary metrics; keep fps and live count */
+  .bakudan-header__metric--frame,
+  .bakudan-header__metric--backend {
+    display: none !important;
+  }
+
+  /* Slightly tighter pill on mobile */
+  .bakudan-header__pill {
+    height: 20px;
+    padding: 0 6px;
+    font-size: 10px;
+  }
+}
