@@ -3,6 +3,12 @@ import { runInPageBench, type BenchProgress } from '../model/InPageBench';
 import { BenchmarkPanel, type BenchmarkPanelState } from './BenchmarkPanel';
 import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
+import { LabDrawerHTML } from './html/lab/LabDrawer';
+import { VideosPanelHTML } from './html/lab/VideosPanel';
+import { ThroughputPanelHTML } from './html/lab/ThroughputPanel';
+import { InteractionsPanelHTML } from './html/lab/InteractionsPanel';
+import { BenchmarkPanelHTML } from './html/lab/BenchmarkPanel';
+import { DevToolsPanelHTML } from './html/lab/DevToolsPanel';
 
 import { Entity, Scene } from '@vectojs/core';
 import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
@@ -156,6 +162,7 @@ export class App {
   private commandDeck: DanmakuCommandDeck | null = null;
   private commandDeckHTML: CommandDeckHTML | null = null;
   private labDrawer!: DanmakuLabDrawer<LabTab>;
+  private labDrawerHTML: LabDrawerHTML | null = null;
   private videosPanel!: VideosPanel<string>;
   private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
   private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
@@ -590,45 +597,314 @@ export class App {
       onCopy: () => void this._copyBenchJson(),
       onDownload: () => this._downloadBenchJson(),
     });
-    this.labDrawer = new DanmakuLabDrawer<LabTab>({
-      theme: BAKUDAN_THEME,
-      labels: labels.kit.lab,
-      panels: [
-        { id: 'videos', label: labels.kit.lab.videos, panel: this.videosPanel },
-        {
-          id: 'throughput',
-          label: labels.kit.lab.throughput,
-          panel: this.throughputPanel,
+
+    const labContainer =
+      typeof document !== 'undefined'
+        ? (document.getElementById('lab-drawer') as HTMLElement | null)
+        : null;
+    if (labContainer) {
+      // HTML lab drawer path (CTX-0029) — vanilla HTML, no kit UI chrome for the drawer itself.
+      this.videosPanelHTML = new VideosPanelHTML({
+        catalog,
+        profiles,
+        state: {
+          source: this.currentVideoSelection,
+          profileId: this.currentTrackProfileId,
+          loadState: this.videoLoadState,
         },
-        {
-          id: 'benchmark',
-          label: labels.panels.benchmark.tab,
-          panel: this.benchPanel,
+        labels: labels.panels.videos,
+        onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+        onUploadFile: (file) => this._onLocalFilePicked(file),
+        onRetry: () => this._retryVideo(),
+      });
+      this.throughputPanelHTML = new ThroughputPanelHTML({
+        state: this._throughputState(),
+        isMobile: this.isMobile,
+        distributions: [
+          { id: 'steady', label: 'Steady' },
+          { id: 'bursty', label: 'Bursty' },
+        ],
+        frameMetrics: [
+          { id: 'fps', label: 'FPS' },
+          { id: 'frame-time', label: 'Frame ms' },
+        ],
+        drawMetrics: [
+          { id: 'gl-runs', label: 'GL runs' },
+          { id: 'gl-glyphs', label: 'GL glyphs' },
+          { id: 'canvas-slots', label: 'Canvas slots' },
+        ],
+        targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+        quickTargets: this.isMobile
+          ? [
+              { value: 1000, label: '1K' },
+              { value: 2500, label: '2.5K' },
+              { value: 5000, label: '5K' },
+            ]
+          : [
+              { value: 5000, label: '5K' },
+              { value: 10_000, label: '10K' },
+              { value: 20_000, label: '20K' },
+            ],
+        rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
+        labels: labels.panels.throughput,
+        onTargetChange: (target) => this.applyStressTarget(target),
+        onRateChange: (rate) => {
+          this._setAppMode('stress');
+          this._profSpawnRate = rate;
+          this.scheduler.setSpawnRate(rate);
+          this._syncThroughputState();
         },
-        {
-          id: 'interactions',
-          label: labels.kit.lab.interactions,
-          panel: this.interactionsPanel,
+        onDistributionChange: (distributionId) => {
+          this.distributionId = distributionId as DistributionId;
+          this._syncThroughputState();
         },
-        {
-          id: 'devtools',
-          label: labels.kit.lab.devtools,
-          panel: this.devtoolsPanel,
+      });
+      this.interactionsPanelHTML = new InteractionsPanelHTML({
+        state: {
+          presetId: this.activePreset,
+          effects: { ...this.effects },
+          renderClasses: this._interactionsState().renderClasses,
         },
-      ],
-      open: this.labOpen,
-      activeTab: this.activeLabTab,
-      onOpenChange: (open) => this.setLabOpen(open),
-      onActiveTabChange: (tabId) => this.setActiveLabTab(tabId),
-    });
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+          id,
+          label: PRESET_TRANSLATIONS[this.currentLang][id],
+        })),
+        effects: EFFECT_IDS.map((id) => ({
+          id,
+          label: t(`fx.${id}`, this.currentLang),
+        })),
+        renderClasses: [
+          { id: 'backend', label: 'Backend' },
+          { id: 'glyphs', label: 'MSDF glyphs' },
+          { id: 'canvas', label: 'Canvas fallbacks' },
+        ],
+        labels: labels.panels.interactions,
+        onPresetChange: (presetId) => {
+          this.activePreset = presetId as PresetId;
+          this._syncInteractionsState();
+        },
+        onEffectChange: (effectId, enabled) => {
+          this.effects[effectId as EffectId] = enabled;
+          this.scheduler.activeEffects = { ...this.effects };
+          this._syncInteractionsState();
+        },
+      });
+      this.devtoolsPanelHTML = new DevToolsPanelHTML({
+        state: {
+          availability: this.devtoolsAvailability,
+          canReload: import.meta.env.DEV,
+        },
+        labels: labels.panels.devtools,
+        onReload: () => this._loadDevtools(),
+      });
+      this.benchPanelHTML = new BenchmarkPanelHTML({
+        state: {
+          frameRate: this._frameRate,
+          backendLabel: `${labels.panels.benchmark.renderer}: ${(this.scene as unknown as { pointRenderer?: unknown }).pointRenderer ? 'WebGL/MSDF' : 'Canvas2D'}`,
+          running: this._benchRunning,
+          statusLine: this._benchRunning ? this._benchStatusLine : labels.panels.benchmark.idle,
+          resultLines: this._benchResultLines,
+          saturationLine: this._saturationLine,
+          copied: this._benchCopied,
+        },
+        labels: labels.panels.benchmark,
+        onFrameRateChange: (hz) => {
+          this._frameRate = hz;
+          this.scene.maxFPS = hz;
+          this._syncBenchState();
+        },
+        onRun: () => void this._runBenchmark(),
+        onCopy: () => void this._copyBenchJson(),
+        onDownload: () => this._downloadBenchJson(),
+      });
+      this.labDrawerHTML = new LabDrawerHTML(labContainer, {
+        open: this.labOpen,
+        activeTab: this.activeLabTab,
+        onOpenChange: (open) => this.setLabOpen(open),
+        onActiveTabChange: (tabId) => this.setActiveLabTab(tabId as LabTab),
+        panels: [
+          {
+            id: 'videos',
+            label: labels.kit.lab.videos,
+            panel: this.videosPanelHTML,
+          },
+          {
+            id: 'throughput',
+            label: labels.kit.lab.throughput,
+            panel: this.throughputPanelHTML,
+          },
+          {
+            id: 'interactions',
+            label: labels.kit.lab.interactions,
+            panel: this.interactionsPanelHTML,
+          },
+          {
+            id: 'benchmark',
+            label: labels.panels.benchmark.tab,
+            panel: this.benchPanelHTML,
+          },
+          {
+            id: 'devtools',
+            label: labels.kit.lab.devtools,
+            panel: this.devtoolsPanelHTML,
+          },
+        ],
+        labels: { title: labels.kit.lab.title, close: labels.kit.lab.close },
+      });
+    } else {
+      this.videosPanel = new VideosPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.videos,
+        state: {
+          source: this.currentVideoSelection,
+          profileId: this.currentTrackProfileId,
+          loadState: this.videoLoadState,
+        },
+        catalog,
+        profiles,
+        onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+        onUploadFile: (file) => this._onLocalFilePicked(file),
+        onRetry: () => this._retryVideo(),
+      });
+      this.throughputPanel = new ThroughputPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.throughput,
+        state: this._throughputState(),
+        distributions: [
+          { id: 'steady', label: 'Steady' },
+          { id: 'bursty', label: 'Bursty' },
+        ],
+        frameMetrics: [
+          { id: 'fps', label: 'FPS' },
+          { id: 'frame-time', label: 'Frame ms' },
+        ],
+        drawMetrics: [
+          { id: 'gl-runs', label: 'GL runs' },
+          { id: 'gl-glyphs', label: 'GL glyphs' },
+          { id: 'canvas-slots', label: 'Canvas slots' },
+        ],
+        targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+        quickTargets: this.isMobile
+          ? [
+              { value: 1000, label: '1K' },
+              { value: 2500, label: '2.5K' },
+              { value: 5000, label: '5K' },
+            ]
+          : [
+              { value: 5000, label: '5K' },
+              { value: 10_000, label: '10K' },
+              { value: 20_000, label: '20K' },
+            ],
+        rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
+        onTargetChange: (target) => {
+          this.applyStressTarget(target);
+        },
+        onRateChange: (rate) => {
+          this._setAppMode('stress');
+          this._profSpawnRate = rate;
+          this.scheduler.setSpawnRate(rate);
+          this._syncThroughputState();
+        },
+        onDistributionChange: (distributionId) => {
+          this.distributionId = distributionId;
+          this._syncThroughputState();
+        },
+      });
+      this.interactionsPanel = new InteractionsPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.interactions,
+        state: this._interactionsState(),
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+          id,
+          label: PRESET_TRANSLATIONS[this.currentLang][id],
+        })),
+        effects: EFFECT_IDS.map((id) => ({
+          id,
+          label: t(`fx.${id}`, this.currentLang),
+        })),
+        renderClasses: [
+          { id: 'backend', label: 'Backend' },
+          { id: 'glyphs', label: 'MSDF glyphs' },
+          { id: 'canvas', label: 'Canvas fallbacks' },
+        ],
+        onPresetChange: (presetId) => {
+          this.activePreset = presetId;
+          this._syncInteractionsState();
+        },
+        onEffectChange: (effectId, enabled) => {
+          this.effects[effectId] = enabled;
+          this.scheduler.activeEffects = { ...this.effects };
+          this._syncInteractionsState();
+        },
+      });
+      this.devtoolsPanel = new DevToolsInfoPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.devtools,
+        state: {
+          availability: this.devtoolsAvailability,
+          canReload: import.meta.env.DEV,
+        },
+        onReload: () => this._loadDevtools(),
+      });
+      this.benchPanel = new BenchmarkPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.benchmark,
+        state: this._benchState(),
+        onFrameRateChange: (hz) => {
+          this._frameRate = hz;
+          this.scene.maxFPS = hz;
+          this._syncBenchState();
+        },
+        onRun: () => void this._runBenchmark(),
+        onCopy: () => void this._copyBenchJson(),
+        onDownload: () => this._downloadBenchJson(),
+      });
+      this.labDrawer = new DanmakuLabDrawer<LabTab>({
+        theme: BAKUDAN_THEME,
+        labels: labels.kit.lab,
+        panels: [
+          {
+            id: 'videos',
+            label: labels.kit.lab.videos,
+            panel: this.videosPanel,
+          },
+          {
+            id: 'throughput',
+            label: labels.kit.lab.throughput,
+            panel: this.throughputPanel,
+          },
+          {
+            id: 'benchmark',
+            label: labels.panels.benchmark.tab,
+            panel: this.benchPanel,
+          },
+          {
+            id: 'interactions',
+            label: labels.kit.lab.interactions,
+            panel: this.interactionsPanel,
+          },
+          {
+            id: 'devtools',
+            label: labels.kit.lab.devtools,
+            panel: this.devtoolsPanel,
+          },
+        ],
+        open: this.labOpen,
+        activeTab: this.activeLabTab,
+        onOpenChange: (open) => this.setLabOpen(open),
+        onActiveTabChange: (tabId) => this.setActiveLabTab(tabId),
+      });
+    }
 
     this._syncStatus();
     this._syncPlaybackState();
     if (this.statusBar) this.scene.showOverlay(this.statusBar);
-    this.scene.showOverlay(this.commandDeck);
-    this.scene.showOverlay(this.statusBar);
     if (this.commandDeck) this.scene.showOverlay(this.commandDeck);
-    this.scene.showOverlay(this.labDrawer);
+    if (this.labDrawer) {
+      this.scene.showOverlay(this.labDrawer);
+    } else if (this.labDrawerHTML) {
+      // HTML drawer is already in DOM; do not add as canvas overlay
+    }
   }
 
   selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
@@ -873,19 +1149,25 @@ export class App {
   }
 
   private _syncVideosState(): void {
-    this.videosPanel.setState({
+    const state = {
       source: this.currentVideoSelection,
       profileId: this.currentTrackProfileId,
       loadState: this.videoLoadState,
-    });
+    };
+    if (this.videosPanelHTML) this.videosPanelHTML.setState(state);
+    else if (this.videosPanel) this.videosPanel.setState(state);
   }
 
   private _syncThroughputState(): void {
-    this.throughputPanel.setState(this._throughputState());
+    const state = this._throughputState();
+    if (this.throughputPanelHTML) this.throughputPanelHTML.setState(state);
+    else if (this.throughputPanel) this.throughputPanel.setState(state);
   }
 
   private _syncInteractionsState(): void {
-    this.interactionsPanel.setState(this._interactionsState());
+    const state = this._interactionsState();
+    if (this.interactionsPanelHTML) this.interactionsPanelHTML.setState(state);
+    else if (this.interactionsPanel) this.interactionsPanel.setState(state);
   }
 
   private _benchState(): BenchmarkPanelState {
@@ -905,7 +1187,9 @@ export class App {
   }
 
   private _syncBenchState(): void {
-    this.benchPanel.setState(this._benchState());
+    const state = this._benchState();
+    if (this.benchPanelHTML) this.benchPanelHTML.setState(state);
+    else if (this.benchPanel) this.benchPanel.setState(state);
   }
 
   /**
@@ -1102,8 +1386,9 @@ export class App {
   setLabOpen(open: boolean): void {
     if (this.labOpen === open) return;
     this.labOpen = open;
-    this.labDrawer.setOpen(open);
+    if (this.labDrawer) this.labDrawer.setOpen(open);
     if (this.commandDeckHTML) this._syncPlaybackState();
+    if (this.labDrawerHTML) this.labDrawerHTML.setOpen(open);
     this._layoutCinema();
     this.scene.markDirty();
   }
@@ -1111,7 +1396,9 @@ export class App {
   setActiveLabTab(tabId: LabTab): void {
     if (this.activeLabTab === tabId) return;
     this.activeLabTab = tabId;
-    this.labDrawer.setActiveTab(tabId);
+    if (this.labDrawerHTML) this.labDrawerHTML.setActiveTab(tabId);
+    else if ((this as unknown as { labDrawer?: { setActiveTab: (t: string) => void } }).labDrawer)
+      this.labDrawer.setActiveTab(tabId);
     this.scene.markDirty();
   }
 
@@ -1121,18 +1408,22 @@ export class App {
       .then(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'available';
-        this.devtoolsPanel.setState({
-          availability: 'available',
+        const state = {
+          availability: 'available' as const,
           canReload: false,
-        });
+        };
+        if (this.devtoolsPanelHTML) this.devtoolsPanelHTML.setState(state);
+        else if (this.devtoolsPanel) this.devtoolsPanel.setState(state);
       })
       .catch(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'unavailable';
-        this.devtoolsPanel.setState({
-          availability: 'unavailable',
+        const state = {
+          availability: 'unavailable' as const,
           canReload: false,
-        });
+        };
+        if (this.devtoolsPanelHTML) this.devtoolsPanelHTML.setState(state);
+        else if (this.devtoolsPanel) this.devtoolsPanel.setState(state);
       });
   }
 
@@ -1160,11 +1451,19 @@ export class App {
    * real laid-out rect rather than a breakpoint guess.
    */
   debugHitsLab(y: number): boolean {
+    if (this.labDrawerHTML) {
+      if (!this.labOpen) return false;
+      const info = this.labDrawerHTML.getLayoutInfo(this.stageH, this.isMobile);
+      return y >= info.y && y <= this.stageH;
+    }
     const previousX = this.pointerX;
     const previousY = this.pointerY;
     this.pointerX = this.stageW / 2;
     this.pointerY = y;
-    const result = this.labOpen && this._hitsOverlay(this.labDrawer);
+    const drawer = (this as unknown as { labDrawer?: unknown }).labDrawer as unknown as
+      | { x: number; y: number; width: number; height: number }
+      | undefined;
+    const result = this.labOpen && drawer ? this._hitsOverlay(drawer as never) : false;
     this.pointerX = previousX;
     this.pointerY = previousY;
     return result;
@@ -1249,17 +1548,34 @@ export class App {
             };
           })();
 
+    const drawer = this.labDrawerHTML
+      ? (() => {
+          const info = this.labDrawerHTML.getLayoutInfo(
+            this.stageH || this.scene.height,
+            this.isMobile,
+          );
+          return {
+            x: 0,
+            y: info.y,
+            width: info.width,
+            height: info.height,
+            open: info.open,
+            childCount: info.open ? 5 : 0,
+          };
+        })()
+      : {
+          x: this.labDrawer.x,
+          y: this.labDrawer.y,
+          width: this.labDrawer.width,
+          height: this.labDrawer.height,
+          open: this.labDrawer.isOpen,
+          childCount: this.labDrawer.children.length,
+        };
+
     return {
       status,
       command,
-      drawer: {
-        x: this.labDrawer.x,
-        y: this.labDrawer.y,
-        width: this.labDrawer.width,
-        height: this.labDrawer.height,
-        open: this.labDrawer.isOpen,
-        childCount: this.labDrawer.children.length,
-      },
+      drawer,
     };
   }
 
@@ -1291,7 +1607,9 @@ export class App {
    * status and drawer are laid out via VMT, the deck lives in #command-deck.
    */
   private _layoutCinema(): void {
-    if (!this.labDrawer) return;
+    if (!this.labDrawer && !this.labDrawerHTML) return;
+    if (!this.statusBar && !this.headerBar) return;
+    if (!this.commandDeck && !this.commandDeckHTML) return;
     const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
     const compact = this.isMobile;
     const viewportTop = Math.max(0, this._viewportTop);
@@ -1316,12 +1634,17 @@ export class App {
       viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
     );
     const drawerY = viewportBottom - drawerHeight;
-    this.labDrawer.setAvailableBounds({
-      width: this.stageW,
-      height: drawerHeight,
-    });
-    this.labDrawer.x = 0;
-    this.labDrawer.y = drawerY;
+    // Drawer: HTML drawer is CSS-positioned, skip canvas layout when active
+    if (this.labDrawerHTML) {
+      // no canvas labDrawer bounds
+    } else if (this.labDrawer) {
+      this.labDrawer.setAvailableBounds({
+        width: this.stageW,
+        height: drawerHeight,
+      });
+      this.labDrawer.x = 0;
+      this.labDrawer.y = drawerY;
+    }
 
     // Command deck: HTML deck is CSS-positioned, skip canvas layout
     if (this.commandDeckHTML) {
@@ -1905,7 +2228,32 @@ export class App {
     const inCommandDeck = this.commandDeck
       ? this.mode === 'video' && this._hitsOverlay(this.commandDeck)
       : false;
-    const inLab = this.labOpen && this._hitsOverlay(this.labDrawer);
+    const inLab = this.labDrawerHTML
+      ? this.labOpen && this.debugHitsLab(this.pointerY)
+      : this.labOpen &&
+          (
+            this as unknown as {
+              labDrawer?: {
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+              };
+            }
+          ).labDrawer
+        ? this._hitsOverlay(
+            (
+              this as unknown as {
+                labDrawer: {
+                  x: number;
+                  y: number;
+                  width: number;
+                  height: number;
+                };
+              }
+            ).labDrawer,
+          )
+        : false;
 
     if (this.labOpen && !inLab && !inCommandDeck) {
       this.setLabOpen(false);
@@ -1967,7 +2315,8 @@ export class App {
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
     canvas.removeEventListener('pointerup', this._handlePointerEnd);
     canvas.removeEventListener('pointerleave', this._handlePointerEnd);
-    this.labDrawer.setOpen(false);
+    if (this.labDrawer) this.labDrawer.setOpen(false);
+    if (this.labDrawerHTML) this.labDrawerHTML.setOpen(false);
     if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
     if (this.headerBar) {
       this.headerBar.destroy();
@@ -1976,7 +2325,12 @@ export class App {
     if (this.commandDeck?.parent) this.scene.hideOverlay(this.commandDeck);
     this.commandDeckHTML?.destroy();
     this.commandDeckHTML = null;
-    if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
+    if (this.labDrawerHTML) {
+      this.labDrawerHTML.destroy();
+      this.labDrawerHTML = null;
+    } else if (this.labDrawer?.parent) {
+      this.scene.hideOverlay(this.labDrawer);
+    }
     if (this.ticker?.parent) this.scene.remove(this.ticker);
     if (this.announcer.parent) this.scene.remove(this.announcer);
     if (this.danmakuLayer.parent) this.scene.remove(this.danmakuLayer);
