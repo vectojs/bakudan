@@ -53,6 +53,8 @@ export interface BenchEnvelopeInput {
     spawnRate: number;
     settleMs: number;
     measureMs: number;
+    /** Scene.maxFPS during the run — the selector's value. */
+    frameRate: number;
   };
   refreshHz: number;
   report: BenchProfileReport;
@@ -188,6 +190,7 @@ export async function runInPageBench(
     calibrating: () => string;
     measuring: () => string;
   },
+  frameRate = 240,
 ): Promise<BenchRunResult> {
   const effectiveTarget = deps.applyStressTarget(target);
   deps.setSpawnRate(BENCH_SPAWN_RATE);
@@ -237,6 +240,7 @@ export async function runInPageBench(
       spawnRate: BENCH_SPAWN_RATE,
       settleMs: SETTLE_MS,
       measureMs: MEASURE_MS,
+      frameRate,
     },
     refreshHz,
     report,

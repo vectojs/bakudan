@@ -151,6 +151,8 @@ export interface BenchmarkLabels {
   tab: string;
   panel: string;
   scroll: string;
+  fpsHeading: string;
+  renderer: string;
   run: string;
   running: string;
   copy: string;
@@ -344,6 +346,8 @@ const ENGLISH: BakudanCinemaLabels = {
     benchmark: {
       tab: 'Benchmark',
       panel: 'Benchmark laboratory',
+      fpsHeading: 'Frame rate',
+      renderer: 'Renderer',
       scroll: 'Benchmark laboratory controls',
       run: 'Run benchmark',
       running: 'Running…',
@@ -463,6 +467,8 @@ const CHINESE: BakudanCinemaLabels = {
     benchmark: {
       tab: '基准测试',
       panel: '基准测试实验室',
+      fpsHeading: '帧率上限',
+      renderer: '渲染后端',
       scroll: '基准测试实验室控制',
       run: '运行基准测试',
       running: '运行中…',
@@ -587,6 +593,8 @@ const TRADITIONAL_CHINESE: BakudanCinemaLabels = {
     benchmark: {
       tab: '基準測試',
       panel: '基準測試實驗室',
+      fpsHeading: '幀率上限',
+      renderer: '渲染後端',
       scroll: '基準測試實驗室控制',
       run: '執行基準測試',
       running: '執行中…',
@@ -707,6 +715,8 @@ const JAPANESE: BakudanCinemaLabels = {
     benchmark: {
       tab: 'ベンチマーク',
       panel: 'ベンチマーク実験室',
+      fpsHeading: 'フレームレート上限',
+      renderer: '描画バックエンド',
       scroll: 'ベンチマーク実験室操作',
       run: 'ベンチマーク実行',
       running: '実行中…',
@@ -827,6 +837,8 @@ const KOREAN: BakudanCinemaLabels = {
     benchmark: {
       tab: '벤치마크',
       panel: '벤치마크 실험실',
+      fpsHeading: '프레임레이트 상한',
+      renderer: '렌더러 백엔드',
       scroll: '벤치마크 실험실 컨트롤',
       run: '벤치마크 실행',
       running: '실행 중…',
