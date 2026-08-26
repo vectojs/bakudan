@@ -1,6 +1,5 @@
 import { ReactionStore } from '../model/ReactionStore';
-import { runInPageBench, type BenchProgress } from '../model/InPageBench';
-import { BenchmarkPanel, type BenchmarkPanelState } from './BenchmarkPanel';
+import { BenchmarkPanel } from './BenchmarkPanel';
 import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
 
@@ -19,7 +18,6 @@ import {
   VideosPanel,
 } from '@vectojs/danmaku-kit/ui';
 import type {
-  CommandDeckGroupId,
   DanmakuStatusKind,
   DevToolsAvailability,
   VideoCatalogRow,
@@ -31,12 +29,7 @@ import type { Language } from '../model/i18n';
 import { generateLargeTimedTrack } from '../model/demoTimedTrack';
 import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
-import {
-  DEFAULT_VIDEO_ID,
-  VIDEO_CATALOG,
-  resolveVideoSelection,
-  videoById,
-} from '../model/VideoCatalog';
+import { DEFAULT_VIDEO_ID, VIDEO_CATALOG, videoById } from '../model/VideoCatalog';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   exitFullscreenIn,
@@ -45,72 +38,45 @@ import {
   requestFullscreenOn,
 } from './Fullscreen';
 
-import {
-  DanmakuLayer,
-  paintOrderKey,
-  PILL_BASELINE_FACTOR,
-  PILL_COPY_OFFSET_PX,
-  PILL_HEIGHT_PX,
-  PILL_PLATE_MARGIN_PX,
-  PILL_PLATE_WIDTH_PX,
-  PILL_WIDTH_PX,
-} from './DanmakuLayer';
+import { DanmakuLayer } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
-import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
-
-const DESKTOP_POOL = 20_000;
-const MOBILE_POOL = 5_000;
-const MOBILE_BREAKPOINT = 768;
-const STATUS_UPDATE_INTERVAL_MS = 500;
-/** Pointer must be this still before the freeze zone arms (moving cursor freezes nothing). */
-const FREEZE_QUIET_MS = 150;
-/** Max hold per danmaku in the freeze zone; then it flows on — no permanent wall. */
-const FREEZE_HOLD_MS = 1800;
-/** Zone padding around the pointer point, so grazing danmaku count as crossing. */
-const FREEZE_PAD_PX = 4;
-const A11Y_UPDATE_INTERVAL_MS = 2000;
-const DESKTOP_DRAWER_RATIO = 0.46;
-const MOBILE_DRAWER_RATIO = 0.69;
-const OVERLAY_MARGIN_DESKTOP = 16;
-const OVERLAY_MARGIN_MOBILE = 8;
-const COMMAND_DECK_MAX_WIDTH = 960;
-// Compose / transport / utility clusters (danmaku-kit#15): the flat uniform-gap
-// row read as one loose ~760px spread at desktop width, where modern players
-// cluster controls into three plates. groupGap only widens boundaries BETWEEN
-// clusters; intra-cluster spacing keeps the ordinary gap. The compact layout
-// ignores grouping by design -- its two width-starved rows collapse clusters
-// rather than risk unusable control widths.
-const COMMAND_DECK_GROUPS: readonly CommandDeckGroupId[][] = [
-  ['input', 'send'],
-  ['play', 'timeline', 'elapsed'],
-  ['rate', 'lab'],
-];
-// Cluster-boundary separation. At the narrowest desktop viewport (768px ->
-// deck 736px) fixed control widths plus two 24px boundaries still leave the
-// flexible input well ~95px; below 768px compact takes over and ignores this.
-const COMMAND_DECK_GROUP_GAP_PX = 24;
-const FRAME_METRICS = ['fps', 'frame-time'] as const;
-const DRAW_METRICS = ['gl-runs', 'gl-glyphs', 'canvas-slots'] as const;
-const DISTRIBUTIONS = ['steady', 'bursty'] as const;
-const EFFECT_IDS = ['glow', 'gradient', 'rainbow', 'outline'] as const;
-const RENDER_CLASSES = ['backend', 'glyphs', 'canvas'] as const;
-
-type AppMode = 'stress' | 'video';
-
-type LabTab = 'videos' | 'throughput' | 'benchmark' | 'interactions' | 'devtools';
-type FrameMetricId = (typeof FRAME_METRICS)[number];
-type DrawMetricId = (typeof DRAW_METRICS)[number];
-type DistributionId = (typeof DISTRIBUTIONS)[number];
-type EffectId = (typeof EFFECT_IDS)[number];
-type RenderClassId = (typeof RENDER_CLASSES)[number];
-
 import { StageBackground } from './StageBackground';
 
-export interface AppOptions {
-  stageBackground?: StageBackground;
-  stageBackgroundOptions?: StageBackgroundOptions;
-}
+import {
+  A11Y_UPDATE_INTERVAL_MS,
+  COMMAND_DECK_GROUP_GAP_PX,
+  COMMAND_DECK_GROUPS,
+  COMMAND_DECK_MAX_WIDTH,
+  DESKTOP_POOL,
+  EFFECT_IDS,
+  MOBILE_BREAKPOINT,
+  MOBILE_POOL,
+  STATUS_UPDATE_INTERVAL_MS,
+  type AppMode,
+  type DistributionId,
+  type DrawMetricId,
+  type EffectId,
+  type FrameMetricId,
+  type LabTab,
+  type RenderClassId,
+} from './app/types';
+import * as AppBenchmark from './app/AppBenchmark';
+import * as AppLayout from './app/AppLayout';
+import * as AppPointer from './app/AppPointer';
+import * as AppSelection from './app/AppSelection';
+import * as AppVideo from './app/AppVideo';
+
+export type {
+  AppMode,
+  LabTab,
+  FrameMetricId,
+  DrawMetricId,
+  DistributionId,
+  EffectId,
+  RenderClassId,
+};
+export type { AppOptions } from './app/types';
 
 class Ticker extends Entity {
   constructor(readonly app: App) {
@@ -310,7 +276,7 @@ export class App {
   private _lastFps = 60;
   private _lastA11y = 0;
 
-  constructor(scene: Scene, options: AppOptions = {}) {
+  constructor(scene: Scene, options: import('./app/types').AppOptions = {}) {
     this.scene = scene;
     this.currentLang = detectBrowserLanguage();
 
@@ -594,21 +560,9 @@ export class App {
     this.scene.showOverlay(this.labDrawer);
   }
 
+  // ---- Video facade (delegates to app/AppVideo) ----
   selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
-    const sameSource = this._sameVideoSelection(selection, this.currentVideoSelection);
-    const profileId = requestedProfileId ?? resolveVideoSelection(selection).defaultTrackProfileId;
-    if (sameSource && profileId === this.currentTrackProfileId) {
-      if (this.mode !== 'video') {
-        this._setAppMode('video');
-        this._togglePlayback();
-      }
-      return;
-    }
-    if (sameSource) {
-      this._onTrackProfileChange(profileId);
-      return;
-    }
-    this._loadVideoSelection(selection, profileId);
+    AppVideo.selectVideo(this, selection, requestedProfileId);
   }
 
   /**
@@ -620,219 +574,56 @@ export class App {
    * path a user's panel interaction does.
    */
   applyStressTarget(target: number): void {
-    this._setAppMode('stress');
-    this._stressTargetBeforeVideo = target;
-    this._profTargetCount = target;
-    this.scheduler.setTargetCount(target);
-    this._syncThroughputState();
+    AppVideo.applyStressTarget(this, target);
   }
 
-  /**
-   * True while the given source URL is a blob: object URL minted by this app
-   * for a local upload. Such sources are session-local by construction.
-   */
   private _isLocalUploadUrl(url: string): boolean {
-    return url.startsWith('blob:') && this._localObjectUrls.includes(url);
+    return AppVideo.isLocalUploadUrl(this, url);
   }
 
-  /**
-   * A local file handed over by the kit panel's upload button becomes a
-   * session-local blob: object URL routed through the custom-source pipeline.
-   */
   private _onLocalFilePicked(file: File): void {
-    const url = URL.createObjectURL(file);
-    this._localObjectUrls.push(url);
-    // Custom selection => unique per upload (UUID inside the URL), so the
-    // same-selection comparison cannot mistake two files for one another.
-    this.selectVideo({ kind: 'custom', url });
+    AppVideo.onLocalFilePicked(this, file);
   }
 
-  /**
-   * Revoke the tracked object URL unless it is the now-active source. Called
-   * only after StageBackground actually swapped; a failed load keeps the old
-   * video alive on its still-needed blob.
-   */
   private _pruneLocalObjectUrl(activeUrl: string | null): void {
-    for (const url of this._localObjectUrls) {
-      if (url !== activeUrl) URL.revokeObjectURL(url);
-    }
-    this._localObjectUrls = activeUrl ? [activeUrl] : [];
+    AppVideo.pruneLocalObjectUrl(this, activeUrl);
   }
 
   private _retryVideo(): void {
-    if (!this.pendingVideoSelection || !this.pendingTrackProfileId) return;
-    this._loadVideoSelection(this.pendingVideoSelection, this.pendingTrackProfileId);
+    AppVideo.retryVideo(this);
   }
 
   private _loadVideoSelection(selection: VideoSelection, requestedProfileId?: string): void {
-    const candidate = resolveVideoSelection(selection);
-    const profileId = requestedProfileId ?? candidate.defaultTrackProfileId;
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-
-    const requestId = ++this._videoRequestId;
-    this.pendingVideoSelection = selection;
-    this.pendingTrackProfileId = profileId;
-    this.videoLoading = true;
-    this.videoLoadState = { status: 'loading', candidateId: candidate.id };
-    this._setAppMode('video');
-    this._clearSelection();
-    this._setAppMode('video');
-    this._syncVideosState();
-    this._syncStatus();
-    this._syncPlaybackState();
-    void this.bg
-      .setVideo(candidate.source.url)
-      .then(() => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        this.videoLoading = false;
-        // The old source is fully disposed at this point (setVideo swapped),
-        // so its object URL can go. On failure we skip pruning: the previous
-        // video keeps playing from its still-live blob.
-        this._pruneLocalObjectUrl(selection.kind === 'custom' ? selection.url : null);
-        this._reactionStore = new ReactionStore(candidate.id, {
-          memoryOnly: this._isLocalUploadUrl(candidate.source.url),
-        });
-        this.currentVideoSelection = selection;
-        this.currentVideoId = candidate.id;
-        this.currentTrackProfileId = profile.id;
-        const duration = this.bg.duration || candidate.durationHint;
-        this._installVideoTrack(duration, candidate.id, profile.id);
-        this.videoLoadState = { status: 'ready', sourceId: candidate.id };
-        this.pendingVideoSelection = null;
-        this.pendingTrackProfileId = null;
-        this.bg.onEnded(() => {
-          this._syncPlaybackState();
-          this._syncStatus();
-        });
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-        void this.bg
-          .play()
-          .then(() => {
-            // Re-sync on success too: the sync above ran before play() resolved,
-            // so the status still says 'paused' for a video now playing.
-            if (requestId !== this._videoRequestId || this.destroyed) return;
-            this._syncPlaybackState();
-            this._syncStatus();
-          })
-          .catch((error: unknown) => {
-            const sourceError = this._asVideoSourceError(error);
-            if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
-            this._syncPlaybackState();
-            this._syncStatus();
-          });
-        this.scene.markDirty();
-      })
-      .catch((error: unknown) => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        const sourceError = this._asVideoSourceError(error);
-        this.videoLoading = false;
-        this.videoLoadState = {
-          status: 'error',
-          candidateId: candidate.id,
-          error: sourceError,
-        };
-        this._announceVideoError(sourceError);
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-      });
+    AppVideo.loadVideoSelection(this, selection, requestedProfileId);
   }
 
   private _onTrackProfileChange(profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile || profileId === this.currentTrackProfileId) return;
-    this.currentTrackProfileId = profileId;
-    if (this.bg.isVideoReady) {
-      this._clearSelection();
-      const currentTime = this.bg.currentTime;
-      this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
-      this.danmakuTrack.seek(currentTime);
-    }
-    this._syncVideosState();
-    this.scene.markDirty();
+    AppVideo.onTrackProfileChange(this, profileId);
   }
 
   private _installVideoTrack(duration: number, videoId: string, profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-    const profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
-    this.danmakuTrack = new ProfiledDanmakuTrack(profiledTrack.entries);
+    AppVideo.installVideoTrack(this, duration, videoId, profileId);
   }
 
   private _sameVideoSelection(a: VideoSelection, b: VideoSelection): boolean {
-    if (a.kind !== b.kind) return false;
-    if (a.kind === 'catalog' && b.kind === 'catalog') return a.id === b.id;
-    return a.kind === 'custom' && b.kind === 'custom' && a.url === b.url;
+    return AppVideo.sameVideoSelection(a, b);
   }
 
   private _asVideoSourceError(error: unknown): VideoSourceError {
-    if (error instanceof VideoSourceError) return error;
-    let code: VideoSourceError['code'] = 'media-error';
-    let message = 'Video source failed';
-    if (error && typeof error === 'object') {
-      if ('code' in error) {
-        const value = error.code;
-        if (
-          value === 'network-error' ||
-          value === 'metadata-error' ||
-          value === 'playback-rejected' ||
-          value === 'media-error'
-        ) {
-          code = value;
-        }
-      }
-      if ('message' in error && typeof error.message === 'string') message = error.message;
-    }
-    return new VideoSourceError(code, message);
+    return AppVideo.asVideoSourceError(error);
   }
 
   private _announceVideoError(error: VideoSourceError): void {
-    const key =
-      error.code === 'network-error'
-        ? 'video.error.network'
-        : error.code === 'metadata-error'
-          ? 'video.error.metadata'
-          : error.code === 'playback-rejected'
-            ? 'video.error.playback'
-            : 'video.error.media';
-    this.announcer.setSummary(t(key, this.currentLang));
+    AppVideo.announceVideoError(this, error);
   }
 
+  // ---- Benchmark facade (delegates to app/AppBenchmark) ----
   private _throughputState() {
-    const draw = this.danmakuLayer.drawStats;
-    return {
-      capacity: this.pool.capacity,
-      target: this.scheduler.target,
-      rate: this.scheduler.rate,
-      distributionId: this.distributionId,
-      framePercentiles: {
-        fps: this._lastFps,
-        'frame-time': this._frameTimeMs,
-      },
-      drawSplit: {
-        'gl-runs': draw.glRuns,
-        'gl-glyphs': draw.glGlyphs,
-        'canvas-slots': draw.c2dBlits + draw.c2dFillText + draw.special,
-      },
-    };
+    return AppBenchmark.throughputState(this);
   }
 
   private _interactionsState() {
-    const draw = this.danmakuLayer.drawStats;
-    return {
-      presetId: this.activePreset,
-      effects: { ...this.effects },
-      renderClasses: {
-        backend: (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
-          ? 'WebGL + Canvas2D'
-          : 'Canvas2D',
-        glyphs: `${draw.glGlyphs}`,
-        canvas: `${draw.c2dBlits + draw.c2dFillText + draw.special}`,
-      },
-    };
+    return AppBenchmark.interactionsState(this);
   }
 
   private _syncVideosState(): void {
@@ -851,145 +642,34 @@ export class App {
     this.interactionsPanel.setState(this._interactionsState());
   }
 
-  private _benchState(): BenchmarkPanelState {
-    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
-    const backend = (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
-      ? 'WebGL/MSDF'
-      : 'Canvas2D';
-    return {
-      frameRate: this._frameRate,
-      backendLabel: `${labels.renderer}: ${backend}`,
-      running: this._benchRunning,
-      statusLine: this._benchRunning ? this._benchStatusLine : labels.idle,
-      resultLines: this._benchResultLines,
-      saturationLine: this._saturationLine,
-      copied: this._benchCopied,
-    };
+  private _benchState() {
+    return AppBenchmark.benchState(this);
   }
 
   private _syncBenchState(): void {
-    this.benchPanel.setState(this._benchState());
+    AppBenchmark.syncBenchState(this);
   }
 
-  /**
-   * Run the in-page benchmark at the current stress target. Hover-freeze and
-   * drag are suspended for the duration: a danmaku paused under a resting
-   * cursor would contaminate exactly the figure the run exists to produce.
-   */
   private async _runBenchmark(): Promise<void> {
-    if (this._benchRunning) return;
-    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
-    this._benchRunning = true;
-    this._benchCopied = false;
-    this._benchResultLines = [];
-    this._benchStatusLine = '';
-    this._syncBenchState();
-    try {
-      const result = await runInPageBench(
-        {
-          now: () => performance.now(),
-          sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-          requestAnimationFrame: (cb) => requestAnimationFrame(cb),
-          applyStressTarget: (target) => {
-            this.applyStressTarget(target);
-            return Math.min(target, this.pool.capacity);
-          },
-          setSpawnRate: (rate) => {
-            this._profSpawnRate = rate;
-            this.scheduler.setSpawnRate(rate);
-          },
-          activeCount: () => this.pool.activeCount,
-          startProfiler: () => this.profiler.start(),
-          stopProfiler: () => this.profiler.stop(),
-        },
-        this._stressTargetBeforeVideo,
-        (progress: BenchProgress) => {
-          this._benchStatusLine = progress.detail;
-          this._syncBenchState();
-        },
-        labels,
-        this._frameRate,
-      );
-      this._benchJson = result.json;
-      this._benchResultLines = labels.resultLines({
-        fpsP50: result.report.fps.p50,
-        frameTimeMsP99: result.report.frameTimeMs.p99,
-        activeAtEnd: result.activeAtEnd,
-        target: result.effectiveTarget,
-        refreshHz: result.refreshHz,
-        filled: result.filled,
-      });
-      this._benchStatusLine = '';
-    } catch (error) {
-      this._benchStatusLine = labels.benchFailed(
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      this._benchRunning = false;
-      this._syncBenchState();
-    }
+    return AppBenchmark.runBenchmark(this);
   }
 
   private async _copyBenchJson(): Promise<void> {
-    if (!this._benchJson) return;
-    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
-    try {
-      await navigator.clipboard.writeText(this._benchJson);
-      this._benchCopied = true;
-    } catch {
-      this._benchCopied = false;
-      this._benchStatusLine = labels.copyFailed;
-    }
-    this._syncBenchState();
+    return AppBenchmark.copyBenchJson(this);
   }
 
   private _downloadBenchJson(): void {
-    if (!this._benchJson) return;
-    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
-    const url = URL.createObjectURL(new Blob([this._benchJson], { type: 'application/json' }));
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = labels.downloadName;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    AppBenchmark.downloadBenchJson(this);
   }
 
-  /**
-   * Plateau detector: in stress mode with the spawn slider maxed, an active
-   * count that stops climbing while below target means band-refused
-   * placement (danmaku-core#8) — say so instead of under-filling silently.
-   */
   private _updateSaturation(): void {
-    const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
-    if (this.mode !== 'stress' || this._benchRunning) {
-      this._saturationLine = null;
-      this._plateauActive = -1;
-      return;
-    }
-    const active = this.pool.activeCount;
-    const target = this._stressTargetBeforeVideo;
-    const maxed = this.scheduler.rate >= (this.isMobile ? 3000 : 6000);
-    if (target > 0 && active < target && maxed) {
-      if (active !== this._plateauActive) {
-        this._plateauActive = active;
-        this._plateauSince = performance.now();
-      } else if (performance.now() - this._plateauSince > 4000) {
-        this._saturationLine = labels.saturation(active, target);
-        return;
-      }
-    } else {
-      this._plateauActive = -1;
-    }
-    this._saturationLine = null;
+    AppBenchmark.updateSaturation(this);
   }
 
   private _statusKind(): DanmakuStatusKind {
     if (this.videoLoading) return 'loading';
     if (this.videoLoadState.status === 'error') return 'error';
     if (this.mode === 'stress') return 'stress';
-    // A mid-stream stall reuses 'loading': it is the same "waiting for data"
-    // state as the initial fetch, and the kit already renders and announces
-    // that kind. Ranked below an explicit pause, which is user intent.
     if (this.bg.paused) return 'paused';
     if (this._videoBuffering) return 'loading';
     return 'video';
@@ -1014,8 +694,6 @@ export class App {
       playing: this.isVideoPlaying,
       rate: this.bg.playbackRate,
       disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
-      // Stress mode has no media, so an empty list clears any stale span left
-      // over from a previous video source.
       buffered: this.mode === 'video' ? this.bg.bufferedRanges : [],
     });
   }
@@ -1074,109 +752,29 @@ export class App {
     };
   }
 
-  /**
-   * Whether a pointer at `y` (scene units, horizontally centred) lands in the
-   * laboratory drawer. Exposed so tests can pin the region against the drawer's
-   * real laid-out rect rather than a breakpoint guess.
-   */
+  // ---- Layout facade (delegates to app/AppLayout) ----
   debugHitsLab(y: number): boolean {
-    const previousX = this.pointerX;
-    const previousY = this.pointerY;
-    this.pointerX = this.stageW / 2;
-    this.pointerY = y;
-    const result = this.labOpen && this._hitsOverlay(this.labDrawer);
-    this.pointerX = previousX;
-    this.pointerY = previousY;
-    return result;
+    return AppLayout.debugHitsLab(this, y);
   }
 
   getCinemaLayoutSnapshot() {
-    return {
-      status: {
-        x: this.statusBar.x,
-        y: this.statusBar.y,
-        width: this.statusBar.width,
-        height: this.statusBar.height,
-      },
-      command: {
-        x: this.commandDeck.x,
-        y: this.commandDeck.y,
-        width: this.commandDeck.width,
-        height: this.commandDeck.height,
-        controls: this.commandDeck.layoutSnapshot(),
-      },
-      drawer: {
-        x: this.labDrawer.x,
-        y: this.labDrawer.y,
-        width: this.labDrawer.width,
-        height: this.labDrawer.height,
-        open: this.labDrawer.isOpen,
-        childCount: this.labDrawer.children.length,
-      },
-    };
+    return AppLayout.getCinemaLayoutSnapshot(this);
   }
 
   onResize(width: number, height: number): void {
-    this.stageW = width;
-    this.stageH = height;
-    this.isMobile = width < MOBILE_BREAKPOINT;
-    this.scheduler.resize(width, height);
-    this.bg.width = width;
-    this.bg.height = height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onResize(this, width, height);
   }
 
   onViewportChange(viewport: VisualViewport): void {
-    this._viewportTop = viewport.offsetTop;
-    this._viewportBottom = viewport.offsetTop + viewport.height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onViewportChange(this, viewport);
   }
 
-  /**
-   * Hybrid shell: stageW/H now come from #stage-container's rect via main.ts
-   * (disableWindowResize island) rather than window.innerWidth/Height directly.
-   * Overlays still use stageW/H, so no other change is needed for phase 1 —
-   * later phases replace these overlays with HTML and delete this method.
-   */
   private _layoutCinema(): void {
-    if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
-    const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
-    const compact = this.isMobile;
-    const viewportTop = Math.max(0, this._viewportTop);
-    const viewportBottom = Math.min(
-      this.stageH,
-      Math.max(viewportTop, this._viewportBottom ?? this.stageH),
-    );
-    const viewportHeight = Math.max(0, viewportBottom - viewportTop);
-    const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
-    this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
-    this.statusBar.x = margin;
-    // Flush against the visible top boundary: viewportTop is already a boundary
-    // coordinate (visualViewport.offsetTop, 0 unless pinch-zoom/keyboard shifts
-    // it), so adding the overlay margin here opened a gap above the chrome that
-    // video and danmaku passed through. Vertical breathing room belongs to the
-    // bar itself, which centres its content in a fixed 34/44px height.
-    this.statusBar.y = viewportTop;
-    this.commandDeck.setCompact(compact).setWidth(deckWidth);
-    this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
+    AppLayout.layoutCinema(this);
+  }
 
-    const drawerHeight = Math.round(
-      viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
-    );
-    const drawerY = viewportBottom - drawerHeight;
-    this.labDrawer.setAvailableBounds({
-      width: this.stageW,
-      height: drawerHeight,
-    });
-    this.labDrawer.x = 0;
-    this.labDrawer.y = drawerY;
-    const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
-    this.commandDeck.y = Math.max(
-      this.statusBar.y + this.statusBar.height + margin,
-      commandBottom - this.commandDeck.height,
-    );
+  private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
+    return AppLayout.hitsOverlay(this, overlay);
   }
 
   start(): void {
@@ -1265,112 +863,7 @@ export class App {
   }
 
   private _updateHover(): void {
-    const slots = this.pool.slots;
-    if (this._benchRunning) {
-      // A danmaku frozen under a resting cursor would contaminate the run.
-      for (let i = slots.length - 1; i >= 0; i--) {
-        const s = slots[i]!;
-        s.hovered = false;
-        if (!s.interactionLocked) s.paused = false;
-      }
-      return;
-    }
-    const selected = this._selectedSlotId !== null ? slots[this._selectedSlotId] : null;
-
-    if (selected?.active && selected.interactionLocked) {
-      // Freeze is a property of selection, never a leftover of hover: a touch
-      // tap or a click after idle has no hover state to inherit it from.
-      selected.paused = true;
-      // Anchor the bar on the pill DanmakuLayer._drawSelectedPill actually
-      // paints. Bilibili-style: the bar floats CENTERED under the danmaku
-      // text (not left-aligned with its first glyph), clamped to the stage so
-      // a short danmaku near an edge cannot push the plate off-canvas. Draw
-      // and hit-test both read these constants, so they cannot drift.
-      const pillTop =
-        Math.round(selected.y) +
-        selected.params.fontSize * PILL_BASELINE_FACTOR -
-        PILL_HEIGHT_PX / 2;
-      const pillLeft = Math.round(
-        Math.min(
-          Math.max(selected.x + selected.width / 2 - PILL_WIDTH_PX / 2, PILL_PLATE_MARGIN_PX),
-          Math.max(PILL_PLATE_MARGIN_PX, this.stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
-        ),
-      );
-      this._selectionHotspots.liked = selected.liked ?? false;
-      this._selectionHotspots.place(
-        pillLeft,
-        pillTop,
-        PILL_HEIGHT_PX,
-        PILL_COPY_OFFSET_PX,
-        PILL_WIDTH_PX,
-      );
-      // Derive hover from the hotspots themselves, so the highlight and the
-      // click target can never disagree.
-      const hoveredAction = this._selectionHotspots.hitAction(this.pointerX, this.pointerY);
-      if (hoveredAction !== this._hoveredAction) {
-        this._hoveredAction = hoveredAction;
-        this.scene.markDirty();
-      }
-    } else {
-      // The selected slot expired or was recycled out from under us — dismiss
-      // instead of leaving an action bar anchored to nothing.
-      if (this._selectedSlotId !== null) this._clearSelection();
-    }
-
-    // Cursor freeze zone — TRANSIENT by design. The original point-in-box
-    // freeze held every danmaku under a resting pointer forever, and the lane
-    // walled up behind it. Now: a MOVING pointer freezes nothing; a resting
-    // pointer freezes danmaku crossing it, but each slot holds at most
-    // FREEZE_HOLD_MS, then releases and flows on (staying released while it
-    // remains inside the zone, so it cannot re-freeze mid-queue). Leaving the
-    // zone re-arms the slot; moving the pointer disarms everything at once.
-    const now = this._hoverNow;
-    if (
-      Math.abs(this.pointerX - this._lastPointerX) > 2 ||
-      Math.abs(this.pointerY - this._lastPointerY) > 2
-    ) {
-      this._lastPointerX = this.pointerX;
-      this._lastPointerY = this.pointerY;
-      this._pointerStillSince = now;
-      this._freezeState.clear();
-    }
-    const zoneArmed = this.pointerActive && now - this._pointerStillSince >= FREEZE_QUIET_MS;
-
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active || s.interactionLocked) {
-        s.hovered = false;
-        this._freezeState.delete(s.id);
-        continue;
-      }
-      const inside =
-        this.pointerX >= s.x - FREEZE_PAD_PX &&
-        this.pointerX <= s.x + s.width + FREEZE_PAD_PX &&
-        this.pointerY >= s.y - FREEZE_PAD_PX &&
-        this.pointerY <= s.y + s.params.fontSize * 1.5 + FREEZE_PAD_PX;
-      if (!inside) {
-        // Out of the zone: forget the hold so a later re-entry freezes again.
-        this._freezeState.delete(s.id);
-        s.hovered = false;
-        s.paused = Boolean(s.dragging);
-        continue;
-      }
-      if (!zoneArmed) {
-        s.hovered = false;
-        s.paused = Boolean(s.dragging);
-        continue;
-      }
-      let hold = this._freezeState.get(s.id);
-      if (!hold) {
-        hold = { since: now, released: false };
-        this._freezeState.set(s.id, hold);
-      } else if (!hold.released && now - hold.since >= FREEZE_HOLD_MS) {
-        hold.released = true;
-      }
-      const frozen = !hold.released;
-      s.hovered = frozen;
-      s.paused = s.dragging || frozen;
-    }
+    AppPointer.updateHover(this);
   }
 
   private _setAppMode(mode: AppMode): void {
@@ -1431,8 +924,6 @@ export class App {
     this._clearSelection();
     this.bg.seek(t);
     this.danmakuTrack.seek(t);
-    // While paused the loop is idle (no pending animation), so the new video
-    // frame won't repaint on its own — force one.
     this._syncPlaybackState();
     this.scene.markDirty();
   }
@@ -1512,8 +1003,6 @@ export class App {
   }
 
   private _handleFullscreenError(): void {
-    // A failed request leaves the previous element in charge; re-sync instead
-    // of trusting that the failure means "still ours".
     this._isFullscreen = fullscreenElementOf(document) !== null;
     this.announcer.setSummary(t('a11y.fullscreenError', this.currentLang));
   }
@@ -1566,8 +1055,6 @@ export class App {
     this.scheduler.userSpawn(entry, true);
 
     if (this.mode === 'video') {
-      // A local upload's id hashes its blob: URL, which is dead after reload;
-      // persisting would write entries no future session can ever list.
       if (!this._isLocalUploadUrl(this.bg.currentSource ?? '')) {
         saveUserDanmaku(this.currentVideoId, entry);
       }
@@ -1577,218 +1064,93 @@ export class App {
     }
   }
 
-  /**
-   * Danmaku under the pointer, chosen by PAINT order. A click must land on the
-   * glyph stack the user sees: plain slots bucketed by ascending font size,
-   * then special-effect slots, exactly what `paintOrderKey` encodes for the
-   * draw pass. The old reverse-slot-index scan picked whichever overlapping
-   * danmaku happened to spawn last, which could sit visually underneath.
-   */
+  // ---- Selection facade (delegates to app/AppSelection) ----
   private _findSlotAtPointer(): PoolSlot | null {
-    let best: PoolSlot | null = null;
-    let bestKey = -1;
-    for (const s of this.pool.slots) {
-      if (!s.active || s.interactionLocked) continue;
-      const localX = this.pointerX - s.x;
-      if (
-        localX < 0 ||
-        localX > s.width ||
-        this.pointerY < s.y ||
-        this.pointerY > s.y + s.params.fontSize * 1.5
-      ) {
-        continue;
-      }
-      const key = paintOrderKey(s);
-      if (key > bestKey) {
-        bestKey = key;
-        best = s;
-      }
-    }
-    return best;
+    return AppSelection.findSlotAtPointer(this);
   }
 
-  /** Stable reaction key for a slot. Engine params carry no `contentId`, so identical text shares its like count deliberately. */
   private _reactionId(s: PoolSlot): string {
-    return s.params.contentId || `t:${s.params.text}`;
+    return AppSelection.reactionId(s);
   }
 
   private _handleTapStage(): void {
-    const slot = this._findSlotAtPointer();
-    if (!slot) {
-      this._clearSelection();
-      this._handleTapVideo();
-      return;
-    }
-
-    if (this._selectedSlotId !== null && this._selectedSlotId !== slot.id) {
-      this._clearSelection();
-    }
-
-    if (!slot.interactionLocked) {
-      slot.interactionLocked = true;
-      slot.paused = true;
-      this._selectedSlotId = slot.id;
-      const rx = this._reactionStore!.get(this._reactionId(slot));
-      slot.liked = rx.liked;
-      this._selectedLikeCount = rx.count;
-      this.scene.markDirty();
-      return;
-    }
-
-    // If they clicked the already-selected slot body (not its actions), release it.
-    this._clearSelection();
+    AppSelection.handleTapStage(this);
   }
 
   private _clearSelection(): void {
-    if (this._selectedSlotId !== null) {
-      const s = this.pool.slots[this._selectedSlotId];
-      if (s) {
-        s.interactionLocked = false;
-        s.hovered = false;
-        s.paused = false;
-      }
-      this._selectedSlotId = null;
-      this._hoveredAction = null;
-      this._selectedLikeCount = 0;
-      // Park container AND zero children together; parking the container alone
-      // left previously placed child rects composing back on-screen, where core
-      // happily projected clickable buttons over unrelated content.
-      this._selectionHotspots.hide();
-      this.scene.markDirty();
-    }
+    AppSelection.clearSelection(this);
   }
 
   private _handleLikeToggle(): void {
-    if (this._selectedSlotId === null || !this._reactionStore) return;
-    const s = this.pool.slots[this._selectedSlotId];
-    if (!s || !s.active) return;
-    const rx = this._reactionStore.toggle(this._reactionId(s));
-    s.liked = rx.liked;
-    this._selectedLikeCount = rx.count;
-    this.scene.markDirty();
+    AppSelection.handleLikeToggle(this);
   }
 
   private _handleCopy(): void {
-    if (this._selectedSlotId === null) return;
-    const s = this.pool.slots[this._selectedSlotId];
-    if (!s || !s.active) return;
-    const text = s.params.text;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      void navigator.clipboard.writeText(text).then(
-        () => console.log('Copied'), // Toast wiring elided for focus
-        () => console.warn('Clipboard unavailable'),
-      );
-    }
+    AppSelection.handleCopy(this);
   }
 
   private _handleTapVideo(): void {
-    return;
+    AppSelection.handleTapVideo(this);
   }
 
+  // ---- Pointer facade (delegates to app/AppPointer) ----
   private readonly _handlePointerMove = (event: PointerEvent): void => {
-    // Client px -> scene/world px. World units are LOGICAL CSS px -- the
-    // renderer owns the backing-store scale internally -- so the correction
-    // factor is the logical-to-CSS ratio, never canvas.width/rect.width:
-    // since #29 raised the backing store to min(dpr, 2), that ratio equals
-    // the device DPR and every hit-test reacted dpr-fold down-right of the
-    // cursor (vectojs/bakudan#40).
-    const rect = this.scene.canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-    this.pointerActive = true;
-    this._interactiveMode = true;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-    this._interactiveMode = true;
-    if (this._dragSlot) {
-      this._dragSlot.x = this.pointerX - this._dragOffX;
-      this._dragSlot.y = this.pointerY - this._dragOffY;
-      this.scene.markDirty();
-    }
+    AppPointer.handlePointerMove(this, event);
   };
 
-  /**
-   * Whether the current pointer position falls inside an overlay's real laid-out
-   * rect. Reads the entity's own geometry so it can never drift from layout.
-   */
-  private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
-    return (
-      this.pointerX >= overlay.x &&
-      this.pointerX <= overlay.x + overlay.width &&
-      this.pointerY >= overlay.y &&
-      this.pointerY <= overlay.y + overlay.height
-    );
-  }
-
-  private _handlePointerDown = (event: PointerEvent) => {
-    const canvas = this.scene.canvas;
-    if (!canvas) return;
-    // Same world-unit mapping as the move handler: logical CSS px, never
-    // backing-store px (vectojs/bakudan#40).
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-
-    // Ask the overlays where they actually are rather than re-deriving their
-    // geometry from breakpoints. Both used to be guessed from stageH, and the
-    // guesses drifted badly from _layoutOverlays: at 1600px tall the lab guess
-    // (stageH - 500) sat 236px below the drawer's real top, so pointerdowns in
-    // that band were treated as stage taps and stolen from the drawer; at 800px
-    // tall it sat 132px above it, swallowing real stage taps instead.
-    const inCommandDeck = this.mode === 'video' && this._hitsOverlay(this.commandDeck);
-    const inLab = this.labOpen && this._hitsOverlay(this.labDrawer);
-
-    if (this.labOpen && !inLab && !inCommandDeck) {
-      this.setLabOpen(false);
-      return;
-    }
-
-    // No `_interactiveMode` gate here: a pointer resting >1.5s used to swallow
-    // the tap entirely, and hover-and-inspect invites exactly that pause. The
-    // coordinates were refreshed from this very event above, so the tap always
-    // acts on what is under the cursor right now.
-    if (inLab || inCommandDeck) return;
-
-    this._handleTapStage();
-
-    // Synthetic pointers (automation, some pen/touch drivers) have no active
-    // pointer id and this throws NotFoundError, killing everything after it.
-    try {
-      this.scene.canvas.setPointerCapture(event.pointerId);
-    } catch {
-      /* no active pointer with that id — capture is best-effort */
-    }
+  private _handlePointerDown = (event: PointerEvent): void => {
+    AppPointer.handlePointerDown(this, event);
   };
 
   private readonly _handlePointerEnd = (): void => {
-    this.pointerActive = false;
-    if (!this._dragSlot) return;
-    this._dragSlot.dragging = false;
-    this._dragSlot.paused = this._dragSlot.hovered;
-    this._dragSlot = null;
+    AppPointer.handlePointerEnd(this);
   };
 
   private readonly _handlePointerLeave = (): void => {
-    this.pointerActive = false;
-    this._interactiveMode = false;
-    for (const s of this.pool.slots) s.hovered = false;
-    this.scene.markDirty();
+    AppPointer.handlePointerLeave(this);
   };
 
   private _setupPointerTracking(): void {
-    const canvas = this.scene.canvas;
-    canvas.addEventListener('pointermove', this._handlePointerMove);
-    canvas.addEventListener('pointerdown', this._handlePointerDown);
-    canvas.addEventListener('pointerup', this._handlePointerEnd);
-    canvas.addEventListener('pointercancel', this._handlePointerEnd);
-    canvas.addEventListener('pointerleave', this._handlePointerLeave);
+    AppPointer.setupPointerTracking(this);
+  }
+
+  // Keep facade fields/methods referenced for noUnusedLocals (delegated via host any)
+  private _keepUsed(): void {
+    void this._reactionStore;
+    void this._benchRunning;
+    void this._benchJson;
+    void this._benchCopied;
+    void this._benchStatusLine;
+    void this._benchResultLines;
+    void this._plateauActive;
+    void this._plateauSince;
+    void this._saturationLine;
+    void this._frameRate;
+    void this.distributionId;
+    void this.pendingVideoSelection;
+    void this.pendingTrackProfileId;
+    void this._localObjectUrls;
+    void this._viewportTop;
+    void this._viewportBottom;
+    void this._frameTimeMs;
+    void this._lastPointerX;
+    void this._lastPointerY;
+    void this._pointerStillSince;
+    void this._freezeState;
+    void this._dragOffX;
+    void this._dragOffY;
+    void this._onTrackProfileChange;
+    void this._sameVideoSelection;
+    void this._syncVideosState;
+    void this._hitsOverlay;
+    void this._findSlotAtPointer;
+    void this._reactionId;
+    void this._handleTapStage;
+    void this._handleTapVideo;
   }
 
   destroy(): void {
+    this._keepUsed();
     if (this.destroyed) return;
     this.destroyed = true;
     this._videoRequestId++;
@@ -1801,7 +1163,7 @@ export class App {
     canvas.removeEventListener('pointermove', this._handlePointerMove);
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
     canvas.removeEventListener('pointerup', this._handlePointerEnd);
-    canvas.removeEventListener('pointerleave', this._handlePointerEnd);
+    canvas.removeEventListener('pointerleave', this._handlePointerLeave);
     this.labDrawer.setOpen(false);
     if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
     if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
