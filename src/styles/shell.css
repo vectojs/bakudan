@@ -1,10 +1,4 @@
-/* Hybrid shell — CSS Grid stage island (CTX-0026) */
-:root {
-  --shell-header-height: 0px; /* header is empty in phase 1; grows in CTX-0027 */
-  --shell-footer-height: 0px; /* command deck is empty in phase 1 */
-  --shell-drawer-height: 0px;
-}
-
+/* Hybrid shell — CSS Grid stage island (final, CTX-0030) */
 html,
 body {
   width: 100%;
@@ -23,10 +17,9 @@ body.hybrid {
   background-color: var(--bg-color, #07090d);
 }
 
-/* Phase 1 placeholders — empty but grid-aware; future HTML chrome mounts here */
 #bakudan-header {
   grid-area: header;
-  min-height: var(--shell-header-height);
+  /* Height owned by header.css: 44px desktop / 36px mobile */
 }
 
 #stage-container {
@@ -35,17 +28,15 @@ body.hybrid {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
-  /* Stage owns the video + canvas island */
 }
 
 #command-deck {
   grid-area: footer;
-  min-height: var(--shell-footer-height);
+  /* Height owned by command.css: flex row, padding 8px, max-width 960 centered */
 }
 
 #lab-drawer {
-  /* Phase 1: drawer is still a canvas overlay; HTML mount is hidden until CTX-0029 */
-  display: none;
+  /* Fixed bottom sheet — styles owned by lab.css (46vh desktop / 69vh mobile) */
 }
 
 /* Inside the island, canvas fills the container (disableWindowResize mode) */
