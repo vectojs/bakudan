@@ -58,6 +58,7 @@ import {
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
+import { CommandDeckHTML, type CommandDeckState } from './html/CommandDeck';
 
 const DESKTOP_POOL = 20_000;
 const MOBILE_POOL = 5_000;
@@ -150,7 +151,8 @@ export class App {
   private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
   private statusBar!: DanmakuStatusBar;
-  private commandDeck!: DanmakuCommandDeck;
+  private commandDeck: DanmakuCommandDeck | null = null;
+  private commandDeckHTML: CommandDeckHTML | null = null;
   private labDrawer!: DanmakuLabDrawer<LabTab>;
   private videosPanel!: VideosPanel<string>;
   private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
@@ -421,25 +423,42 @@ export class App {
       theme: BAKUDAN_THEME,
       compact: this.isMobile,
     });
-    this.commandDeck = new DanmakuCommandDeck({
-      width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
-      labels: labels.kit,
-      theme: BAKUDAN_THEME,
-      compact: this.isMobile,
-      labOpen: this.labOpen,
-      groups: COMMAND_DECK_GROUPS,
-      groupGap: COMMAND_DECK_GROUP_GAP_PX,
-      callbacks: {
-        onSend: (text) => this._onUserSend(text),
-        onPlayPause: () => this._togglePlayback(),
+    const commandContainer =
+      typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
+    if (commandContainer) {
+      this.commandDeckHTML = new CommandDeckHTML(commandContainer, {
+        onTogglePlayback: () => this._togglePlayback(),
         onSeek: (time) => this._onSeek(time),
+        onSeekDelta: (delta) => this.seekBy(delta),
         onRateChange: (rate) => {
           this.bg.playbackRate = rate;
           this._syncPlaybackState();
         },
-        onToggleLab: () => this.setLabOpen(!this.labOpen),
-      },
-    });
+        onSend: (text) => this._onUserSend(text),
+        onLabToggle: () => this.setLabOpen(!this.labOpen),
+        getState: () => this._commandDeckState(),
+      });
+    } else {
+      this.commandDeck = new DanmakuCommandDeck({
+        width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
+        labels: labels.kit,
+        theme: BAKUDAN_THEME,
+        compact: this.isMobile,
+        labOpen: this.labOpen,
+        groups: COMMAND_DECK_GROUPS,
+        groupGap: COMMAND_DECK_GROUP_GAP_PX,
+        callbacks: {
+          onSend: (text) => this._onUserSend(text),
+          onPlayPause: () => this._togglePlayback(),
+          onSeek: (time) => this._onSeek(time),
+          onRateChange: (rate) => {
+            this.bg.playbackRate = rate;
+            this._syncPlaybackState();
+          },
+          onToggleLab: () => this.setLabOpen(!this.labOpen),
+        },
+      });
+    }
     this.videosPanel = new VideosPanel({
       theme: BAKUDAN_THEME,
       labels: labels.panels.videos,
@@ -590,7 +609,7 @@ export class App {
     this._syncStatus();
     this._syncPlaybackState();
     this.scene.showOverlay(this.statusBar);
-    this.scene.showOverlay(this.commandDeck);
+    if (this.commandDeck) this.scene.showOverlay(this.commandDeck);
     this.scene.showOverlay(this.labDrawer);
   }
 
@@ -1007,7 +1026,25 @@ export class App {
     });
   }
 
+  private _commandDeckState(): CommandDeckState {
+    return {
+      isPlaying: this.isVideoPlaying,
+      currentTime: this.bg.currentTime,
+      duration: this.bg.duration,
+      bufferedRanges: this.mode === 'video' ? this.bg.bufferedRanges : [],
+      rate: this.bg.playbackRate,
+      pendingSendText: '',
+      labOpen: this.labOpen,
+      disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
+    };
+  }
+
   private _syncPlaybackState(): void {
+    if (this.commandDeckHTML) {
+      this.commandDeckHTML.update(this._commandDeckState());
+      return;
+    }
+    if (!this.commandDeck) return;
     this.commandDeck.setPlaybackState({
       currentTime: this.bg.currentTime,
       duration: this.bg.duration,
@@ -1024,6 +1061,7 @@ export class App {
     if (this.labOpen === open) return;
     this.labOpen = open;
     this.labDrawer.setOpen(open);
+    if (this.commandDeckHTML) this._syncPlaybackState();
     this._layoutCinema();
     this.scene.markDirty();
   }
@@ -1091,6 +1129,39 @@ export class App {
   }
 
   getCinemaLayoutSnapshot() {
+    const command = this.commandDeck
+      ? {
+          x: this.commandDeck.x,
+          y: this.commandDeck.y,
+          width: this.commandDeck.width,
+          height: this.commandDeck.height,
+          controls: this.commandDeck.layoutSnapshot(),
+        }
+      : (() => {
+          const deckEl =
+            typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
+          const rect = deckEl?.getBoundingClientRect();
+          const width =
+            rect?.width ?? Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, this.stageW - 32));
+          const height = rect?.height ?? 50;
+          const x = rect?.left ?? Math.max(0, (this.stageW - width) / 2);
+          const y = rect?.top ?? 0;
+          const dummy = { x, y, width: 0, height: 0 };
+          return {
+            x,
+            y,
+            width,
+            height,
+            controls: {
+              input: dummy,
+              send: dummy,
+              play: dummy,
+              timeline: dummy,
+              rate: dummy,
+              lab: dummy,
+            },
+          };
+        })();
     return {
       status: {
         x: this.statusBar.x,
@@ -1098,13 +1169,7 @@ export class App {
         width: this.statusBar.width,
         height: this.statusBar.height,
       },
-      command: {
-        x: this.commandDeck.x,
-        y: this.commandDeck.y,
-        width: this.commandDeck.width,
-        height: this.commandDeck.height,
-        controls: this.commandDeck.layoutSnapshot(),
-      },
+      command,
       drawer: {
         x: this.labDrawer.x,
         y: this.labDrawer.y,
@@ -1139,9 +1204,12 @@ export class App {
    * (disableWindowResize island) rather than window.innerWidth/Height directly.
    * Overlays still use stageW/H, so no other change is needed for phase 1 —
    * later phases replace these overlays with HTML and delete this method.
+   *
+   * In HTML command-deck mode (CTX-0028) the footer is CSS-positioned; only
+   * status and drawer are laid out via VMT, the deck lives in #command-deck.
    */
   private _layoutCinema(): void {
-    if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
+    if (!this.statusBar || !this.labDrawer) return;
     const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
     const compact = this.isMobile;
     const viewportTop = Math.max(0, this._viewportTop);
@@ -1150,7 +1218,6 @@ export class App {
       Math.max(viewportTop, this._viewportBottom ?? this.stageH),
     );
     const viewportHeight = Math.max(0, viewportBottom - viewportTop);
-    const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
     this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
     this.statusBar.x = margin;
     // Flush against the visible top boundary: viewportTop is already a boundary
@@ -1159,8 +1226,6 @@ export class App {
     // video and danmaku passed through. Vertical breathing room belongs to the
     // bar itself, which centres its content in a fixed 34/44px height.
     this.statusBar.y = viewportTop;
-    this.commandDeck.setCompact(compact).setWidth(deckWidth);
-    this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
 
     const drawerHeight = Math.round(
       viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
@@ -1172,11 +1237,18 @@ export class App {
     });
     this.labDrawer.x = 0;
     this.labDrawer.y = drawerY;
-    const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
-    this.commandDeck.y = Math.max(
-      this.statusBar.y + this.statusBar.height + margin,
-      commandBottom - this.commandDeck.height,
-    );
+
+    // Canvas command deck (pre-CTX-0028 fallback); HTML deck is CSS-positioned.
+    if (this.commandDeck) {
+      const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
+      this.commandDeck.setCompact(compact).setWidth(deckWidth);
+      this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
+      const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
+      this.commandDeck.y = Math.max(
+        this.statusBar.y + this.statusBar.height + margin,
+        commandBottom - this.commandDeck.height,
+      );
+    }
   }
 
   start(): void {
@@ -1739,7 +1811,9 @@ export class App {
     // (stageH - 500) sat 236px below the drawer's real top, so pointerdowns in
     // that band were treated as stage taps and stolen from the drawer; at 800px
     // tall it sat 132px above it, swallowing real stage taps instead.
-    const inCommandDeck = this.mode === 'video' && this._hitsOverlay(this.commandDeck);
+    const inCommandDeck = this.commandDeck
+      ? this.mode === 'video' && this._hitsOverlay(this.commandDeck)
+      : false;
     const inLab = this.labOpen && this._hitsOverlay(this.labDrawer);
 
     if (this.labOpen && !inLab && !inCommandDeck) {
@@ -1804,7 +1878,9 @@ export class App {
     canvas.removeEventListener('pointerleave', this._handlePointerEnd);
     this.labDrawer.setOpen(false);
     if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
-    if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
+    if (this.commandDeck?.parent) this.scene.hideOverlay(this.commandDeck);
+    this.commandDeckHTML?.destroy();
+    this.commandDeckHTML = null;
     if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
     if (this.ticker?.parent) this.scene.remove(this.ticker);
     if (this.announcer.parent) this.scene.remove(this.announcer);
