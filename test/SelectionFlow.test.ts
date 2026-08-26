@@ -7,6 +7,7 @@ import {
   PAUSE_CHIP_HEIGHT_PX,
   PAUSE_CHIP_PADDING_PX,
   PILL_BASELINE_FACTOR,
+  PILL_COPY_OFFSET_PX,
   PILL_HEIGHT_PX,
   PILL_PLATE_WIDTH_PX,
   PILL_WIDTH_PX,
@@ -102,6 +103,10 @@ function primeSlot(
 function internals(app: App): {
   pointerX: number;
   pointerY: number;
+  pointerActive: boolean;
+  _hoverNow: number;
+  _lastPointerX: number;
+  _lastPointerY: number;
   _interactiveMode: boolean;
   _selectedSlotId: number | null;
   _selectedLikeCount: number;
@@ -112,10 +117,20 @@ function internals(app: App): {
   return app as unknown as ReturnType<typeof internals>;
 }
 
-function pointAt(app: App, x: number, y: number): void {
+function pointAt(app: App, x: number, y: number, stillMs = 200): void {
   const a = internals(app);
   a.pointerX = x;
   a.pointerY = y;
+  a.pointerActive = true;
+  if (stillMs > 0) {
+    // Resting posture: the pointer has been sitting here a while, so the
+    // stillness anchor is already synced and the next upd() sees an armed
+    // zone. Pass stillMs = 0 to simulate a MOVE: the anchor stays stale and
+    // the next upd() disarms everything instead.
+    a._lastPointerX = x;
+    a._lastPointerY = y;
+    a._hoverNow += stillMs;
+  }
 }
 
 /** Drive the real pointerdown -> tap-stage path at a slot's glyph position. */
@@ -307,6 +322,57 @@ describe('hover maintenance runs even while the bar is hovered', () => {
 
     // The frozen selected danmaku itself keeps its hover flags clear.
     expect(selected.hovered).toBe(false);
+  });
+
+  test('the freeze hold releases after ~1.8s even under a resting cursor', () => {
+    const { app } = fixture();
+    const s = primeSlot(app, { x: 200, y: 200, width: 150 });
+    const a = internals(app);
+    const upd = (app as unknown as { _updateHover(): void })._updateHover.bind(app);
+    pointAt(app, s.x + 50, s.y + 10);
+    upd();
+    expect(s.hovered).toBe(true);
+
+    // Hold elapsed: the slot flows on even though the pointer never moved,
+    // and it must NOT re-freeze while it is still inside the zone — that is
+    // what turned the old freeze into a permanent lane-blocking wall.
+    a._hoverNow += 2000; // > FREEZE_HOLD_MS (1800)
+    upd();
+    expect(s.hovered).toBe(false);
+    expect(s.paused).toBe(false);
+    a._hoverNow += 500;
+    upd();
+    expect(s.hovered).toBe(false);
+  });
+
+  test('a moving pointer freezes nothing', () => {
+    const { app } = fixture();
+    const s = primeSlot(app, { x: 200, y: 200, width: 150 });
+    const upd = (app as unknown as { _updateHover(): void })._updateHover.bind(app);
+    // stillMs = 0 leaves the stillness anchor stale: the next upd sees motion.
+    pointAt(app, s.x + 50, s.y + 10, 0);
+    upd();
+    expect(s.hovered).toBe(false);
+    expect(s.paused).toBe(false);
+  });
+
+  test('leaving the zone re-arms the slot for a later re-entry', () => {
+    const { app } = fixture();
+    const s = primeSlot(app, { x: 200, y: 200, width: 150 });
+    const a = internals(app);
+    const upd = (app as unknown as { _updateHover(): void })._updateHover.bind(app);
+    pointAt(app, s.x + 50, s.y + 10);
+    upd();
+    a._hoverNow += 2000; // hold expires
+    upd();
+    expect(s.hovered).toBe(false);
+
+    // Pointer leaves and comes back: a fresh hold begins.
+    pointAt(app, s.x + 900, s.y + 10);
+    upd();
+    pointAt(app, s.x + 50, s.y + 10);
+    upd();
+    expect(s.hovered).toBe(true);
   });
 
   test('hover-pause clears when the pointer moves off the danmaku', () => {
@@ -662,11 +728,13 @@ describe('pill geometry constants match the placed hotspots', () => {
     upd();
     expect(hotspots(app).x).toBe(0);
     expect(hotspots(app).y).toBe(0);
-    expect(like.x).toBe(Math.round(s.x));
-    expect(copy.x).toBe(Math.round(s.x) + 60);
-    expect(like.width).toBe(60);
-    // 80 - 60 clamps up to the WCAG minimum touch target.
-    expect(copy.width).toBe(Math.max(24, PILL_WIDTH_PX - 60));
+    // Bilibili-style placement: the bar centers under the danmaku text.
+    const pillLeft = Math.round(s.x + s.width / 2 - PILL_WIDTH_PX / 2);
+    expect(like.x).toBe(pillLeft);
+    expect(copy.x).toBe(pillLeft + PILL_COPY_OFFSET_PX);
+    expect(like.width).toBe(PILL_COPY_OFFSET_PX);
+    // 118 - 62 clamps up to the WCAG minimum touch target.
+    expect(copy.width).toBe(Math.max(24, PILL_WIDTH_PX - PILL_COPY_OFFSET_PX));
     expect(like.height).toBe(PILL_HEIGHT_PX);
   });
 });
@@ -712,6 +780,11 @@ describe('pointer coords stay world-true at any device pixel ratio', () => {
     const s = primeSlot(app, { x: 350, y: 288, width: 100, fontSize: 24 });
     const a = internals(app);
     a._handlePointerMove({ clientX: s.x + s.width / 2, clientY: s.y + 12 });
+    // Resting posture: sync the stillness anchor and let the clock pass
+    // FREEZE_QUIET_MS, exactly what real frames do after a pointer stops.
+    a._lastPointerX = a.pointerX;
+    a._lastPointerY = a.pointerY;
+    a._hoverNow += 200;
     (app as unknown as { _updateHover(): void })._updateHover();
     expect(s.hovered).toBe(true);
   });

@@ -51,6 +51,8 @@ import {
   PILL_BASELINE_FACTOR,
   PILL_COPY_OFFSET_PX,
   PILL_HEIGHT_PX,
+  PILL_PLATE_MARGIN_PX,
+  PILL_PLATE_WIDTH_PX,
   PILL_WIDTH_PX,
 } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
@@ -61,6 +63,12 @@ const DESKTOP_POOL = 20_000;
 const MOBILE_POOL = 5_000;
 const MOBILE_BREAKPOINT = 768;
 const STATUS_UPDATE_INTERVAL_MS = 500;
+/** Pointer must be this still before the freeze zone arms (moving cursor freezes nothing). */
+const FREEZE_QUIET_MS = 150;
+/** Max hold per danmaku in the freeze zone; then it flows on — no permanent wall. */
+const FREEZE_HOLD_MS = 1800;
+/** Zone padding around the pointer point, so grazing danmaku count as crossing. */
+const FREEZE_PAD_PX = 4;
 const A11Y_UPDATE_INTERVAL_MS = 2000;
 const DESKTOP_DRAWER_RATIO = 0.46;
 const MOBILE_DRAWER_RATIO = 0.69;
@@ -278,6 +286,16 @@ export class App {
   };
   private pointerX = 0;
   private pointerY = 0;
+  /** Freeze-zone bookkeeping: pointer stillness + per-slot hold timers. */
+  private _lastPointerX = 0;
+  private _lastPointerY = 0;
+  private _pointerStillSince = 0;
+  /**
+   * Frame-accumulated clock for the freeze zone. performance.now() would work
+   * in production but is uncontrollable in bun tests; dt sums to real time.
+   */
+  private _hoverNow = 0;
+  private readonly _freezeState = new Map<number, { since: number; released: boolean }>();
   private pointerActive = false;
 
   private _interactiveMode = false;
@@ -1166,6 +1184,7 @@ export class App {
   frame(dt: number): void {
     this.profiler.beginPhase('app.frame(js)');
     if (this.profiler.isRunning) this.profiler.record(dt);
+    this._hoverNow += dt;
     this._frameAccumMs += dt;
     this._frameCount++;
     if (this._frameAccumMs >= STATUS_UPDATE_INTERVAL_MS) {
@@ -1242,16 +1261,23 @@ export class App {
       // tap or a click after idle has no hover state to inherit it from.
       selected.paused = true;
       // Anchor the bar on the pill DanmakuLayer._drawSelectedPill actually
-      // paints: baseline `fontSize * PILL_BASELINE_FACTOR` below s.y, glyphs at
-      // rx / rx+20 / rx+60, total width PILL_WIDTH_PX. Both sides read these
-      // constants, so draw and hit-test cannot drift again.
+      // paints. Bilibili-style: the bar floats CENTERED under the danmaku
+      // text (not left-aligned with its first glyph), clamped to the stage so
+      // a short danmaku near an edge cannot push the plate off-canvas. Draw
+      // and hit-test both read these constants, so they cannot drift.
       const pillTop =
         Math.round(selected.y) +
         selected.params.fontSize * PILL_BASELINE_FACTOR -
         PILL_HEIGHT_PX / 2;
+      const pillLeft = Math.round(
+        Math.min(
+          Math.max(selected.x + selected.width / 2 - PILL_WIDTH_PX / 2, PILL_PLATE_MARGIN_PX),
+          Math.max(PILL_PLATE_MARGIN_PX, this.stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
+        ),
+      );
       this._selectionHotspots.liked = selected.liked ?? false;
       this._selectionHotspots.place(
-        Math.round(selected.x),
+        pillLeft,
         pillTop,
         PILL_HEIGHT_PX,
         PILL_COPY_OFFSET_PX,
@@ -1270,21 +1296,59 @@ export class App {
       if (this._selectedSlotId !== null) this._clearSelection();
     }
 
-    // Maintain per-slot hover unconditionally. It used to be skipped whenever
-    // the pointer rested on the action bar, which left any danmaku hovered just
-    // before the pointer moved onto the bar frozen in place forever.
+    // Cursor freeze zone — TRANSIENT by design. The original point-in-box
+    // freeze held every danmaku under a resting pointer forever, and the lane
+    // walled up behind it. Now: a MOVING pointer freezes nothing; a resting
+    // pointer freezes danmaku crossing it, but each slot holds at most
+    // FREEZE_HOLD_MS, then releases and flows on (staying released while it
+    // remains inside the zone, so it cannot re-freeze mid-queue). Leaving the
+    // zone re-arms the slot; moving the pointer disarms everything at once.
+    const now = this._hoverNow;
+    if (
+      Math.abs(this.pointerX - this._lastPointerX) > 2 ||
+      Math.abs(this.pointerY - this._lastPointerY) > 2
+    ) {
+      this._lastPointerX = this.pointerX;
+      this._lastPointerY = this.pointerY;
+      this._pointerStillSince = now;
+      this._freezeState.clear();
+    }
+    const zoneArmed = this.pointerActive && now - this._pointerStillSince >= FREEZE_QUIET_MS;
+
     for (let i = slots.length - 1; i >= 0; i--) {
       const s = slots[i];
       if (!s.active || s.interactionLocked) {
         s.hovered = false;
+        this._freezeState.delete(s.id);
         continue;
       }
-      s.hovered =
-        this.pointerX >= s.x &&
-        this.pointerX <= s.x + s.width &&
-        this.pointerY >= s.y &&
-        this.pointerY <= s.y + s.params.fontSize * 1.5;
-      s.paused = s.dragging || s.hovered;
+      const inside =
+        this.pointerX >= s.x - FREEZE_PAD_PX &&
+        this.pointerX <= s.x + s.width + FREEZE_PAD_PX &&
+        this.pointerY >= s.y - FREEZE_PAD_PX &&
+        this.pointerY <= s.y + s.params.fontSize * 1.5 + FREEZE_PAD_PX;
+      if (!inside) {
+        // Out of the zone: forget the hold so a later re-entry freezes again.
+        this._freezeState.delete(s.id);
+        s.hovered = false;
+        s.paused = Boolean(s.dragging);
+        continue;
+      }
+      if (!zoneArmed) {
+        s.hovered = false;
+        s.paused = Boolean(s.dragging);
+        continue;
+      }
+      let hold = this._freezeState.get(s.id);
+      if (!hold) {
+        hold = { since: now, released: false };
+        this._freezeState.set(s.id, hold);
+      } else if (!hold.released && now - hold.since >= FREEZE_HOLD_MS) {
+        hold.released = true;
+      }
+      const frozen = !hold.released;
+      s.hovered = frozen;
+      s.paused = s.dragging || frozen;
     }
   }
 
@@ -1612,6 +1676,7 @@ export class App {
     const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
+    this.pointerActive = true;
     this._interactiveMode = true;
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
