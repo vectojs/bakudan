@@ -110,6 +110,13 @@ import { StageBackground } from './StageBackground';
 export interface AppOptions {
   stageBackground?: StageBackground;
   stageBackgroundOptions?: StageBackgroundOptions;
+  /**
+   * Skip the default catalog video autoload at start(). Video export sets
+   * this: a hanging remote fetch would keep the exporter's networkidle0 from
+   * ever firing, and the clip targets stress mode anyway (a DOM <video> is
+   * wall-clock and cannot be driven by step()).
+   */
+  skipVideoAutoload?: boolean;
 }
 
 class Ticker extends Entity {
@@ -189,6 +196,7 @@ export class App {
    */
   private _selectedLikeCount = 0;
   private readonly _selectionHotspots: SelectionHotspots;
+  private readonly _skipVideoAutoload: boolean;
 
   private _disposeShortcuts: (() => void) | null = null;
   private _disposeFullscreen: (() => void) | null = null;
@@ -340,6 +348,7 @@ export class App {
     });
     this.scene.add(this._selectionHotspots);
 
+    this._skipVideoAutoload = options.skipVideoAutoload ?? false;
     this.bg = options.stageBackground ?? new StageBackground(options.stageBackgroundOptions);
     this.bg.onBufferingChange((buffering) => {
       if (this.destroyed) return;
@@ -1173,6 +1182,17 @@ export class App {
     );
   }
 
+  /**
+   * Hide every UI overlay for video export (`?export=1`): the clip should
+   * carry the danmaku stage only. Irreversible by design — an exporting page
+   * is never interacted with.
+   */
+  hideChrome(): void {
+    this.scene.hideOverlay(this.statusBar);
+    this.scene.hideOverlay(this.commandDeck);
+    this.scene.hideOverlay(this.labDrawer);
+  }
+
   start(): void {
     if (this.started || this.destroyed) return;
     this.started = true;
@@ -1187,7 +1207,9 @@ export class App {
     if (this.stageW === 0 || this.stageH === 0) {
       this.onResize(this.scene.width, this.scene.height);
     }
-    this._loadVideoSelection(this.currentVideoSelection, this.currentTrackProfileId);
+    if (!this._skipVideoAutoload) {
+      this._loadVideoSelection(this.currentVideoSelection, this.currentTrackProfileId);
+    }
     void loadMSDFAtlas().then((atlas) => {
       if (atlas && !this.destroyed) {
         this.danmakuLayer.setMSDF(atlas);

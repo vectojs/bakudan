@@ -36,7 +36,11 @@ async function main(): Promise<void> {
   const glCanvas = (scene as unknown as { glCanvas?: HTMLCanvasElement }).glCanvas;
   if (glCanvas) glCanvas.style.zIndex = '1';
 
-  const app = new App(scene);
+  // Video-export mode skips the catalog video autoload: a hanging remote
+  // fetch would keep the exporter's networkidle0 from firing, and the clip
+  // targets stress mode anyway.
+  const exportMode = new URLSearchParams(window.location.search).get('export') === '1';
+  const app = new App(scene, { skipVideoAutoload: exportMode });
 
   // Forge devtools hook
   if (window.location.search.includes('debug')) {
@@ -68,12 +72,20 @@ async function main(): Promise<void> {
   // after the app boots, through the same App.applyStressTarget path the
   // throughput panel uses. This is what lets a benchmark harness mount the real
   // app at a parameterized pool count without touching kit-panel internals.
-  const stressParam = Number.parseInt(
-    new URLSearchParams(window.location.search).get('stress') ?? '',
-    10,
-  );
+  const params = new URLSearchParams(window.location.search);
+  const stressParam = Number.parseInt(params.get('stress') ?? '', 10);
   if (Number.isFinite(stressParam) && stressParam > 0) {
     app.applyStressTarget(stressParam);
+  }
+
+  // Video-export seam: `?export=1` hands the scene to @vectojs/video-exporter,
+  // which needs `window.vectoScene` (it calls stop() to halt the rAF loop, then
+  // drives step(dt) per frame — see tools/export-video.ts). UI overlays are
+  // hidden for a clean stage clip. Combine with `?stress=<n>`; video mode is
+  // NOT exportable (a DOM <video> advances by wall clock, not by step()).
+  if (exportMode) {
+    (window as unknown as { vectoScene?: Scene }).vectoScene = scene;
+    app.hideChrome();
   }
 }
 
