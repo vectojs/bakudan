@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.2 - 2026-08-27
+
+### Added
+
+- **Code review 4-way (CTX-0037..0040)** — shell Grid/DPR/dvh polish (prevW/H guard, visualViewport rAF, 44/36 vars, pointer-events closed), controls wiring (6 interaction toggles + bench autoThrottle/idleFPS, distribution→scheduler, composer disabled, kit leak fix), danmaku per-track saturation handling (retry queue, keep visible on resize from danmaku-core 0.3.1, font-size/speed tiers, cull margin, buckets 128), interaction pill vs hotspot centered clamp + hover/drag/reactions wire + single selection + freeze zone.
+
+### Changed
+
+- **Perf + keyboard (8e2b9c7, CTX-0035)** — guard resize with prevW/H and contentRect, remove per-frame _syncPlaybackState, canvas tabIndex+focus and window fallback for KeyboardShortcuts.
+
+### Fixed
+
+- **Deps** — repin @vectojs/danmaku-core 0.3.0→0.3.1 (keep visible on resize).
+
+
 ## 0.7.1 - 2026-08-27
 
 ### Fixed
