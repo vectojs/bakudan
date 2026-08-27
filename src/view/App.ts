@@ -57,6 +57,7 @@ import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 import { HeaderBar, type StatusState } from './html/HeaderBar';
 import { CommandDeckHTML, type CommandDeckState } from './html/CommandDeck';
+import { HelpModal } from './html/HelpModal';
 
 import * as AppPointer from './app/AppPointer';
 import * as AppSelection from './app/AppSelection';
@@ -190,6 +191,8 @@ export class App {
   private _isFullscreen = false;
 
   private labOpen = false;
+  private _helpOpen = false;
+  private _helpModal: HelpModal | null = null;
 
   /**
    * In-page benchmark state. While a run is in flight, hover-freeze and drag
@@ -483,6 +486,7 @@ export class App {
     if (headerContainer) {
       this.headerBar = new HeaderBar(headerContainer, {
         getState: () => this._headerState(),
+        onHelp: () => this.showHelp(),
       });
     } else {
       this.statusBar = new DanmakuStatusBar({
@@ -1052,6 +1056,21 @@ export class App {
       });
     }
 
+    // CTX-0049: global key-bindings help modal — body-level overlay, not Grid island
+    if (typeof document !== 'undefined' && !this._helpModal) {
+      try {
+        const helpRoot = document.createElement('div');
+        helpRoot.id = 'bakudan-help-root';
+        document.body.appendChild(helpRoot);
+        this._helpModal = new HelpModal(helpRoot, {
+          onClose: () => this.hideHelp(),
+          language: this.currentLang,
+        });
+      } catch {
+        // happy-dom / test may not have body yet — lazy creation on first showHelp
+      }
+    }
+
     this._syncStatus();
     this._syncPlaybackState();
     if (this.statusBar) this.scene.showOverlay(this.statusBar);
@@ -1578,6 +1597,14 @@ export class App {
       this.labDrawerHTML.destroy();
       this.labDrawerHTML = null;
     }
+    if (this._helpModal) {
+      this._helpModal.destroy();
+      this._helpModal = null;
+      this._helpOpen = false;
+      const helpRoot =
+        typeof document !== 'undefined' ? document.getElementById('bakudan-help-root') : null;
+      if (helpRoot) helpRoot.remove();
+    }
   }
 
   start(): void {
@@ -2031,12 +2058,60 @@ export class App {
     this.announcer.setSummary(t('a11y.fullscreenError', this.currentLang));
   }
 
+  /** Help modal — global key-bindings table (CTX-0049). */
+  get isHelpOpen(): boolean {
+    return this._helpOpen;
+  }
+
+  showHelp(): void {
+    if (this._helpOpen) return;
+    if (!this._helpModal && typeof document !== 'undefined') {
+      try {
+        let container = document.getElementById('bakudan-help-root') as HTMLElement | null;
+        if (!container) {
+          container = document.createElement('div');
+          container.id = 'bakudan-help-root';
+          document.body.appendChild(container);
+        }
+        this._helpModal = new HelpModal(container, {
+          onClose: () => this.hideHelp(),
+          language: this.currentLang,
+        });
+      } catch {}
+    }
+    this._helpOpen = true;
+    try {
+      this._helpModal?.open();
+    } catch {}
+    this.announcer.setSummary(t('a11y.helpOpened', this.currentLang));
+    this.scene.markDirty();
+  }
+
+  hideHelp(): void {
+    if (!this._helpOpen) return;
+    this._helpOpen = false;
+    try {
+      this._helpModal?.close();
+    } catch {}
+    this.announcer.setSummary(t('a11y.helpClosed', this.currentLang));
+    this.scene.markDirty();
+  }
+
+  toggleHelp(): void {
+    if (this._helpOpen) this.hideHelp();
+    else this.showHelp();
+  }
+
   /**
-   * Dismiss the topmost transient surface, innermost first: a selected danmaku
-   * before the lab drawer. Returns true when something was actually dismissed,
-   * so the caller can leave the key unhandled otherwise.
+   * Dismiss the topmost transient surface, innermost first: help modal,
+   * then selected danmaku, then lab drawer. Returns true when something was
+   * actually dismissed, so the caller can leave the key unhandled otherwise.
    */
   dismiss(): boolean {
+    if (this._helpOpen) {
+      this.hideHelp();
+      return true;
+    }
     if (this._selectedSlotId !== null) {
       this._clearSelection();
       this.announcer.setSummary(t('a11y.selectionCleared', this.currentLang));
@@ -2187,6 +2262,16 @@ export class App {
     canvas.removeEventListener('pointerleave', this._handlePointerLeave);
     if (this.labDrawer) this.labDrawer.setOpen(false);
     if (this.labDrawerHTML) this.labDrawerHTML.setOpen(false);
+    if (this._helpModal) {
+      this._helpModal.destroy();
+      this._helpModal = null;
+      this._helpOpen = false;
+      const helpRoot =
+        typeof document !== 'undefined' ? document.getElementById('bakudan-help-root') : null;
+      if (helpRoot) helpRoot.remove();
+    } else if (this._helpOpen) {
+      this._helpOpen = false;
+    }
     if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
     if (this.headerBar) {
       this.headerBar.destroy();

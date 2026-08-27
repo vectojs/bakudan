@@ -30,6 +30,7 @@ export type ShortcutIntent =
   | { kind: 'seekToFraction'; fraction: number }
   | { kind: 'seekToEdge'; edge: 'start' | 'end' }
   | { kind: 'toggleFullscreen' }
+  | { kind: 'showHelp' }
   | { kind: 'dismiss' };
 
 /** The subset of a keyboard event this layer decides from. */
@@ -46,14 +47,20 @@ export interface ShortcutKeyInput {
  *
  * Bindings follow the conventions a media player is expected to honour, so they
  * need no discovery: Space/`k` toggle, `j`/`l` and arrows seek, `0`–`9` jump to
- * a percentage, Home/End to the edges, `f` toggles fullscreen, Escape dismisses.
+ * a percentage, Home/End to the edges, `f` toggles fullscreen, Escape dismisses,
+ * ? shows help.
  *
  * Any chord carrying a modifier is ignored so browser and OS shortcuts keep
- * working — Cmd/Ctrl+R must reload, not seek. Shift is exempted from that rule
- * only where it is not a chord but a magnitude (`Shift` is never required by a
- * binding here, so it too is rejected, keeping the rule simple and total).
+ * working — Cmd/Ctrl+R must reload, not seek. Shift is rejected except for `?`
+ * (Shift+/ on US layout, where key is '?' and shiftKey is true), and that single
+ * exemption keeps the rule total without swallowing browser chords.
  */
 export function decodeShortcut(e: ShortcutKeyInput): ShortcutIntent | null {
+  // Help: '?' is Shift+/ (key='?' shiftKey=true) — exempt from the shift block.
+  if (e.key === '?') {
+    if (e.ctrlKey || e.metaKey || e.altKey) return null;
+    return { kind: 'showHelp' };
+  }
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
 
   switch (e.key) {
@@ -111,6 +118,8 @@ export interface ShortcutTarget {
   seekToEdge(edge: 'start' | 'end'): void;
   /** Enter or leave document fullscreen. Works with or without a video. */
   toggleFullscreen(): void;
+  /** Show the global keyboard-shortcuts help modal. */
+  showHelp(): void;
   /** Returns true when something was actually dismissed. */
   dismiss(): boolean;
 }
@@ -124,6 +133,10 @@ export interface ShortcutTarget {
  * leaving default behaviour intact rather than silently swallowing the key.
  */
 export function applyShortcut(intent: ShortcutIntent, target: ShortcutTarget): boolean {
+  if (intent.kind === 'showHelp') {
+    target.showHelp();
+    return true;
+  }
   if (intent.kind === 'dismiss') return target.dismiss();
   // Fullscreen is a shell concern, orthogonal to whether a video is loaded.
   if (intent.kind === 'toggleFullscreen') {

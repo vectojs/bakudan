@@ -19,6 +19,7 @@ export interface StatusState {
 export interface HeaderBarOptions {
   getState: () => StatusState;
   onLangChange?: (language: Language) => void;
+  onHelp?: () => void;
 }
 
 /**
@@ -45,6 +46,7 @@ export class HeaderBar {
   private readonly logoIconEl: HTMLElement;
   private readonly searchIconEl: HTMLElement;
   private readonly avatarEl: HTMLElement;
+  private readonly helpButton: HTMLButtonElement;
   private destroyed = false;
 
   constructor(container: HTMLElement, opts: HeaderBarOptions) {
@@ -167,7 +169,25 @@ export class HeaderBar {
     this.avatarEl.style.font = '600 11px Inter, system-ui, sans-serif';
     this.avatarEl.style.marginLeft = '4px';
 
-    right.append(this.fpsEl, this.frameEl, this.liveEl, this.backendEl, this.avatarEl);
+    // CTX-0049: Help button (?) next to avatar — opens global shortcuts modal
+    this.helpButton = document.createElement('button');
+    this.helpButton.type = 'button';
+    this.helpButton.className = 'bakudan-header__help';
+    this.helpButton.textContent = '?';
+    this.helpButton.setAttribute('aria-label', 'Show keyboard shortcuts — press ? for help');
+    this.helpButton.setAttribute('aria-haspopup', 'dialog');
+    this.helpButton.setAttribute('data-testid', 'header-help-button');
+    this.helpButton.title = 'Keyboard shortcuts (?)';
+    this.helpButton.addEventListener('click', this.handleHelpClick);
+
+    right.append(
+      this.fpsEl,
+      this.frameEl,
+      this.liveEl,
+      this.backendEl,
+      this.helpButton,
+      this.avatarEl,
+    );
 
     this.root.append(left, center, right);
     this.container.replaceChildren(this.root);
@@ -245,9 +265,15 @@ export class HeaderBar {
     this.backendEl.style.display = backend ? '' : 'none';
   }
 
+  private readonly handleHelpClick = (): void => {
+    if (this.destroyed) return;
+    this.opts.onHelp?.();
+  };
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.helpButton.removeEventListener('click', this.handleHelpClick);
     this.root.remove();
     this.container.classList.remove('bakudan-header-host');
     // Do not clear CSS vars — container may be reused; leave them for inspection

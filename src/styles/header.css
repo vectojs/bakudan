@@ -258,3 +258,45 @@
     padding: 4px 10px;
   }
 }
+
+/* CTX-0049: Header help button (?) — opens global shortcuts modal */
+.bakudan-header__help {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+
+.bakudan-header__help:hover {
+  background: var(--bakudan-accent, #f43f5e);
+  border-color: var(--bakudan-accent, #f43f5e);
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+.bakudan-header__help:active {
+  transform: scale(0.96);
+}
+
+.bakudan-header__help:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}

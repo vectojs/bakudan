@@ -1,0 +1,237 @@
+/* Help modal — global key bindings help (CTX-0049)
+ * Accessible overlay: role dialog, focus trap, Esc to close, backdrop click.
+ * Theme tokens via CSS vars set on root by HelpModal.ts — never hardcodes palette.
+ */
+
+.bakudan-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(7, 9, 13, 0.62);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.bakudan-help-overlay--open {
+  display: flex;
+}
+
+.bakudan-help-overlay[hidden] {
+  display: none !important;
+}
+
+.bakudan-help__dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(78vh, 720px);
+  max-height: min(78dvh, 720px);
+  background: var(--bakudan-surface, rgba(7, 9, 13, 0.98));
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  border-radius: 16px;
+  color: var(--bakudan-text, #f8fafc);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.55),
+    0 8px 20px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.bakudan-help__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  flex-shrink: 0;
+}
+
+.bakudan-help__title {
+  margin: 0;
+  font: var(--bakudan-font-display, 600 14px "Outfit", "Inter", sans-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--bakudan-text, #f8fafc);
+}
+
+.bakudan-help__subtitle {
+  margin: 2px 0 0;
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  line-height: 1.4;
+}
+
+.bakudan-help__close {
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bakudan-help__close:hover {
+  background: var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-help__close:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+.bakudan-help__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bakudan-border, rgba(148, 163, 184, 0.3)) transparent;
+}
+
+.bakudan-help__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bakudan-help__section-title {
+  margin: 0;
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-help__table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.14));
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.5));
+}
+
+.bakudan-help__table th,
+.bakudan-help__table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: middle;
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.1));
+}
+
+.bakudan-help__table th {
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bakudan-text-muted, #94a3b8);
+  background: rgba(248, 250, 252, 0.04);
+}
+
+.bakudan-help__table tr:last-child td {
+  border-bottom: none;
+}
+
+.bakudan-help__table td:first-child {
+  white-space: nowrap;
+  width: 38%;
+}
+
+.bakudan-help__kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.2));
+  border-bottom-width: 2px;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  font-size: 11px;
+  line-height: 1;
+  vertical-align: middle;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.bakudan-help__sep {
+  display: inline;
+  margin: 0 2px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  font-size: 11px;
+}
+
+.bakudan-help__footer {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  flex-shrink: 0;
+}
+
+.bakudan-help__hint {
+  margin: 0;
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  line-height: 1.5;
+}
+
+.bakudan-help__hint kbd {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+}
+
+@media (max-width: 640px) {
+  .bakudan-help-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .bakudan-help__dialog {
+    width: 100%;
+    max-height: 82vh;
+    max-height: 82dvh;
+  }
+
+  .bakudan-help__header {
+    padding: 14px 14px 10px;
+  }
+
+  .bakudan-help__body {
+    padding: 14px;
+  }
+
+  .bakudan-help__table td:first-child {
+    width: 42%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bakudan-help-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

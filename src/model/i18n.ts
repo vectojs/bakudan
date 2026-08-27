@@ -16,6 +16,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.fullscreenEntered': 'Entered fullscreen.',
     'a11y.fullscreenExited': 'Exited fullscreen.',
     'a11y.fullscreenError': 'Fullscreen is unavailable here.',
+    'a11y.helpOpened': 'Keyboard shortcuts help opened.',
+    'a11y.helpClosed': 'Keyboard shortcuts help closed.',
 
     'fx.glow': 'Neon Glow',
     'fx.gradient': 'Color Gradient',
@@ -35,6 +37,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.fullscreenEntered': '已进入全屏。',
     'a11y.fullscreenExited': '已退出全屏。',
     'a11y.fullscreenError': '当前环境不支持全屏。',
+    'a11y.helpOpened': '已打开键盘快捷键帮助。',
+    'a11y.helpClosed': '已关闭键盘快捷键帮助。',
 
     'fx.glow': '霓虹发光',
     'fx.gradient': '色彩渐变',
@@ -54,6 +58,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.fullscreenEntered': '已進入全螢幕。',
     'a11y.fullscreenExited': '已離開全螢幕。',
     'a11y.fullscreenError': '目前環境不支援全螢幕。',
+    'a11y.helpOpened': '已開啟鍵盤快捷鍵說明。',
+    'a11y.helpClosed': '已關閉鍵盤快捷鍵說明。',
 
     'fx.glow': '霓虹發光',
     'fx.gradient': '色彩漸變',
@@ -73,6 +79,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.fullscreenEntered': '全画面表示に切り替えました。',
     'a11y.fullscreenExited': '全画面表示を解除しました。',
     'a11y.fullscreenError': 'この環境では全画面表示を利用できません。',
+    'a11y.helpOpened': 'キーボードショートカットヘルプを開きました。',
+    'a11y.helpClosed': 'キーボードショートカットヘルプを閉じました。',
 
     'fx.glow': 'ネオングロー',
     'fx.gradient': 'カラーグラデ',
@@ -92,6 +100,8 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'a11y.fullscreenEntered': '전체 화면으로 전환했습니다.',
     'a11y.fullscreenExited': '전체 화면을 해제했습니다.',
     'a11y.fullscreenError': '이 환경에서는 전체 화면을 사용할 수 없습니다.',
+    'a11y.helpOpened': '키보드 단축키 도움말을 열었습니다.',
+    'a11y.helpClosed': '키보드 단축키 도움말을 닫았습니다.',
 
     'fx.glow': '네온 글로우',
     'fx.gradient': '컬러 그라데이션',
