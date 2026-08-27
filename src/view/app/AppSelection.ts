@@ -11,6 +11,7 @@ type SelHost = {
   _selectedLikeCount: number;
   _selectionHotspots: import('../SelectionHotspots').SelectionHotspots;
   _reactionStore: import('../../model/ReactionStore').ReactionStore | null;
+  _reactionsEnabled?: boolean;
   scene: { markDirty(): void };
   _clearSelection(): void;
   _handleTapVideo(): void;
@@ -49,6 +50,10 @@ export function reactionId(slot: PoolSlot): string {
 
 export function handleTapStage(host: App): void {
   const h = sh(host);
+  if ((h as unknown as { _reactionsEnabled?: boolean })._reactionsEnabled === false) {
+    h._clearSelection();
+    return;
+  }
   const slot = findSlotAtPointer(host);
   if (!slot) {
     h._clearSelection();
@@ -90,6 +95,7 @@ export function clearSelection(host: App): void {
 
 export function handleLikeToggle(host: App): void {
   const h = sh(host);
+  if ((h as unknown as { _reactionsEnabled?: boolean })._reactionsEnabled === false) return;
   if (h._selectedSlotId === null || !h._reactionStore) return;
   const s = h.pool.slots[h._selectedSlotId];
   if (!s || !s.active) return;
@@ -101,6 +107,7 @@ export function handleLikeToggle(host: App): void {
 
 export function handleCopy(host: App): void {
   const h = sh(host);
+  if ((h as unknown as { _reactionsEnabled?: boolean })._reactionsEnabled === false) return;
   if (h._selectedSlotId === null) return;
   const s = h.pool.slots[h._selectedSlotId];
   if (!s || !s.active) return;

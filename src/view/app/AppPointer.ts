@@ -1,4 +1,5 @@
 import {
+  PAUSE_CHIP_SAFE_GAP_PX,
   PILL_BASELINE_FACTOR,
   PILL_COPY_OFFSET_PX,
   PILL_HEIGHT_PX,
@@ -25,31 +26,41 @@ type PtrHost = {
   _dragOffX: number;
   _dragOffY: number;
   stageW: number;
+  stageH: number;
+  isMobile: boolean;
   _selectedSlotId: number | null;
   _hoveredAction: import('../SelectionHotspots').HoveredAction;
   _selectedLikeCount: number;
   _selectionHotspots: import('../SelectionHotspots').SelectionHotspots;
   _benchRunning: boolean;
+  _hoverPauseEnabled: boolean;
+  _dragEnabled: boolean;
+  _reactionsEnabled: boolean;
+  danmakuLayer: { getStage(): { safeTop?: number } };
+  headerBar: { x: number; y: number; width: number; height: number } | null;
+  statusBar: { x: number; y: number; width: number; height: number } | null;
   scene: {
     markDirty(): void;
     canvas: HTMLCanvasElement;
     width: number;
     height: number;
   };
-  commandDeck: { x: number; y: number; width: number; height: number };
+  commandDeck: { x: number; y: number; width: number; height: number } | null;
   labDrawer: {
     x: number;
     y: number;
     width: number;
     height: number;
     isOpen: boolean;
-  };
+  } | null;
+  labDrawerHTML: unknown;
   mode: import('./types').AppMode;
   labOpen: boolean;
   setLabOpen(open: boolean): void;
   _handleTapStage(): void;
   _clearSelection(): void;
   _hitsOverlay(o: { x: number; y: number; width: number; height: number }): boolean;
+  debugHitsLab(y: number): boolean;
 };
 
 function ph(host: App): PtrHost {
@@ -68,10 +79,16 @@ export function updateHover(host: App): void {
     return;
   }
   const selected = h._selectedSlotId !== null ? slots[h._selectedSlotId] : null;
-  if (selected?.active && selected.interactionLocked) {
+  const reactionsEnabled =
+    (h as unknown as { _reactionsEnabled?: boolean })._reactionsEnabled ?? true;
+  if (selected?.active && selected.interactionLocked && reactionsEnabled) {
     selected.paused = true;
-    const pillTop =
+    const safeTop =
+      h.danmakuLayer?.getStage?.()?.safeTop ??
+      (h.headerBar ? (h.isMobile ? 36 : 44) : h.statusBar ? h.statusBar.y + h.statusBar.height : 0);
+    const pillTopRaw =
       Math.round(selected.y) + selected.params.fontSize * PILL_BASELINE_FACTOR - PILL_HEIGHT_PX / 2;
+    const pillTop = Math.max(pillTopRaw, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
     const pillLeft = Math.round(
       Math.min(
         Math.max(selected.x + selected.width / 2 - PILL_WIDTH_PX / 2, PILL_PLATE_MARGIN_PX),
@@ -103,7 +120,11 @@ export function updateHover(host: App): void {
     h._pointerStillSince = now;
     h._freezeState.clear();
   }
-  const zoneArmed = h.pointerActive && now - h._pointerStillSince >= FREEZE_QUIET_MS;
+  const hoverPauseEnabled =
+    (h as unknown as { _hoverPauseEnabled?: boolean })._hoverPauseEnabled ?? true;
+  const dragEnabled = (h as unknown as { _dragEnabled?: boolean })._dragEnabled ?? true;
+  const zoneArmed =
+    hoverPauseEnabled && h.pointerActive && now - h._pointerStillSince >= FREEZE_QUIET_MS;
 
   for (let i = slots.length - 1; i >= 0; i--) {
     const s = slots[i];
@@ -120,12 +141,12 @@ export function updateHover(host: App): void {
     if (!inside) {
       h._freezeState.delete(s.id);
       s.hovered = false;
-      s.paused = Boolean(s.dragging);
+      s.paused = Boolean(dragEnabled && s.dragging);
       continue;
     }
     if (!zoneArmed) {
       s.hovered = false;
-      s.paused = Boolean(s.dragging);
+      s.paused = Boolean(dragEnabled && s.dragging);
       continue;
     }
     let hold = h._freezeState.get(s.id);
@@ -137,7 +158,7 @@ export function updateHover(host: App): void {
     }
     const frozen = !hold.released;
     s.hovered = frozen;
-    s.paused = s.dragging || frozen;
+    s.paused = (dragEnabled && s.dragging) || frozen;
   }
 }
 
@@ -150,13 +171,12 @@ export function handlePointerMove(host: App, event: PointerEvent): void {
   h.pointerY = (event.clientY - rect.top) * scaleY;
   h.pointerActive = true;
   h._interactiveMode = true;
-  h.pointerX = (event.clientX - rect.left) * scaleX;
-  h.pointerY = (event.clientY - rect.top) * scaleY;
-  h._interactiveMode = true;
-  if (h._dragSlot) {
-    h._dragSlot.x = h.pointerX - h._dragOffX;
-    h._dragSlot.y = h.pointerY - h._dragOffY;
-    h.scene.markDirty();
+  if ((h as unknown as { _dragEnabled?: boolean })._dragEnabled ?? true) {
+    if (h._dragSlot) {
+      h._dragSlot.x = h.pointerX - h._dragOffX;
+      h._dragSlot.y = h.pointerY - h._dragOffY;
+      h.scene.markDirty();
+    }
   }
 }
 
@@ -170,8 +190,21 @@ export function handlePointerDown(host: App, event: PointerEvent): void {
   h.pointerX = (event.clientX - rect.left) * scaleX;
   h.pointerY = (event.clientY - rect.top) * scaleY;
 
+  // Check if pointer is over the like/copy pill — stage tap must not race it (P1-3)
+  if (h._selectedSlotId !== null) {
+    const action = h._selectionHotspots.hitAction(h.pointerX, h.pointerY);
+    if (action !== null) {
+      // Let the hotspot's own click handler fire; do not treat as stage tap or drag start
+      try {
+        h.scene.canvas.setPointerCapture(event.pointerId);
+      } catch {}
+      return;
+    }
+  }
+
   const inCommandDeck =
     h.mode === 'video' &&
+    h.commandDeck &&
     hitsOverlay(
       host,
       h.commandDeck as unknown as {
@@ -181,23 +214,42 @@ export function handlePointerDown(host: App, event: PointerEvent): void {
         height: number;
       },
     );
-  const inLab =
-    h.labOpen &&
-    hitsOverlay(
-      host,
-      h.labDrawer as unknown as {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      },
-    );
+  // P2-3: LabDrawer trap must read the real HTML drawer position when present
+  const inLab = h.labDrawerHTML
+    ? h.labOpen &&
+      (host as unknown as { debugHitsLab(y: number): boolean }).debugHitsLab(h.pointerY)
+    : h.labOpen &&
+      h.labDrawer &&
+      hitsOverlay(
+        host,
+        h.labDrawer as unknown as {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        },
+      );
 
   if (h.labOpen && !inLab && !inCommandDeck) {
     h.setLabOpen(false);
     return;
   }
   if (inLab || inCommandDeck) return;
+
+  // P2-2 / P1-3: drag initiation — only when dragEnabled and not over a locked slot
+  const dragEnabled = (h as unknown as { _dragEnabled?: boolean })._dragEnabled ?? true;
+  if (dragEnabled) {
+    const findSlot = (host as unknown as { _findSlotAtPointer?: () => PoolSlot | null })
+      ._findSlotAtPointer;
+    const dragSlot = findSlot ? findSlot.call(host) : null;
+    if (dragSlot && !dragSlot.interactionLocked) {
+      h._dragSlot = dragSlot;
+      (h._dragSlot as unknown as { dragging?: boolean }).dragging = true;
+      h._dragOffX = h.pointerX - dragSlot.x;
+      h._dragOffY = h.pointerY - dragSlot.y;
+    }
+  }
+
   h._handleTapStage();
   try {
     h.scene.canvas.setPointerCapture(event.pointerId);
@@ -210,7 +262,7 @@ export function handlePointerEnd(host: App): void {
   const h = ph(host);
   h.pointerActive = false;
   if (!h._dragSlot) return;
-  h._dragSlot.dragging = false;
+  (h._dragSlot as unknown as { dragging?: boolean }).dragging = false;
   h._dragSlot.paused = h._dragSlot.hovered;
   h._dragSlot = null;
 }
