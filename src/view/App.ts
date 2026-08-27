@@ -1831,11 +1831,14 @@ export class App {
     // Wrap _initializeSlot to fix width for serif/bold (measureText needs correct font)
     // CTX-0048: width cache + singleton canvas — at 20k stress, orig created a fresh canvas per slot and measured every spawn; scheduler.tick 11.5ms -> 1.7ms after caching. Cache key is text+fontSize+family+weight, bounded 4k.
     // CTX-0052: hoist font-string cache (18 combos) and color palette — _initializeSlot is per-spawn (1.3k/s at 10k) and _spawnOne's slateColors array was a per-spawn alloc (1.3k arrays/s) plus per-slot font string alloc in the measure path.
+    // CTX-0055: dedupe measureText — single width measure per spawn with correct font, LRU evict 1 not clear, int font key
     const widthCache = new Map<string, number>();
     let widthCtx: CanvasRenderingContext2D | null = null;
-    const fontCache = new Map<string, string>();
+    const fontCache = new Map<number, string>();
+    const FAM_ID: Record<string, number> = { sans: 0, serif: 1, mono: 2 };
     function cachedFont(weightNum: number, fam: string, size: number): string {
-      const k = `${size}|${weightNum}|${fam}`;
+      const famId = FAM_ID[fam] ?? 0;
+      const k = (size << 12) | (weightNum << 2) | famId;
       let h = fontCache.get(k);
       if (h !== undefined) return h;
       const stack =
@@ -1845,14 +1848,15 @@ export class App {
             ? "'JetBrains Mono', 'Cascadia Code', monospace"
             : "system-ui, -apple-system, 'Segoe UI', sans-serif";
       h = `${weightNum} ${size}px ${stack}`;
-      if (fontCache.size > 32) fontCache.clear();
+      if (fontCache.size >= 32) {
+        const firstKey = fontCache.keys().next().value;
+        if (firstKey !== undefined) fontCache.delete(firstKey);
+      }
       fontCache.set(k, h);
       return h;
     }
-    const origInit = sched._initializeSlot.bind(sched);
     sched._initializeSlot = function (slot: PoolSlot, bandStart: number, userSent: boolean) {
-      origInit(slot, bandStart, userSent);
-      // Re-measure width with the slot's actual font (bold/serif are wider)
+      // CTX-0055: compute width once with correct font via cache; replicate Scheduler._initializeSlot without its extra sans-400 measure
       try {
         const hosted = (this as unknown as typeof sched)._getBakudanTypography?.();
         const fallbackFamily = hosted?.family ?? 'sans';
@@ -1873,13 +1877,68 @@ export class App {
           if (widthCtx) {
             widthCtx.font = font;
             w = widthCtx.measureText(slot.params.text).width + 4;
-            if (widthCache.size > 4000) widthCache.clear();
+            if (widthCache.size >= 4000) {
+              const firstKey = widthCache.keys().next().value;
+              if (firstKey !== undefined) widthCache.delete(firstKey);
+            }
             widthCache.set(cacheKey, w);
           }
         }
+        // Replicate Scheduler._initializeSlot placement without its measureWidth
+        (
+          this as unknown as { _setSlotVerticalPlacement: (s: PoolSlot, b: number) => void }
+        )._setSlotVerticalPlacement(slot, bandStart);
+        slot.userSent = userSent;
         if (w !== undefined) slot.width = w;
+        else slot.width = slot.params.text.length * slot.params.fontSize * 0.6 + 4;
+        switch (slot.params.preset) {
+          case 'reverse':
+            slot.x = -slot.width - 20;
+            break;
+          case 'top':
+          case 'bottom': {
+            const sw = (this as unknown as { stageWidth: number }).stageWidth;
+            slot.x = (sw - slot.width) / 2;
+            break;
+          }
+          default: {
+            const sw = (this as unknown as { stageWidth: number }).stageWidth;
+            slot.x = sw + 20;
+          }
+        }
+        slot.y = slot.baseY;
+        (this as unknown as { _occupyBands: (s: PoolSlot) => void })._occupyBands(slot);
+        if ((this as unknown as { showcaseJelly: boolean }).showcaseJelly)
+          (this as unknown as { exciteJelly: (id: number, imp: number) => void }).exciteJelly(
+            slot.id,
+            0.24,
+          );
       } catch {
-        // Keep original width on failure
+        // Fallback: minimal placement without cache
+        const anySched = this as unknown as {
+          _setSlotVerticalPlacement: (s: PoolSlot, b: number) => void;
+          _occupyBands: (s: PoolSlot) => void;
+          stageWidth: number;
+          showcaseJelly: boolean;
+          exciteJelly: (id: number, imp: number) => void;
+        };
+        anySched._setSlotVerticalPlacement(slot, bandStart);
+        slot.userSent = userSent;
+        slot.width = slot.params.text.length * slot.params.fontSize * 0.6 + 4;
+        switch (slot.params.preset) {
+          case 'reverse':
+            slot.x = -slot.width - 20;
+            break;
+          case 'top':
+          case 'bottom':
+            slot.x = (anySched.stageWidth - slot.width) / 2;
+            break;
+          default:
+            slot.x = anySched.stageWidth + 20;
+        }
+        slot.y = slot.baseY;
+        anySched._occupyBands(slot);
+        if (anySched.showcaseJelly) anySched.exciteJelly(slot.id, 0.24);
       }
     };
     const SLATE_COLORS = [
