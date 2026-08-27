@@ -1,5 +1,6 @@
-/* Lab drawer — bottom sheet HTML (CTX-0029)
- * Replaces DanmakuLabDrawer (canvas) with HTML sheet.
+/* Lab drawer — floating window + ball (CTX-0047)
+ * Replaces bottom sheet (CTX-0029) with a draggable, resizable floating console.
+ * Collapses to a 48px ball on the side when closed. Help popup (?) per tab.
  * Uses BAKUDAN_THEME CSS vars set on #lab-drawer by LabDrawerHTML.
  */
 
@@ -7,50 +8,122 @@
   display: flex;
   flex-direction: column;
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 46vh;
-  max-height: 46vh;
-  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
-  border-top: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  right: 24px;
+  bottom: 24px;
+  width: 560px;
+  height: 520px;
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 80px));
+  min-width: 320px;
+  min-height: 360px;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 0.98));
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  border-radius: 16px;
   color: var(--bakudan-text, #f8fafc);
   z-index: 30;
-  transform: translateY(100%);
-  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-  will-change: transform;
-  pointer-events: none;
   overflow: hidden;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
-}
-
-@supports (height: 46dvh) {
-  #lab-drawer {
-    height: 46dvh;
-    max-height: 46dvh;
-  }
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  transition:
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.2s ease,
+    width 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    height 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    border-radius 0.3s ease,
+    box-shadow 0.3s ease;
+  will-change: transform;
+  pointer-events: auto;
 }
 
 #lab-drawer.bakudan-lab--open {
-  transform: translateY(0);
+  transform: none;
+  opacity: 1;
   pointer-events: auto;
 }
 
 #lab-drawer.bakudan-lab--closed {
-  transform: translateY(100%);
-  pointer-events: none;
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+  border-radius: 24px !important;
+  padding: 0;
+  overflow: hidden;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border-color: var(--bakudan-accent, #f43f5e);
 }
 
+#lab-drawer.bakudan-lab--closed .bakudan-lab__header,
+#lab-drawer.bakudan-lab--closed .bakudan-lab__tabs,
+#lab-drawer.bakudan-lab--closed .bakudan-lab__panels,
+#lab-drawer.bakudan-lab--closed .bakudan-lab__resize-handle,
+#lab-drawer.bakudan-lab--closed .bakudan-lab__help-modal {
+  display: none !important;
+}
+
+.bakudan-lab__ball {
+  display: none;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  background: var(--bakudan-accent, #f43f5e);
+  color: #ffffff;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+  user-select: none;
+}
+
+#lab-drawer.bakudan-lab--closed .bakudan-lab__ball {
+  display: flex !important;
+}
+
+.bakudan-lab__ball:hover {
+  background: var(--bakudan-accent-hover, #e11d48);
+  transform: scale(1.05);
+}
+
+.bakudan-lab__ball:active {
+  transform: scale(0.96);
+}
+
+.bakudan-lab__ball:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+/* Header — drag handle */
 .bakudan-lab__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-shrink: 0;
   padding: 12px 16px 8px;
-  gap: 12px;
+  gap: 8px;
   border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
   background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.bakudan-lab__header:active {
+  cursor: grabbing;
 }
 
 .bakudan-lab__title {
@@ -60,6 +133,48 @@
   color: var(--bakudan-text, #f8fafc);
   margin: 0;
   white-space: nowrap;
+  cursor: grab;
+}
+
+.bakudan-lab__help {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.bakudan-lab__help:hover {
+  background: var(--bakudan-accent, #f43f5e);
+  border-color: var(--bakudan-accent, #f43f5e);
+  color: #ffffff;
+}
+
+.bakudan-lab__help[aria-expanded="true"] {
+  background: var(--bakudan-accent, #f43f5e);
+  border-color: var(--bakudan-accent, #f43f5e);
+  color: #ffffff;
+}
+
+.bakudan-lab__help:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
 }
 
 .bakudan-lab__close {
@@ -73,6 +188,7 @@
   padding: 6px 12px;
   cursor: pointer;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .bakudan-lab__close:hover {
@@ -84,6 +200,145 @@
   outline-offset: 2px;
 }
 
+/* Resize handle — bottom-right corner */
+.bakudan-lab__resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  border-radius: 0 0 16px 0;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 46%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 46%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 54%,
+      transparent 54%
+    ),
+    linear-gradient(
+      135deg,
+      transparent 62%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 62%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 70%,
+      transparent 70%
+    ),
+    linear-gradient(
+      135deg,
+      transparent 78%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 78%,
+      var(--bakudan-border, rgba(248, 250, 252, 0.18)) 86%,
+      transparent 86%
+    );
+  opacity: 0.5;
+  touch-action: none;
+  z-index: 2;
+}
+
+.bakudan-lab__resize-handle:hover {
+  opacity: 0.9;
+}
+
+/* Help modal — overlay inside the floating window */
+.bakudan-lab__help-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 0.98));
+  border-radius: 16px;
+  z-index: 5;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bakudan-border, rgba(148, 163, 184, 0.3)) transparent;
+}
+
+.bakudan-lab__help-modal[hidden] {
+  display: none !important;
+}
+
+.bakudan-lab__help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.bakudan-lab__help-title {
+  font: var(--bakudan-font-display, 600 14px "Outfit", "Inter", sans-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--bakudan-text, #f8fafc);
+  margin: 0;
+}
+
+.bakudan-lab__help-close {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bakudan-lab__help-close:hover {
+  background: var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-lab__help-close:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+.bakudan-lab__help-summary {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.bakudan-lab__help-list {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bakudan-lab__help-list li {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--bakudan-text, #f8fafc);
+}
+
+.bakudan-lab__help-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-lab__help-hint {
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Tabs */
 .bakudan-lab__tabs {
   display: flex;
   flex-direction: row;
@@ -148,7 +403,6 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px;
-  /* pointerEvents must stay auto so wheel/drag scroll works when open. */
   pointer-events: auto;
   display: none;
   scrollbar-width: thin;
@@ -391,7 +645,6 @@
   margin-top: 8px;
 }
 
-/* Throughput quick targets */
 .bakudan-throughput__quick {
   display: flex;
   flex-wrap: wrap;
@@ -402,7 +655,6 @@
   flex: 0 0 auto;
 }
 
-/* DevTools status */
 .bakudan-devtools__status {
   display: inline-flex;
   align-items: center;
@@ -435,11 +687,19 @@
   background: var(--bakudan-text-muted, #94a3b8);
 }
 
-/* Mobile bottom sheet: 69% height */
+/* Mobile floating: narrower and taller, keep ball margin */
 @media (max-width: 767px) {
   #lab-drawer {
-    height: 69vh;
-    max-height: 69vh;
+    right: 12px;
+    bottom: 12px;
+    width: min(92vw, 360px);
+    height: min(68vh, 520px);
+    max-height: 68vh;
+  }
+
+  #lab-drawer.bakudan-lab--closed {
+    right: 12px;
+    bottom: 12px;
   }
 
   .bakudan-lab__header {
@@ -454,56 +714,26 @@
   .bakudan-lab__panel {
     padding: 12px;
   }
+
+  .bakudan-lab__help-modal {
+    padding: 12px;
+  }
 }
 
-@supports (height: 69dvh) {
+@supports (height: 68dvh) {
   @media (max-width: 767px) {
     #lab-drawer {
-      height: 69dvh;
-      max-height: 69dvh;
+      max-height: 68dvh;
     }
   }
 }
 
-/* CTX-0046: Bilibili-like drawer — rounded top, handle, softer shadow */
-#lab-drawer {
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-}
-
-.bakudan-lab__header::before {
-  content: "";
-  display: block;
-  width: 36px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--bakudan-border, rgba(248, 250, 252, 0.22));
-  margin: 0 auto 8px;
-  /* Center handle above title row — absolute positioning via flex */
-  position: absolute;
-  top: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.bakudan-lab__header {
-  position: relative;
-  padding-top: 16px;
-}
-
-/* Bilibili tabs: pink underline thicker, like Bilibili's 2px pink active */
-.bakudan-lab__tab[aria-selected="true"] {
-  border-bottom-width: 3px;
-}
-
-/* Range and color inputs inherit bilibili pink accent */
-.bakudan-lab__range {
-  accent-color: var(--bakudan-accent, #f43f5e);
-}
-
-/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   #lab-drawer {
     transition: none;
   }
 }
+
+/* CTX-0046 bilibili pink tab */
+.bakudan-lab__tab[aria-selected="true"] { border-bottom-width: 3px; }
+.bakudan-lab__range { accent-color: var(--bakudan-accent, #f43f5e); }
