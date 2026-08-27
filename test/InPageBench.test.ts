@@ -100,8 +100,9 @@ describe('runInPageBench', () => {
     expect(calls[1]).toBe('rate:2000');
     expect(calls).toContain('profiler:start');
     expect(calls).toContain('profiler:stop');
-    expect(phases[0]).toBe('filling');
-    expect(phases.at(-2)).toBe('calibrating');
+    // CTX-0052: calibrating moved to idle before fill so refreshHz is the true display ceiling (240), not workload-limited 153 at 10k.
+    expect(phases[0]).toBe('calibrating');
+    expect(phases[1]).toBe('filling');
     expect(phases.at(-1)).toBe('measuring');
     const parsed = JSON.parse(result.json) as { summary: { fpsP50: number } };
     expect(parsed.summary.fpsP50).toBe(240);
