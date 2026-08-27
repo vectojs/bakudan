@@ -258,6 +258,7 @@ export class CommandDeckHTML {
 
   private dispatchSend(): void {
     if (this.destroyed) return;
+    if (this.input.disabled) return;
     const text = this.input.value.trim();
     if (text.length === 0) return;
     this.opts.onSend(text);
@@ -369,6 +370,17 @@ export class CommandDeckHTML {
       this.rateSelect.setAttribute('aria-disabled', 'true');
     } else {
       this.rateSelect.removeAttribute('aria-disabled');
+    }
+
+    // Composer: disable input + Send when transport is disabled (CTX-0038 P2-02)
+    this.input.disabled = disabled;
+    this.sendButton.disabled = disabled;
+    if (disabled) {
+      this.input.setAttribute('aria-disabled', 'true');
+      this.sendButton.setAttribute('aria-disabled', 'true');
+    } else {
+      this.input.removeAttribute('aria-disabled');
+      this.sendButton.removeAttribute('aria-disabled');
     }
 
     // Composer input — respect pendingSendText when not focused

@@ -17,6 +17,14 @@ type BenchHost = {
   _plateauSince: number;
   _saturationLine: string | null;
   _frameRate: number;
+  _benchAutoThrottle: boolean;
+  _benchIdleFPS: number;
+  _hoverPauseEnabled: boolean;
+  _dragEnabled: boolean;
+  _reactionsEnabled: boolean;
+  _repulsionEnabled: boolean;
+  _gravityEnabled: boolean;
+  _jellyEnabled: boolean;
   isMobile: boolean;
   mode: import('./types').AppMode;
   pool: { activeCount: number; capacity: number };
@@ -49,7 +57,9 @@ function bh(host: App): BenchHost {
   return host as unknown as BenchHost;
 }
 
-export function benchState(host: App): BenchmarkPanelState {
+export function benchState(
+  host: App,
+): BenchmarkPanelState & { autoThrottle?: boolean; idleFPS?: number } {
   const h = bh(host);
   const labels = cinemaLabelsFor(h.currentLang).panels.benchmark;
   const backend = (h as unknown as { scene: { pointRenderer?: unknown } }).scene.pointRenderer
@@ -63,6 +73,8 @@ export function benchState(host: App): BenchmarkPanelState {
     resultLines: h._benchResultLines,
     saturationLine: h._saturationLine,
     copied: h._benchCopied,
+    autoThrottle: (h as unknown as { _benchAutoThrottle: boolean })._benchAutoThrottle,
+    idleFPS: (h as unknown as { _benchIdleFPS: number })._benchIdleFPS,
   };
 }
 
@@ -211,6 +223,12 @@ export function interactionsState(host: App): {
   presetId: import('@vectojs/danmaku-core').PresetId;
   effects: import('@vectojs/danmaku-core').CharacterEffects;
   renderClasses: { backend: string; glyphs: string; canvas: string };
+  hoverPause: boolean;
+  dragEnabled: boolean;
+  reactionsEnabled: boolean;
+  repulsionEnabled: boolean;
+  gravityEnabled: boolean;
+  jellyEnabled: boolean;
 } {
   const h = bh(host) as unknown as BenchHost & {
     activePreset: import('@vectojs/danmaku-core').PresetId;
@@ -235,5 +253,11 @@ export function interactionsState(host: App): {
       glyphs: `${draw.glGlyphs}`,
       canvas: `${draw.c2dBlits + draw.c2dFillText + draw.special}`,
     },
+    hoverPause: (h as unknown as { _hoverPauseEnabled: boolean })._hoverPauseEnabled,
+    dragEnabled: (h as unknown as { _dragEnabled: boolean })._dragEnabled,
+    reactionsEnabled: (h as unknown as { _reactionsEnabled: boolean })._reactionsEnabled,
+    repulsionEnabled: (h as unknown as { _repulsionEnabled: boolean })._repulsionEnabled,
+    gravityEnabled: (h as unknown as { _gravityEnabled: boolean })._gravityEnabled,
+    jellyEnabled: (h as unknown as { _jellyEnabled: boolean })._jellyEnabled,
   };
 }

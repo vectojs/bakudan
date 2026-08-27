@@ -145,11 +145,12 @@ export class App {
   private interactionsPanelHTML: InteractionsPanelHTML | null = null;
   private devtoolsPanelHTML: DevToolsPanelHTML | null = null;
   private benchPanelHTML: BenchmarkPanelHTML | null = null;
-  private videosPanel!: VideosPanel<string>;
-  private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
-  private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
-  private devtoolsPanel!: DevToolsInfoPanel;
-  private benchPanel!: BenchmarkPanel;
+  private videosPanel: VideosPanel<string> | null = null;
+  private throughputPanel: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId> | null =
+    null;
+  private interactionsPanel: InteractionsPanel<PresetId, EffectId, RenderClassId> | null = null;
+  private devtoolsPanel: DevToolsInfoPanel | null = null;
+  private benchPanel: BenchmarkPanel | null = null;
   private ticker: Ticker | null = null;
   private started = false;
   private destroyed = false;
@@ -206,6 +207,16 @@ export class App {
   private _saturationLine: string | null = null;
   /** Rendered-frame cap; the Benchmark tab's selector writes Scene.maxFPS. */
   private _frameRate = 240;
+  private _benchAutoThrottle = true;
+  private _benchIdleFPS = 60;
+
+  // Interaction toggles — wired to InteractionsPanelHTML (CTX-0038)
+  private _hoverPauseEnabled = true;
+  private _dragEnabled = true;
+  private _reactionsEnabled = true;
+  private _repulsionEnabled = false;
+  private _gravityEnabled = false;
+  private _jellyEnabled = false;
 
   private activeLabTab: LabTab = 'videos';
   private distributionId: DistributionId = 'steady';
@@ -306,6 +317,9 @@ export class App {
 
   constructor(scene: Scene, options: AppOptions = {}) {
     this.scene = scene;
+    // CTX-0038: wire bench idleFPS/autoThrottle to Scene (was inert)
+    this.scene.autoThrottle = this._benchAutoThrottle;
+    this.scene.idleFPS = this._benchIdleFPS;
     this.currentLang = detectBrowserLanguage();
 
     const isMobileInit = window.innerWidth < MOBILE_BREAKPOINT;
@@ -477,126 +491,11 @@ export class App {
         },
       });
     }
-    this.videosPanel = new VideosPanel({
-      theme: BAKUDAN_THEME,
-      labels: labels.panels.videos,
-      state: {
-        source: this.currentVideoSelection,
-        profileId: this.currentTrackProfileId,
-        loadState: this.videoLoadState,
-      },
-      catalog,
-      profiles,
-      onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
-      // Kit 0.8.0 renders its own local-file upload button when this is set;
-      // the kit owns the picker, App owns the blob: object-URL lifecycle.
-      onUploadFile: (file) => this._onLocalFilePicked(file),
-      onRetry: () => this._retryVideo(),
-    });
-    this.throughputPanel = new ThroughputPanel({
-      theme: BAKUDAN_THEME,
-      labels: labels.panels.throughput,
-      state: this._throughputState(),
-      distributions: [
-        { id: 'steady', label: 'Steady' },
-        { id: 'bursty', label: 'Bursty' },
-      ],
-      frameMetrics: [
-        { id: 'fps', label: 'FPS' },
-        { id: 'frame-time', label: 'Frame ms' },
-      ],
-      drawMetrics: [
-        { id: 'gl-runs', label: 'GL runs' },
-        { id: 'gl-glyphs', label: 'GL glyphs' },
-        { id: 'canvas-slots', label: 'Canvas slots' },
-      ],
-      targetRange: { min: 0, max: this.pool.capacity, step: 100 },
-      quickTargets: this.isMobile
-        ? [
-            { value: 1000, label: '1K' },
-            { value: 2500, label: '2.5K' },
-            { value: 5000, label: '5K' },
-          ]
-        : [
-            { value: 5000, label: '5K' },
-            { value: 10_000, label: '10K' },
-            { value: 20_000, label: '20K' },
-          ],
-      // 2000/s sat exactly at the ~20k equilibrium (a 20k pool with a ~10s
-      // lifetime exits ~2000/s), so the old cap could never fill a 20K
-      // target: exits matched inflow and band-refused placement did the rest.
-      // 6000/s lets inflow outrun exits between band openings.
-      rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
-      onTargetChange: (target) => {
-        this.applyStressTarget(target);
-      },
-      onRateChange: (rate) => {
-        this._setAppMode('stress');
-        this._profSpawnRate = rate;
-        this.scheduler.setSpawnRate(rate);
-        this._syncThroughputState();
-      },
-      onDistributionChange: (distributionId) => {
-        this.distributionId = distributionId;
-        this._syncThroughputState();
-      },
-    });
-    this.interactionsPanel = new InteractionsPanel({
-      theme: BAKUDAN_THEME,
-      labels: labels.panels.interactions,
-      state: this._interactionsState(),
-      presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
-        id,
-        label: PRESET_TRANSLATIONS[this.currentLang][id],
-      })),
-      effects: EFFECT_IDS.map((id) => ({
-        id,
-        label: t(`fx.${id}`, this.currentLang),
-      })),
-      renderClasses: [
-        { id: 'backend', label: 'Backend' },
-        { id: 'glyphs', label: 'MSDF glyphs' },
-        { id: 'canvas', label: 'Canvas fallbacks' },
-      ],
-      onPresetChange: (presetId) => {
-        this.activePreset = presetId;
-        this._syncInteractionsState();
-      },
-      onEffectChange: (effectId, enabled) => {
-        this.effects[effectId] = enabled;
-        this.scheduler.activeEffects = { ...this.effects };
-        this._syncInteractionsState();
-      },
-    });
-    this.devtoolsPanel = new DevToolsInfoPanel({
-      theme: BAKUDAN_THEME,
-      labels: labels.panels.devtools,
-      state: {
-        availability: this.devtoolsAvailability,
-        canReload: import.meta.env.DEV,
-      },
-      onReload: () => this._loadDevtools(),
-    });
-    this.benchPanel = new BenchmarkPanel({
-      theme: BAKUDAN_THEME,
-      labels: labels.panels.benchmark,
-      state: this._benchState(),
-      onFrameRateChange: (hz) => {
-        // Scene.maxFPS is public and settable at runtime (core docs: "Also
-        // settable later via Scene.maxFPS").
-        this._frameRate = hz;
-        this.scene.maxFPS = hz;
-        this._syncBenchState();
-      },
-      onRun: () => void this._runBenchmark(),
-      onCopy: () => void this._copyBenchJson(),
-      onDownload: () => this._downloadBenchJson(),
-    });
-
     const labContainer =
       typeof document !== 'undefined'
         ? (document.getElementById('lab-drawer') as HTMLElement | null)
         : null;
+    // CTX-0038 P2-03: construct only HTML or kit, not both — prevents VideosPanel leak.
     if (labContainer) {
       // HTML lab drawer path (CTX-0029) — vanilla HTML, no kit UI chrome for the drawer itself.
       this.videosPanelHTML = new VideosPanelHTML({
@@ -651,6 +550,7 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId as DistributionId;
+          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -659,6 +559,12 @@ export class App {
           presetId: this.activePreset,
           effects: { ...this.effects },
           renderClasses: this._interactionsState().renderClasses,
+          hoverPause: this._hoverPauseEnabled,
+          dragEnabled: this._dragEnabled,
+          reactionsEnabled: this._reactionsEnabled,
+          repulsionEnabled: this._repulsionEnabled,
+          gravityEnabled: this._gravityEnabled,
+          jellyEnabled: this._jellyEnabled,
         },
         presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
           id,
@@ -683,6 +589,40 @@ export class App {
           this.scheduler.activeEffects = { ...this.effects };
           this._syncInteractionsState();
         },
+        onHoverPauseChange: (enabled) => {
+          this._hoverPauseEnabled = enabled;
+          this._syncInteractionsState();
+        },
+        onDragChange: (enabled) => {
+          this._dragEnabled = enabled;
+          if (!enabled && this._dragSlot) {
+            this._dragSlot.dragging = false;
+            this._dragSlot = null;
+          }
+          this._syncInteractionsState();
+        },
+        onReactionsChange: (enabled) => {
+          this._reactionsEnabled = enabled;
+          // Gate reaction UI: hide hotspots when disabled
+          if (!enabled) this._clearSelection();
+          this._syncInteractionsState();
+        },
+        onRepulsionChange: (enabled) => {
+          this._repulsionEnabled = enabled;
+          // Wire to scheduler physics (no core API yet — store for tick)
+          (this.scheduler as unknown as { repulsionEnabled?: boolean }).repulsionEnabled = enabled;
+          this._syncInteractionsState();
+        },
+        onGravityChange: (enabled) => {
+          this._gravityEnabled = enabled;
+          (this.scheduler as unknown as { gravityEnabled?: boolean }).gravityEnabled = enabled;
+          this._syncInteractionsState();
+        },
+        onJellyChange: (enabled) => {
+          this._jellyEnabled = enabled;
+          this.scheduler.showcaseJelly = enabled;
+          this._syncInteractionsState();
+        },
       });
       this.devtoolsPanelHTML = new DevToolsPanelHTML({
         state: {
@@ -691,6 +631,7 @@ export class App {
         },
         labels: labels.panels.devtools,
         onReload: () => this._loadDevtools(),
+        onExportReport: () => this._exportDevToolsReport(),
       });
       this.benchPanelHTML = new BenchmarkPanelHTML({
         state: {
@@ -701,11 +642,23 @@ export class App {
           resultLines: this._benchResultLines,
           saturationLine: this._saturationLine,
           copied: this._benchCopied,
+          autoThrottle: this._benchAutoThrottle,
+          idleFPS: this._benchIdleFPS,
         },
         labels: labels.panels.benchmark,
         onFrameRateChange: (hz) => {
           this._frameRate = hz;
           this.scene.maxFPS = hz;
+          this._syncBenchState();
+        },
+        onAutoThrottleChange: (enabled) => {
+          this._benchAutoThrottle = enabled;
+          this.scene.autoThrottle = enabled;
+          this._syncBenchState();
+        },
+        onIdleFPSChange: (fps) => {
+          this._benchIdleFPS = fps;
+          this.scene.idleFPS = fps;
           this._syncBenchState();
         },
         onRun: () => void this._runBenchmark(),
@@ -802,6 +755,7 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId;
+          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -1002,6 +956,12 @@ export class App {
         glyphs: `${draw.glGlyphs}`,
         canvas: `${draw.c2dBlits + draw.c2dFillText + draw.special}`,
       },
+      hoverPause: this._hoverPauseEnabled,
+      dragEnabled: this._dragEnabled,
+      reactionsEnabled: this._reactionsEnabled,
+      repulsionEnabled: this._repulsionEnabled,
+      gravityEnabled: this._gravityEnabled,
+      jellyEnabled: this._jellyEnabled,
     };
   }
 
@@ -1027,7 +987,7 @@ export class App {
     else if (this.interactionsPanel) this.interactionsPanel.setState(state);
   }
 
-  private _benchState(): BenchmarkPanelState {
+  private _benchState(): BenchmarkPanelState & { autoThrottle?: boolean; idleFPS?: number } {
     const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
     const backend = (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
       ? 'WebGL/MSDF'
@@ -1040,6 +1000,8 @@ export class App {
       resultLines: this._benchResultLines,
       saturationLine: this._saturationLine,
       copied: this._benchCopied,
+      autoThrottle: this._benchAutoThrottle,
+      idleFPS: this._benchIdleFPS,
     };
   }
 
@@ -1129,6 +1091,56 @@ export class App {
     anchor.href = url;
     anchor.download = labels.downloadName;
     anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  private _applyDistribution(): void {
+    // CTX-0038 P2-01: wire distributionId to scheduler (steady vs bursty).
+    // Bursty mode bursts inflow by 50% over the slider rate so throughput
+    // panel toggle is observable; steady restores the slider-driven rate.
+    const anySched = this.scheduler as unknown as {
+      distributionId?: string;
+      setSpawnRate(r: number): void;
+      rate: number;
+    };
+    anySched.distributionId = this.distributionId;
+    const base = this._profSpawnRate ?? this.scheduler.rate;
+    if (this.distributionId === 'bursty') {
+      // Avoid trivial change when slider is at min 1
+      const burstyRate = Math.min(6000, Math.max(base, 10) * 1.5);
+      if (Math.abs(this.scheduler.rate - burstyRate) > 0.5) {
+        this.scheduler.setSpawnRate(burstyRate);
+      }
+    } else {
+      if (Math.abs(this.scheduler.rate - base) > 0.5) {
+        this.scheduler.setSpawnRate(base);
+      }
+    }
+  }
+
+  private _exportDevToolsReport(): void {
+    // CTX-0038 P2-04: app-driven export (was fallback in DevToolsPanelHTML).
+    const report = {
+      availability: this.devtoolsAvailability,
+      timestamp: new Date().toISOString(),
+      fps: this._lastFps,
+      frameTimeMs: this._frameTimeMs,
+      activeCount: this.pool.activeCount,
+      capacity: this.pool.capacity,
+      target: this.scheduler.target,
+      rate: this.scheduler.rate,
+      distributionId: this.distributionId,
+      interactions: this._interactionsState(),
+      benchmark: this._benchState(),
+      heapUsedMB: this._heapUsedMB,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    };
+    const json = JSON.stringify(report, null, 2);
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bakudan-devtools-${Date.now()}.json`;
+    a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
@@ -1459,7 +1471,7 @@ export class App {
     }
     const selected = this._selectedSlotId !== null ? slots[this._selectedSlotId] : null;
 
-    if (selected?.active && selected.interactionLocked) {
+    if (selected?.active && selected.interactionLocked && this._reactionsEnabled) {
       // Freeze is a property of selection, never a leftover of hover: a touch
       // tap or a click after idle has no hover state to inherit it from.
       selected.paused = true;
@@ -1516,7 +1528,11 @@ export class App {
       this._pointerStillSince = now;
       this._freezeState.clear();
     }
-    const zoneArmed = this.pointerActive && now - this._pointerStillSince >= FREEZE_QUIET_MS;
+    // CTX-0038 P1-01: hoverPause gates freeze zone
+    const zoneArmed =
+      this._hoverPauseEnabled &&
+      this.pointerActive &&
+      now - this._pointerStillSince >= FREEZE_QUIET_MS;
 
     for (let i = slots.length - 1; i >= 0; i--) {
       const s = slots[i];
@@ -1534,12 +1550,12 @@ export class App {
         // Out of the zone: forget the hold so a later re-entry freezes again.
         this._freezeState.delete(s.id);
         s.hovered = false;
-        s.paused = Boolean(s.dragging);
+        s.paused = Boolean(this._dragEnabled && s.dragging);
         continue;
       }
       if (!zoneArmed) {
         s.hovered = false;
-        s.paused = Boolean(s.dragging);
+        s.paused = Boolean(this._dragEnabled && s.dragging);
         continue;
       }
       let hold = this._freezeState.get(s.id);
@@ -1551,7 +1567,7 @@ export class App {
       }
       const frozen = !hold.released;
       s.hovered = frozen;
-      s.paused = s.dragging || frozen;
+      s.paused = (this._dragEnabled && s.dragging) || frozen;
     }
   }
 
@@ -1845,6 +1861,7 @@ export class App {
   }
 
   private _handleLikeToggle(): void {
+    if (!this._reactionsEnabled) return;
     if (this._selectedSlotId === null || !this._reactionStore) return;
     const s = this.pool.slots[this._selectedSlotId];
     if (!s || !s.active) return;
@@ -1855,6 +1872,7 @@ export class App {
   }
 
   private _handleCopy(): void {
+    if (!this._reactionsEnabled) return;
     if (this._selectedSlotId === null) return;
     const s = this.pool.slots[this._selectedSlotId];
     if (!s || !s.active) return;
@@ -1888,7 +1906,7 @@ export class App {
     this.pointerX = (event.clientX - rect.left) * scaleX;
     this.pointerY = (event.clientY - rect.top) * scaleY;
     this._interactiveMode = true;
-    if (this._dragSlot) {
+    if (this._dragEnabled && this._dragSlot) {
       this._dragSlot.x = this.pointerX - this._dragOffX;
       this._dragSlot.y = this.pointerY - this._dragOffY;
       this.scene.markDirty();
@@ -1960,6 +1978,17 @@ export class App {
     // coordinates were refreshed from this very event above, so the tap always
     // acts on what is under the cursor right now.
     if (inLab || inCommandDeck) return;
+
+    // CTX-0038: dragEnabled gates drag initiation
+    if (this._dragEnabled) {
+      const dragSlot = this._findSlotAtPointer();
+      if (dragSlot && !dragSlot.interactionLocked) {
+        this._dragSlot = dragSlot;
+        this._dragSlot.dragging = true;
+        this._dragOffX = this.pointerX - dragSlot.x;
+        this._dragOffY = this.pointerY - dragSlot.y;
+      }
+    }
 
     this._handleTapStage();
 
