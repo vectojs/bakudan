@@ -78,10 +78,10 @@ export interface DanmakuStyle {
 
 export const DEFAULT_DANMAKU_STYLE: DanmakuStyle = {
   opacity: 1,
-  outlineEnabled: true,
+  outlineEnabled: false,
   outlineColor: 'rgba(0,0,0,0.88)',
   outlineWidth: 2,
-  shadowEnabled: true,
+  shadowEnabled: false,
   shadowColor: 'rgba(0,0,0,0.55)',
   shadowBlur: 2,
   shadowOffsetX: 1,
