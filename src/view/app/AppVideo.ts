@@ -238,6 +238,23 @@ export function announceVideoError(host: App, error: VideoSourceError): void {
 
 export function applyStressTarget(host: App, target: number): void {
   const h = hostOf(host);
+  // Keep video playing when adjusting danmaku count: if already in video mode
+  // with a ready video, treat target as overlay count on top of the video track
+  // (danmaku is part of video). Don't switch to paused stress mode — that was
+  // the freeze bug (CTX-0043). Stay in video, adjust scheduler, ensure play.
+  if (h.mode === 'video') {
+    h._stressTargetBeforeVideo = target;
+    h._profTargetCount = target;
+    h.scheduler.setTargetCount(target);
+    h._syncThroughputState();
+    if (h.bg.isVideoReady && h.bg.paused) {
+      void h.bg.play().catch((error: unknown) => {
+        const srcError = asVideoSourceError(error);
+        if (srcError.code !== 'playback-rejected') announceVideoError(host, srcError);
+      });
+    }
+    return;
+  }
   h._setAppMode('stress');
   h._stressTargetBeforeVideo = target;
   h._profTargetCount = target;

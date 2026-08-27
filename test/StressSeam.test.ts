@@ -83,7 +83,7 @@ describe('App.applyStressTarget', () => {
     }
   });
 
-  it('pauses the background video, as the panel path does', async () => {
+  it('keeps the background video playing when adjusting danmaku count (CTX-0043)', async () => {
     const { app, scene, video } = stressFixture();
     try {
       // StageBackground attaches the candidate only on loadedmetadata; force
@@ -98,7 +98,10 @@ describe('App.applyStressTarget', () => {
         },
       });
       app.applyStressTarget(1000);
-      expect(pauseCalled).toBe(true);
+      // CTX-0043: adjusting danmaku count via ThroughputPanel must not pause
+      // the background video — danmaku is part of video, lab is for testing.
+      expect(pauseCalled).toBe(false);
+      expect(app.scheduler.target).toBe(1000);
     } finally {
       app.destroy();
       scene.destroy();
