@@ -817,19 +817,26 @@ export class DanmakuLayer extends Entity {
     ry: number,
     likeCount: number,
   ): void {
-    const pillY = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
-    // Backing plate over the exact hotspot span ([rx, rx+84] x [pillY-22,
-    // pillY+22], see SelectionHotspots.place) plus a uniform 12px margin, so
-    // the visible control and the click targets coincide and the actions read
-    // as one floating surface instead of bare emoji over bright video.
-    renderer.beginPath();
-    renderer.roundRect(
-      rx - PILL_PLATE_MARGIN_PX,
-      pillY - PILL_HEIGHT_PX / 2,
-      PILL_PLATE_WIDTH_PX,
-      PILL_HEIGHT_PX,
-      PILL_RADIUS_PX,
+    const stage = this.getStage();
+    const stageW = stage.w;
+    const safeTop = stage.safeTop ?? 0;
+    // Centered under the danmaku text, clamped to stageW and safeTop — must
+    // match App's hotspot placement or the plate and the click targets drift
+    // (P1-1: left 142 vs centered 118).
+    const unclampedLeft = rx + s.width / 2 - PILL_WIDTH_PX / 2;
+    const pillLeft = Math.round(
+      Math.min(
+        Math.max(unclampedLeft, PILL_PLATE_MARGIN_PX),
+        Math.max(PILL_PLATE_MARGIN_PX, stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
+      ),
     );
+    const pillYRaw = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
+    const pillTopRaw = pillYRaw - PILL_HEIGHT_PX / 2;
+    const pillTop = Math.max(pillTopRaw, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
+    const pillY = pillTop + PILL_HEIGHT_PX / 2;
+    const plateLeft = pillLeft - PILL_PLATE_MARGIN_PX;
+    renderer.beginPath();
+    renderer.roundRect(plateLeft, pillTop, PILL_PLATE_WIDTH_PX, PILL_HEIGHT_PX, PILL_RADIUS_PX);
     renderer.fill(DANMAKU_CHROME.pillFill);
     renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
     const hovered = this.getStage().hoveredAction ?? null;
@@ -845,7 +852,7 @@ export class DanmakuLayer extends Entity {
     const centerY = pillY - referenceCenter;
     renderer.fillText(
       countText,
-      rx + PILL_COUNT_OFFSET_PX,
+      pillLeft + PILL_COUNT_OFFSET_PX,
       pillY,
       countFont,
       DANMAKU_CHROME.pillCount,
@@ -857,14 +864,14 @@ export class DanmakuLayer extends Entity {
     // the color-fixed emoji needed, now with exact bounds and no font reads.
     this._drawHeartIcon(
       renderer,
-      rx + PILL_LIKE_ICON_CENTER_PX,
+      pillLeft + PILL_LIKE_ICON_CENTER_PX,
       centerY,
       PILL_ICON_SIZE_PX * (hovered === 'like' ? PILL_ICON_HOVER_SCALE : 1),
       s.liked ? DANMAKU_CHROME.pillIconActive : DANMAKU_CHROME.pillIcon,
     );
     this._drawCopyIcon(
       renderer,
-      rx + PILL_COPY_ICON_CENTER_PX,
+      pillLeft + PILL_COPY_ICON_CENTER_PX,
       centerY,
       PILL_ICON_SIZE_PX * (hovered === 'copy' ? PILL_ICON_HOVER_SCALE : 1),
       DANMAKU_CHROME.pillIcon,

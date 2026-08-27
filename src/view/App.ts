@@ -41,22 +41,15 @@ import {
   requestFullscreenOn,
 } from './Fullscreen';
 
-import {
-  DanmakuLayer,
-  paintOrderKey,
-  PILL_BASELINE_FACTOR,
-  PILL_COPY_OFFSET_PX,
-  PILL_HEIGHT_PX,
-  PILL_PLATE_MARGIN_PX,
-  PILL_PLATE_WIDTH_PX,
-  PILL_WIDTH_PX,
-} from './DanmakuLayer';
+import { DanmakuLayer } from './DanmakuLayer';
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 import { HeaderBar, type StatusState } from './html/HeaderBar';
 import { CommandDeckHTML, type CommandDeckState } from './html/CommandDeck';
 
+import * as AppPointer from './app/AppPointer';
+import * as AppSelection from './app/AppSelection';
 import * as AppVideo from './app/AppVideo';
 import * as AppLayout from './app/AppLayout';
 import {
@@ -66,9 +59,6 @@ import {
   COMMAND_DECK_MAX_WIDTH,
   DESKTOP_POOL,
   EFFECT_IDS,
-  FREEZE_HOLD_MS,
-  FREEZE_PAD_PX,
-  FREEZE_QUIET_MS,
   MOBILE_BREAKPOINT,
   MOBILE_POOL,
   STATUS_UPDATE_INTERVAL_MS,
@@ -146,8 +136,7 @@ export class App {
   private devtoolsPanelHTML: DevToolsPanelHTML | null = null;
   private benchPanelHTML: BenchmarkPanelHTML | null = null;
   private videosPanel: VideosPanel<string> | null = null;
-  private throughputPanel: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId> | null =
-    null;
+  private throughputPanel: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId> | null = null;
   private interactionsPanel: InteractionsPanel<PresetId, EffectId, RenderClassId> | null = null;
   private devtoolsPanel: DevToolsInfoPanel | null = null;
   private benchPanel: BenchmarkPanel | null = null;
@@ -210,7 +199,7 @@ export class App {
   private _benchAutoThrottle = true;
   private _benchIdleFPS = 60;
 
-  // Interaction toggles — wired to InteractionsPanelHTML (CTX-0038)
+  // Interaction toggles — wired to InteractionsPanelHTML (CTX-0038 + CTX-0040)
   private _hoverPauseEnabled = true;
   private _dragEnabled = true;
   private _reactionsEnabled = true;
@@ -362,7 +351,7 @@ export class App {
     this._profTargetCount = this._stressTargetBeforeVideo;
     this._profSpawnRate = this.scheduler.rate;
     this.scheduler.setTargetCount(0);
-    // Keep private fields used via AppVideo/AppLayout host casts
+    // Keep private fields used via AppVideo/AppLayout/AppPointer/AppSelection host casts
     void this.pendingVideoSelection;
     void this.pendingTrackProfileId;
     void this._localObjectUrls;
@@ -371,8 +360,23 @@ export class App {
     void this._onTrackProfileChange;
     void this._sameVideoSelection;
     void this._syncVideosState;
+    void this._reactionStore;
+    void this._lastPointerX;
+    void this._lastPointerY;
+    void this._pointerStillSince;
+    void this._hoverNow;
+    void this._freezeState;
+    void this._dragOffX;
+    void this._dragOffY;
+    void this._findSlotAtPointer;
+    void this._reactionId;
+    void this._handleTapStage;
+    void this._handleTapVideo;
+    void this._hitsOverlay;
     void AppVideo;
     void AppLayout;
+    void AppPointer;
+    void AppSelection;
 
     const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
     const initialTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
@@ -491,11 +495,126 @@ export class App {
         },
       });
     }
+    this.videosPanel = new VideosPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.videos,
+      state: {
+        source: this.currentVideoSelection,
+        profileId: this.currentTrackProfileId,
+        loadState: this.videoLoadState,
+      },
+      catalog,
+      profiles,
+      onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+      // Kit 0.8.0 renders its own local-file upload button when this is set;
+      // the kit owns the picker, App owns the blob: object-URL lifecycle.
+      onUploadFile: (file) => this._onLocalFilePicked(file),
+      onRetry: () => this._retryVideo(),
+    });
+    this.throughputPanel = new ThroughputPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.throughput,
+      state: this._throughputState(),
+      distributions: [
+        { id: 'steady', label: 'Steady' },
+        { id: 'bursty', label: 'Bursty' },
+      ],
+      frameMetrics: [
+        { id: 'fps', label: 'FPS' },
+        { id: 'frame-time', label: 'Frame ms' },
+      ],
+      drawMetrics: [
+        { id: 'gl-runs', label: 'GL runs' },
+        { id: 'gl-glyphs', label: 'GL glyphs' },
+        { id: 'canvas-slots', label: 'Canvas slots' },
+      ],
+      targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+      quickTargets: this.isMobile
+        ? [
+            { value: 1000, label: '1K' },
+            { value: 2500, label: '2.5K' },
+            { value: 5000, label: '5K' },
+          ]
+        : [
+            { value: 5000, label: '5K' },
+            { value: 10_000, label: '10K' },
+            { value: 20_000, label: '20K' },
+          ],
+      // 2000/s sat exactly at the ~20k equilibrium (a 20k pool with a ~10s
+      // lifetime exits ~2000/s), so the old cap could never fill a 20K
+      // target: exits matched inflow and band-refused placement did the rest.
+      // 6000/s lets inflow outrun exits between band openings.
+      rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
+      onTargetChange: (target) => {
+        this.applyStressTarget(target);
+      },
+      onRateChange: (rate) => {
+        this._setAppMode('stress');
+        this._profSpawnRate = rate;
+        this.scheduler.setSpawnRate(rate);
+        this._syncThroughputState();
+      },
+      onDistributionChange: (distributionId) => {
+        this.distributionId = distributionId;
+        this._syncThroughputState();
+      },
+    });
+    this.interactionsPanel = new InteractionsPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.interactions,
+      state: this._interactionsState(),
+      presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+        id,
+        label: PRESET_TRANSLATIONS[this.currentLang][id],
+      })),
+      effects: EFFECT_IDS.map((id) => ({
+        id,
+        label: t(`fx.${id}`, this.currentLang),
+      })),
+      renderClasses: [
+        { id: 'backend', label: 'Backend' },
+        { id: 'glyphs', label: 'MSDF glyphs' },
+        { id: 'canvas', label: 'Canvas fallbacks' },
+      ],
+      onPresetChange: (presetId) => {
+        this.activePreset = presetId;
+        this._syncInteractionsState();
+      },
+      onEffectChange: (effectId, enabled) => {
+        this.effects[effectId] = enabled;
+        this.scheduler.activeEffects = { ...this.effects };
+        this._syncInteractionsState();
+      },
+    });
+    this.devtoolsPanel = new DevToolsInfoPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.devtools,
+      state: {
+        availability: this.devtoolsAvailability,
+        canReload: import.meta.env.DEV,
+      },
+      onReload: () => this._loadDevtools(),
+    });
+    this.benchPanel = new BenchmarkPanel({
+      theme: BAKUDAN_THEME,
+      labels: labels.panels.benchmark,
+      state: this._benchState(),
+      onFrameRateChange: (hz) => {
+        // Scene.maxFPS is public and settable at runtime (core docs: "Also
+        // settable later via Scene.maxFPS").
+        this._frameRate = hz;
+        this.scene.maxFPS = hz;
+        this._syncBenchState();
+      },
+      onRun: () => void this._runBenchmark(),
+      onCopy: () => void this._copyBenchJson(),
+      onDownload: () => this._downloadBenchJson(),
+    });
+
     const labContainer =
       typeof document !== 'undefined'
         ? (document.getElementById('lab-drawer') as HTMLElement | null)
         : null;
-    // CTX-0038 P2-03: construct only HTML or kit, not both — prevents VideosPanel leak.
     if (labContainer) {
       // HTML lab drawer path (CTX-0029) — vanilla HTML, no kit UI chrome for the drawer itself.
       this.videosPanelHTML = new VideosPanelHTML({
@@ -550,7 +669,6 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId as DistributionId;
-          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -562,9 +680,6 @@ export class App {
           hoverPause: this._hoverPauseEnabled,
           dragEnabled: this._dragEnabled,
           reactionsEnabled: this._reactionsEnabled,
-          repulsionEnabled: this._repulsionEnabled,
-          gravityEnabled: this._gravityEnabled,
-          jellyEnabled: this._jellyEnabled,
         },
         presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
           id,
@@ -603,24 +718,7 @@ export class App {
         },
         onReactionsChange: (enabled) => {
           this._reactionsEnabled = enabled;
-          // Gate reaction UI: hide hotspots when disabled
           if (!enabled) this._clearSelection();
-          this._syncInteractionsState();
-        },
-        onRepulsionChange: (enabled) => {
-          this._repulsionEnabled = enabled;
-          // Wire to scheduler physics (no core API yet — store for tick)
-          (this.scheduler as unknown as { repulsionEnabled?: boolean }).repulsionEnabled = enabled;
-          this._syncInteractionsState();
-        },
-        onGravityChange: (enabled) => {
-          this._gravityEnabled = enabled;
-          (this.scheduler as unknown as { gravityEnabled?: boolean }).gravityEnabled = enabled;
-          this._syncInteractionsState();
-        },
-        onJellyChange: (enabled) => {
-          this._jellyEnabled = enabled;
-          this.scheduler.showcaseJelly = enabled;
           this._syncInteractionsState();
         },
       });
@@ -631,7 +729,6 @@ export class App {
         },
         labels: labels.panels.devtools,
         onReload: () => this._loadDevtools(),
-        onExportReport: () => this._exportDevToolsReport(),
       });
       this.benchPanelHTML = new BenchmarkPanelHTML({
         state: {
@@ -642,23 +739,11 @@ export class App {
           resultLines: this._benchResultLines,
           saturationLine: this._saturationLine,
           copied: this._benchCopied,
-          autoThrottle: this._benchAutoThrottle,
-          idleFPS: this._benchIdleFPS,
         },
         labels: labels.panels.benchmark,
         onFrameRateChange: (hz) => {
           this._frameRate = hz;
           this.scene.maxFPS = hz;
-          this._syncBenchState();
-        },
-        onAutoThrottleChange: (enabled) => {
-          this._benchAutoThrottle = enabled;
-          this.scene.autoThrottle = enabled;
-          this._syncBenchState();
-        },
-        onIdleFPSChange: (fps) => {
-          this._benchIdleFPS = fps;
-          this.scene.idleFPS = fps;
           this._syncBenchState();
         },
         onRun: () => void this._runBenchmark(),
@@ -755,7 +840,6 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId;
-          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -959,9 +1043,6 @@ export class App {
       hoverPause: this._hoverPauseEnabled,
       dragEnabled: this._dragEnabled,
       reactionsEnabled: this._reactionsEnabled,
-      repulsionEnabled: this._repulsionEnabled,
-      gravityEnabled: this._gravityEnabled,
-      jellyEnabled: this._jellyEnabled,
     };
   }
 
@@ -987,7 +1068,7 @@ export class App {
     else if (this.interactionsPanel) this.interactionsPanel.setState(state);
   }
 
-  private _benchState(): BenchmarkPanelState & { autoThrottle?: boolean; idleFPS?: number } {
+  private _benchState(): BenchmarkPanelState {
     const labels = cinemaLabelsFor(this.currentLang).panels.benchmark;
     const backend = (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
       ? 'WebGL/MSDF'
@@ -1000,8 +1081,6 @@ export class App {
       resultLines: this._benchResultLines,
       saturationLine: this._saturationLine,
       copied: this._benchCopied,
-      autoThrottle: this._benchAutoThrottle,
-      idleFPS: this._benchIdleFPS,
     };
   }
 
@@ -1091,56 +1170,6 @@ export class App {
     anchor.href = url;
     anchor.download = labels.downloadName;
     anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  private _applyDistribution(): void {
-    // CTX-0038 P2-01: wire distributionId to scheduler (steady vs bursty).
-    // Bursty mode bursts inflow by 50% over the slider rate so throughput
-    // panel toggle is observable; steady restores the slider-driven rate.
-    const anySched = this.scheduler as unknown as {
-      distributionId?: string;
-      setSpawnRate(r: number): void;
-      rate: number;
-    };
-    anySched.distributionId = this.distributionId;
-    const base = this._profSpawnRate ?? this.scheduler.rate;
-    if (this.distributionId === 'bursty') {
-      // Avoid trivial change when slider is at min 1
-      const burstyRate = Math.min(6000, Math.max(base, 10) * 1.5);
-      if (Math.abs(this.scheduler.rate - burstyRate) > 0.5) {
-        this.scheduler.setSpawnRate(burstyRate);
-      }
-    } else {
-      if (Math.abs(this.scheduler.rate - base) > 0.5) {
-        this.scheduler.setSpawnRate(base);
-      }
-    }
-  }
-
-  private _exportDevToolsReport(): void {
-    // CTX-0038 P2-04: app-driven export (was fallback in DevToolsPanelHTML).
-    const report = {
-      availability: this.devtoolsAvailability,
-      timestamp: new Date().toISOString(),
-      fps: this._lastFps,
-      frameTimeMs: this._frameTimeMs,
-      activeCount: this.pool.activeCount,
-      capacity: this.pool.capacity,
-      target: this.scheduler.target,
-      rate: this.scheduler.rate,
-      distributionId: this.distributionId,
-      interactions: this._interactionsState(),
-      benchmark: this._benchState(),
-      heapUsedMB: this._heapUsedMB,
-      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-    };
-    const json = JSON.stringify(report, null, 2);
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bakudan-devtools-${Date.now()}.json`;
-    a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
@@ -1459,116 +1488,8 @@ export class App {
   }
 
   private _updateHover(): void {
-    const slots = this.pool.slots;
-    if (this._benchRunning) {
-      // A danmaku frozen under a resting cursor would contaminate the run.
-      for (let i = slots.length - 1; i >= 0; i--) {
-        const s = slots[i]!;
-        s.hovered = false;
-        if (!s.interactionLocked) s.paused = false;
-      }
-      return;
-    }
-    const selected = this._selectedSlotId !== null ? slots[this._selectedSlotId] : null;
-
-    if (selected?.active && selected.interactionLocked && this._reactionsEnabled) {
-      // Freeze is a property of selection, never a leftover of hover: a touch
-      // tap or a click after idle has no hover state to inherit it from.
-      selected.paused = true;
-      // Anchor the bar on the pill DanmakuLayer._drawSelectedPill actually
-      // paints. Bilibili-style: the bar floats CENTERED under the danmaku
-      // text (not left-aligned with its first glyph), clamped to the stage so
-      // a short danmaku near an edge cannot push the plate off-canvas. Draw
-      // and hit-test both read these constants, so they cannot drift.
-      const pillTop =
-        Math.round(selected.y) +
-        selected.params.fontSize * PILL_BASELINE_FACTOR -
-        PILL_HEIGHT_PX / 2;
-      const pillLeft = Math.round(
-        Math.min(
-          Math.max(selected.x + selected.width / 2 - PILL_WIDTH_PX / 2, PILL_PLATE_MARGIN_PX),
-          Math.max(PILL_PLATE_MARGIN_PX, this.stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
-        ),
-      );
-      this._selectionHotspots.liked = selected.liked ?? false;
-      this._selectionHotspots.place(
-        pillLeft,
-        pillTop,
-        PILL_HEIGHT_PX,
-        PILL_COPY_OFFSET_PX,
-        PILL_WIDTH_PX,
-      );
-      // Derive hover from the hotspots themselves, so the highlight and the
-      // click target can never disagree.
-      const hoveredAction = this._selectionHotspots.hitAction(this.pointerX, this.pointerY);
-      if (hoveredAction !== this._hoveredAction) {
-        this._hoveredAction = hoveredAction;
-        this.scene.markDirty();
-      }
-    } else {
-      // The selected slot expired or was recycled out from under us — dismiss
-      // instead of leaving an action bar anchored to nothing.
-      if (this._selectedSlotId !== null) this._clearSelection();
-    }
-
-    // Cursor freeze zone — TRANSIENT by design. The original point-in-box
-    // freeze held every danmaku under a resting pointer forever, and the lane
-    // walled up behind it. Now: a MOVING pointer freezes nothing; a resting
-    // pointer freezes danmaku crossing it, but each slot holds at most
-    // FREEZE_HOLD_MS, then releases and flows on (staying released while it
-    // remains inside the zone, so it cannot re-freeze mid-queue). Leaving the
-    // zone re-arms the slot; moving the pointer disarms everything at once.
-    const now = this._hoverNow;
-    if (
-      Math.abs(this.pointerX - this._lastPointerX) > 2 ||
-      Math.abs(this.pointerY - this._lastPointerY) > 2
-    ) {
-      this._lastPointerX = this.pointerX;
-      this._lastPointerY = this.pointerY;
-      this._pointerStillSince = now;
-      this._freezeState.clear();
-    }
-    // CTX-0038 P1-01: hoverPause gates freeze zone
-    const zoneArmed =
-      this._hoverPauseEnabled &&
-      this.pointerActive &&
-      now - this._pointerStillSince >= FREEZE_QUIET_MS;
-
-    for (let i = slots.length - 1; i >= 0; i--) {
-      const s = slots[i];
-      if (!s.active || s.interactionLocked) {
-        s.hovered = false;
-        this._freezeState.delete(s.id);
-        continue;
-      }
-      const inside =
-        this.pointerX >= s.x - FREEZE_PAD_PX &&
-        this.pointerX <= s.x + s.width + FREEZE_PAD_PX &&
-        this.pointerY >= s.y - FREEZE_PAD_PX &&
-        this.pointerY <= s.y + s.params.fontSize * 1.5 + FREEZE_PAD_PX;
-      if (!inside) {
-        // Out of the zone: forget the hold so a later re-entry freezes again.
-        this._freezeState.delete(s.id);
-        s.hovered = false;
-        s.paused = Boolean(this._dragEnabled && s.dragging);
-        continue;
-      }
-      if (!zoneArmed) {
-        s.hovered = false;
-        s.paused = Boolean(this._dragEnabled && s.dragging);
-        continue;
-      }
-      let hold = this._freezeState.get(s.id);
-      if (!hold) {
-        hold = { since: now, released: false };
-        this._freezeState.set(s.id, hold);
-      } else if (!hold.released && now - hold.since >= FREEZE_HOLD_MS) {
-        hold.released = true;
-      }
-      const frozen = !hold.released;
-      s.hovered = frozen;
-      s.paused = (this._dragEnabled && s.dragging) || frozen;
-    }
+    // Delegate to AppPointer facade (CTX-0040: fixes orphaned facade dead code)
+    AppPointer.updateHover(this as unknown as App);
   }
 
   private _setAppMode(mode: AppMode): void {
@@ -1787,130 +1708,36 @@ export class App {
    * danmaku happened to spawn last, which could sit visually underneath.
    */
   private _findSlotAtPointer(): PoolSlot | null {
-    let best: PoolSlot | null = null;
-    let bestKey = -1;
-    for (const s of this.pool.slots) {
-      if (!s.active || s.interactionLocked) continue;
-      const localX = this.pointerX - s.x;
-      if (
-        localX < 0 ||
-        localX > s.width ||
-        this.pointerY < s.y ||
-        this.pointerY > s.y + s.params.fontSize * 1.5
-      ) {
-        continue;
-      }
-      const key = paintOrderKey(s);
-      if (key > bestKey) {
-        bestKey = key;
-        best = s;
-      }
-    }
-    return best;
+    return AppSelection.findSlotAtPointer(this as unknown as App);
   }
 
   /** Stable reaction key for a slot. Engine params carry no `contentId`, so identical text shares its like count deliberately. */
   private _reactionId(s: PoolSlot): string {
-    return s.params.contentId || `t:${s.params.text}`;
+    return AppSelection.reactionId(s);
   }
 
   private _handleTapStage(): void {
-    const slot = this._findSlotAtPointer();
-    if (!slot) {
-      this._clearSelection();
-      this._handleTapVideo();
-      return;
-    }
-
-    if (this._selectedSlotId !== null && this._selectedSlotId !== slot.id) {
-      this._clearSelection();
-    }
-
-    if (!slot.interactionLocked) {
-      slot.interactionLocked = true;
-      slot.paused = true;
-      this._selectedSlotId = slot.id;
-      const rx = this._reactionStore!.get(this._reactionId(slot));
-      slot.liked = rx.liked;
-      this._selectedLikeCount = rx.count;
-      this.scene.markDirty();
-      return;
-    }
-
-    // If they clicked the already-selected slot body (not its actions), release it.
-    this._clearSelection();
+    AppSelection.handleTapStage(this as unknown as App);
   }
 
   private _clearSelection(): void {
-    if (this._selectedSlotId !== null) {
-      const s = this.pool.slots[this._selectedSlotId];
-      if (s) {
-        s.interactionLocked = false;
-        s.hovered = false;
-        s.paused = false;
-      }
-      this._selectedSlotId = null;
-      this._hoveredAction = null;
-      this._selectedLikeCount = 0;
-      // Park container AND zero children together; parking the container alone
-      // left previously placed child rects composing back on-screen, where core
-      // happily projected clickable buttons over unrelated content.
-      this._selectionHotspots.hide();
-      this.scene.markDirty();
-    }
+    AppSelection.clearSelection(this as unknown as App);
   }
 
   private _handleLikeToggle(): void {
-    if (!this._reactionsEnabled) return;
-    if (this._selectedSlotId === null || !this._reactionStore) return;
-    const s = this.pool.slots[this._selectedSlotId];
-    if (!s || !s.active) return;
-    const rx = this._reactionStore.toggle(this._reactionId(s));
-    s.liked = rx.liked;
-    this._selectedLikeCount = rx.count;
-    this.scene.markDirty();
+    AppSelection.handleLikeToggle(this as unknown as App);
   }
 
   private _handleCopy(): void {
-    if (!this._reactionsEnabled) return;
-    if (this._selectedSlotId === null) return;
-    const s = this.pool.slots[this._selectedSlotId];
-    if (!s || !s.active) return;
-    const text = s.params.text;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      void navigator.clipboard.writeText(text).then(
-        () => console.log('Copied'), // Toast wiring elided for focus
-        () => console.warn('Clipboard unavailable'),
-      );
-    }
+    AppSelection.handleCopy(this as unknown as App);
   }
 
   private _handleTapVideo(): void {
-    return;
+    AppSelection.handleTapVideo(this as unknown as App);
   }
 
   private readonly _handlePointerMove = (event: PointerEvent): void => {
-    // Client px -> scene/world px. World units are LOGICAL CSS px -- the
-    // renderer owns the backing-store scale internally -- so the correction
-    // factor is the logical-to-CSS ratio, never canvas.width/rect.width:
-    // since #29 raised the backing store to min(dpr, 2), that ratio equals
-    // the device DPR and every hit-test reacted dpr-fold down-right of the
-    // cursor (vectojs/bakudan#40).
-    const rect = this.scene.canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-    this.pointerActive = true;
-    this._interactiveMode = true;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-    this._interactiveMode = true;
-    if (this._dragEnabled && this._dragSlot) {
-      this._dragSlot.x = this.pointerX - this._dragOffX;
-      this._dragSlot.y = this.pointerY - this._dragOffY;
-      this.scene.markDirty();
-    }
+    AppPointer.handlePointerMove(this as unknown as App, event);
   };
 
   /**
@@ -1918,111 +1745,23 @@ export class App {
    * rect. Reads the entity's own geometry so it can never drift from layout.
    */
   private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
-    return AppLayout.hitsOverlay(this as unknown as App, overlay);
+    return AppPointer.hitsOverlay(this as unknown as App, overlay);
   }
 
   private _handlePointerDown = (event: PointerEvent) => {
-    const canvas = this.scene.canvas;
-    if (!canvas) return;
-    // Same world-unit mapping as the move handler: logical CSS px, never
-    // backing-store px (vectojs/bakudan#40).
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width > 0 ? this.scene.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? this.scene.height / rect.height : 1;
-    this.pointerX = (event.clientX - rect.left) * scaleX;
-    this.pointerY = (event.clientY - rect.top) * scaleY;
-
-    // Ask the overlays where they actually are rather than re-deriving their
-    // geometry from breakpoints. Both used to be guessed from stageH, and the
-    // guesses drifted badly from _layoutOverlays: at 1600px tall the lab guess
-    // (stageH - 500) sat 236px below the drawer's real top, so pointerdowns in
-    // that band were treated as stage taps and stolen from the drawer; at 800px
-    // tall it sat 132px above it, swallowing real stage taps instead.
-    const inCommandDeck = this.commandDeck
-      ? this.mode === 'video' && this._hitsOverlay(this.commandDeck)
-      : false;
-    const inLab = this.labDrawerHTML
-      ? this.labOpen && this.debugHitsLab(this.pointerY)
-      : this.labOpen &&
-          (
-            this as unknown as {
-              labDrawer?: {
-                x: number;
-                y: number;
-                width: number;
-                height: number;
-              };
-            }
-          ).labDrawer
-        ? this._hitsOverlay(
-            (
-              this as unknown as {
-                labDrawer: {
-                  x: number;
-                  y: number;
-                  width: number;
-                  height: number;
-                };
-              }
-            ).labDrawer,
-          )
-        : false;
-
-    if (this.labOpen && !inLab && !inCommandDeck) {
-      this.setLabOpen(false);
-      return;
-    }
-
-    // No `_interactiveMode` gate here: a pointer resting >1.5s used to swallow
-    // the tap entirely, and hover-and-inspect invites exactly that pause. The
-    // coordinates were refreshed from this very event above, so the tap always
-    // acts on what is under the cursor right now.
-    if (inLab || inCommandDeck) return;
-
-    // CTX-0038: dragEnabled gates drag initiation
-    if (this._dragEnabled) {
-      const dragSlot = this._findSlotAtPointer();
-      if (dragSlot && !dragSlot.interactionLocked) {
-        this._dragSlot = dragSlot;
-        this._dragSlot.dragging = true;
-        this._dragOffX = this.pointerX - dragSlot.x;
-        this._dragOffY = this.pointerY - dragSlot.y;
-      }
-    }
-
-    this._handleTapStage();
-
-    // Synthetic pointers (automation, some pen/touch drivers) have no active
-    // pointer id and this throws NotFoundError, killing everything after it.
-    try {
-      this.scene.canvas.setPointerCapture(event.pointerId);
-    } catch {
-      /* no active pointer with that id — capture is best-effort */
-    }
+    AppPointer.handlePointerDown(this as unknown as App, event);
   };
 
   private readonly _handlePointerEnd = (): void => {
-    this.pointerActive = false;
-    if (!this._dragSlot) return;
-    this._dragSlot.dragging = false;
-    this._dragSlot.paused = this._dragSlot.hovered;
-    this._dragSlot = null;
+    AppPointer.handlePointerEnd(this as unknown as App);
   };
 
   private readonly _handlePointerLeave = (): void => {
-    this.pointerActive = false;
-    this._interactiveMode = false;
-    for (const s of this.pool.slots) s.hovered = false;
-    this.scene.markDirty();
+    AppPointer.handlePointerLeave(this as unknown as App);
   };
 
   private _setupPointerTracking(): void {
-    const canvas = this.scene.canvas;
-    canvas.addEventListener('pointermove', this._handlePointerMove);
-    canvas.addEventListener('pointerdown', this._handlePointerDown);
-    canvas.addEventListener('pointerup', this._handlePointerEnd);
-    canvas.addEventListener('pointercancel', this._handlePointerEnd);
-    canvas.addEventListener('pointerleave', this._handlePointerLeave);
+    AppPointer.setupPointerTracking(this as unknown as App);
   }
 
   destroy(): void {
@@ -2038,7 +1777,8 @@ export class App {
     canvas.removeEventListener('pointermove', this._handlePointerMove);
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
     canvas.removeEventListener('pointerup', this._handlePointerEnd);
-    canvas.removeEventListener('pointerleave', this._handlePointerEnd);
+    canvas.removeEventListener('pointercancel', this._handlePointerEnd);
+    canvas.removeEventListener('pointerleave', this._handlePointerLeave);
     if (this.labDrawer) this.labDrawer.setOpen(false);
     if (this.labDrawerHTML) this.labDrawerHTML.setOpen(false);
     if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
