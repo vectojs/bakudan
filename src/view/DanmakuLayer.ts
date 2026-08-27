@@ -56,7 +56,6 @@ export function fontWeightNum(choice: FontWeightId): number {
   return FONT_WEIGHTS[choice] ?? 400;
 }
 
-// --- CTX-0046: Bilibili-like danmaku style (outline / shadow / opacity) ---
 export interface DanmakuStyle {
   /** Global opacity multiplier applied after per-slot opacity (0.2..1.0). Bilibili: “不透明度”. */
   opacity: number;
@@ -105,14 +104,19 @@ declare module '@vectojs/danmaku-core' {
  */
 /** Vertical offset of the pill baseline from the danmaku origin, in font sizes. */
 export const PILL_BASELINE_FACTOR = 1.4;
-/** Horizontal offset of the like count from the pill's left edge. */
-export const PILL_COUNT_OFFSET_PX = 40;
+/** Gap between danmaku text bottom and bubble top — ensures speech bubble never covers text. */
+export const PILL_GAP_PX = 4;
+/** Horizontal offset of the like count from the pill's left edge (gap after heart). */
+export const PILL_COUNT_OFFSET_PX = 26;
 /** Horizontal offset of the copy glyph from the pill's left edge. */
-export const PILL_COPY_OFFSET_PX = 62;
-/** Total pill width, covering the like glyph, the count, and the copy glyph. */
-export const PILL_WIDTH_PX = 118;
+export const PILL_COPY_OFFSET_PX = 44;
+/** Total pill width, covering the like glyph, the count, and the copy glyph — Bilibili speech bubble. */
+export const PILL_WIDTH_PX = 80;
 /** Pill height; the hotspots span it fully. */
-export const PILL_HEIGHT_PX = 44;
+export const PILL_HEIGHT_PX = 28;
+/** Tail geometry for speech bubble pointing to danmaku center. */
+export const PILL_TAIL_WIDTH_PX = 8;
+export const PILL_TAIL_HEIGHT_PX = 6;
 /**
  * Corner radius of the action-pill backing plate. Derives from the theme so
  * the floating plate and every kit surface share one radius scale (the old
@@ -135,12 +139,12 @@ export const USER_BOX_RADIUS_PX = 6;
  * shared baseline), so alignment is deterministic - no font-metric offsets,
  * and no cross-shot identity drift (the r2 review's strongest eyesore).
  */
-/** Square icon box side, px. Both glyphs fit inside it. */
-export const PILL_ICON_SIZE_PX = 18;
+/** Square icon box side, px. Both glyphs fit inside it — compact for 80x28 bubble. */
+export const PILL_ICON_SIZE_PX = 14;
 /** Horizontal center of the heart icon, from the pill's left edge. */
-export const PILL_LIKE_ICON_CENTER_PX = 28;
-/** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [60,84]). */
-export const PILL_COPY_ICON_CENTER_PX = 94;
+export const PILL_LIKE_ICON_CENTER_PX = 14;
+/** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [44,80]). */
+export const PILL_COPY_ICON_CENTER_PX = 62;
 /** Hover affordance: the hovered icon scales by this factor about its center. */
 export const PILL_ICON_HOVER_SCALE = 1.15;
 /**
@@ -252,16 +256,14 @@ function glyphInkCenterAboveBaseline(text: string, font: string): number | null 
  * InteractionGeometry.test.ts pins the composed span on both sides.
  */
 const COPY_HOTSPOT_MIN_PX = 24;
-/** Uniform margin between the pill plate's edge and the hotspot span. */
-export const PILL_PLATE_MARGIN_PX = 12;
+void COPY_HOTSPOT_MIN_PX;
+/** Uniform margin between the pill plate's edge and the hotspot span — zero for speech bubble (plate == bubble). */
+export const PILL_PLATE_MARGIN_PX = 0;
 /**
- * Total pill plate width: the hotspot span (like [0,60] + copy [60,84])
- * plus one margin each side.
+ * Total pill plate width: the hotspot span (like [0,44] + copy [44,80])
+ * plus margins. For speech bubble plate == bubble width.
  */
-export const PILL_PLATE_WIDTH_PX =
-  PILL_COPY_OFFSET_PX +
-  Math.max(COPY_HOTSPOT_MIN_PX, PILL_WIDTH_PX - PILL_COPY_OFFSET_PX) +
-  PILL_PLATE_MARGIN_PX * 2;
+export const PILL_PLATE_WIDTH_PX = PILL_WIDTH_PX;
 /** Which visual state a danmaku's interaction box paints. */
 export type UserBoxKind = 'hover' | 'userSent' | 'selected';
 
@@ -280,10 +282,12 @@ export function isSpecialSlot(s: PoolSlot): boolean {
   // P2-2: reduce over-classification. style-showcase's 73% special came from
   // glow(0.3)+gradient(0.25)+outline(0.35) each forcing the special pass and
   // bypassing the GL glyph batch. Only presets that truly need per-char or
-  // multi-pass rendering stay special: rotation (per-char angles), glitch
-  // (3-pass chroma), and rainbow (per-char hue). Glow/outline/gradient are
-  // single-fill with an extra stroke/gradient and can stay batched.
-  return s.params.preset === 'glitch' || s.params.preset === 'rotation' || eff.rainbow;
+  // multi-pass rendering stay special: glitch (3-pass chroma) and rainbow
+  // (per-char hue). Glow/outline/gradient are single-fill with an extra
+  // stroke/gradient and can stay batched.
+  // CTX-0044: rotation removed — per-char save/rotate bypassed GL batch and
+  // measured ~10fps in style-showcase; remaining specials are cheap or rarer.
+  return s.params.preset === 'glitch' || eff.rainbow;
 }
 
 /**
@@ -334,10 +338,11 @@ interface GlyphRun {
 const emojiRe = /\p{Extended_Pictographic}/u;
 
 /**
- * Shared per-(fontSize,char) width cache for the rare rainbow/rotation
+ * Shared per-(fontSize,char) width cache for the rare rainbow/glitch
  * presets, which draw character-by-character and need per-glyph advances.
  * fontSize is an integer (Scheduler floors it), so the key space is bounded
  * (~21 sizes × the small CJK/ASCII working set) and never leaks.
+ * CTX-0044: rotation removed, rainbow remains the sole per-char hue path.
  */
 const charWidthCache = new Map<string, number>();
 let measureCanvasCtx: CanvasRenderingContext2D | null = null;
@@ -417,11 +422,6 @@ interface SlotCache {
  * slots (`hovered`/`liked`/`dragging`/`userSent`); the App owns hit-testing.
  */
 export class DanmakuLayer extends Entity {
-  /** Font-size buckets: index = fontSize, value = list of slots to draw. */
-  private _buckets: PoolSlot[][] = [];
-  private _slotCaches = new WeakMap<PoolSlot, SlotCache>();
-
-  // --- CTX-0046: per-layer style (Bilibili outline/shadow/opacity) ---
   private _style: DanmakuStyle = { ...DEFAULT_DANMAKU_STYLE };
 
   getStyle(): DanmakuStyle {
@@ -430,13 +430,15 @@ export class DanmakuLayer extends Entity {
 
   setStyle(patch: Partial<DanmakuStyle>): void {
     this._style = { ...this._style, ...patch };
-    // Clamp numeric fields
     this._style.opacity = Math.max(0.1, Math.min(1, this._style.opacity));
     this._style.outlineWidth = Math.max(1, Math.min(4, Math.round(this._style.outlineWidth)));
     this._style.shadowBlur = Math.max(0, Math.min(8, Math.round(this._style.shadowBlur)));
     this._style.shadowOffsetX = Math.max(-4, Math.min(4, Math.round(this._style.shadowOffsetX)));
     this._style.shadowOffsetY = Math.max(-4, Math.min(4, Math.round(this._style.shadowOffsetY)));
   }
+  /** Font-size buckets: index = fontSize, value = list of slots to draw. */
+  private _buckets: PoolSlot[][] = [];
+  private _slotCaches = new WeakMap<PoolSlot, SlotCache>();
 
   private _getSlotCache(s: PoolSlot): SlotCache {
     let c = this._slotCaches.get(s);
@@ -448,16 +450,14 @@ export class DanmakuLayer extends Entity {
   }
 
   private _cullMargin(s: PoolSlot): number {
-    // P3-2: cull previously used 1.5*fs, underestimating sine(60), rotation(0.4*fs),
+    // P3-2: cull previously used 1.5*fs, underestimating sine(60),
     // glitch(3), repulsion(6), outline(2), glow(4), and jelly(0.16*fs).
+    // CTX-0044: rotation removed (was 0.4*fs per-char wobble).
     const fs = s.params.fontSize;
     let motion = 0;
     switch (s.params.preset) {
       case 'sine':
         motion = Math.abs(s.params.presetParams.amplitude ?? 60);
-        break;
-      case 'rotation':
-        motion = fs * 0.4;
         break;
       case 'glitch':
         motion = 3;
@@ -471,88 +471,8 @@ export class DanmakuLayer extends Entity {
     let effect = 0;
     if (s.params.effects.outline) effect += 2;
     if (s.params.effects.glow) effect += 4;
-    if (this._style.outlineEnabled) effect += this._style.outlineWidth;
-    if (this._style.shadowEnabled)
-      effect +=
-        Math.max(Math.abs(this._style.shadowOffsetX), Math.abs(this._style.shadowOffsetY)) +
-        this._style.shadowBlur;
     const jelly = s.jellyScaleY !== 1 || s.jellyScaleX !== 1 ? Math.ceil(fs * 0.32 * 0.5) : 0;
     return Math.ceil(motion + effect + jelly);
-  }
-
-  /**
-   * CTX-0046: Canvas2D helper — Bilibili danmaku is white with a thick black
-   * stroke and a soft drop shadow so it reads over bright video. This draws the
-   * style's shadow (offset copy, optional blur via extra passes), then the
-   * outline (4 or 8 copies at `outlineWidth`), then the main glyph. No save/
-   * restore — caller owns globalAlpha.
-   */
-  private _fillStyledText(
-    renderer: IRenderer,
-    text: string,
-    x: number,
-    y: number,
-    font: string,
-    color: string,
-    alpha: number,
-  ): void {
-    const s = this._style;
-    // Shadow: one primary offset + `shadowBlur` extra jitter passes for softness
-    if (s.shadowEnabled) {
-      const baseAlpha = alpha * 0.85;
-      renderer.fillText(text, x + s.shadowOffsetX, y + s.shadowOffsetY, font, s.shadowColor);
-      // Cheap blur: extra copies around the shadow origin; alpha fades with distance
-      for (let b = 1; b <= s.shadowBlur && b <= 3; b++) {
-        const a = baseAlpha * (1 - b * 0.18);
-        if (a <= 0.02) break;
-        renderer.setGlobalAlpha(a);
-        renderer.fillText(text, x + s.shadowOffsetX + b, y + s.shadowOffsetY, font, s.shadowColor);
-        renderer.fillText(text, x + s.shadowOffsetX, y + s.shadowOffsetY + b, font, s.shadowColor);
-      }
-      renderer.setGlobalAlpha(alpha);
-    }
-    if (s.outlineEnabled) {
-      const w = s.outlineWidth;
-      const oc = s.outlineColor;
-      const offs: Array<[number, number]> =
-        w <= 1
-          ? [
-              [w, 0],
-              [-w, 0],
-              [0, w],
-              [0, -w],
-            ]
-          : w === 2
-            ? [
-                [w, 0],
-                [-w, 0],
-                [0, w],
-                [0, -w],
-                [w, w],
-                [-w, w],
-                [w, -w],
-                [-w, -w],
-              ]
-            : [
-                [w, 0],
-                [-w, 0],
-                [0, w],
-                [0, -w],
-                [w, w],
-                [-w, w],
-                [w, -w],
-                [-w, -w],
-                [w, 1],
-                [-w, 1],
-                [1, w],
-                [-1, w],
-              ];
-      for (const [ox, oy] of offs) {
-        renderer.fillText(text, x + ox, y + oy, font, oc);
-      }
-    }
-    renderer.setGlobalAlpha(alpha);
-    renderer.fillText(text, x, y, font, color);
   }
 
   // --- WebGL/MSDF text path (set once the atlas loads; null → Canvas2D) ---
@@ -846,20 +766,13 @@ export class DanmakuLayer extends Entity {
           cache.glRun = undefined;
         }
 
-        // CTX-0046: effective alpha includes global style opacity (Bilibili “不透明度” slider)
-        const effectiveAlpha = Math.max(0, Math.min(1, s.params.opacity * this._style.opacity));
-
         // User-sent danmaku keep their highlight box + text together on the 2D
         // canvas (z2) so the box stays behind the glyphs; the GL glyph layer is
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
         // CTX-0045: MSDF atlas is sans/400 only — serif/mono/bold remain Canvas2D.
-        // CTX-0046: when global outline/shadow is enabled, GL glyphs get extra
-        // outline/shadow glyphs (vertex cost, still one draw call) rather than
-        // falling back to Canvas2D and losing the 5k batch advantage.
-        const useGL = !!glr && !!this._font && !s.userSent && !!cache.glSafe && isGLCompatible(s);
-        if (useGL) {
-          // GPU path: push this run's glyph quads to the batch (+ outline/shadow if style demands).
+        if (glr && this._font && !s.userSent && cache.glSafe && isGLCompatible(s)) {
+          // GPU path: push this run's glyph quads to the batch.
           this.drawStats.glRuns++;
           if (!cache.glRun || cache.lastFS !== fs) {
             cache.glRun = this._glyphRun(s.params.text, fs);
@@ -867,123 +780,32 @@ export class DanmakuLayer extends Entity {
           }
           const run = cache.glRun!;
           const color = s.params.color;
+          const alpha = s.params.opacity;
           const quads = run.quads;
-          // Shadow layer (one offset copy, cheaper than per-pixel blur)
-          if (this._style.shadowEnabled) {
-            const sox = this._style.shadowOffsetX;
-            const soy = this._style.shadowOffsetY;
-            for (let q = 0; q < quads.length; q++) {
-              const g = quads[q];
-              glr.addGlyph(
-                rx + g.x + sox,
-                ry + g.y + soy,
-                g.w,
-                g.h,
-                g.u0,
-                g.v0,
-                g.u1,
-                g.v1,
-                this._style.shadowColor,
-                effectiveAlpha * 0.9,
-              );
-              this.drawStats.glGlyphs++;
-            }
-          }
-          // Outline layer: 4 or 8 offset copies depending on width
-          if (this._style.outlineEnabled) {
-            const w = this._style.outlineWidth;
-            const offs: Array<[number, number]> =
-              w <= 1
-                ? [
-                    [w, 0],
-                    [-w, 0],
-                    [0, w],
-                    [0, -w],
-                  ]
-                : [
-                    [w, 0],
-                    [-w, 0],
-                    [0, w],
-                    [0, -w],
-                    [w, w],
-                    [-w, w],
-                    [w, -w],
-                    [-w, -w],
-                  ];
-            for (const [ox, oy] of offs) {
-              for (let q = 0; q < quads.length; q++) {
-                const g = quads[q];
-                glr.addGlyph(
-                  rx + g.x + ox,
-                  ry + g.y + oy,
-                  g.w,
-                  g.h,
-                  g.u0,
-                  g.v0,
-                  g.u1,
-                  g.v1,
-                  this._style.outlineColor,
-                  effectiveAlpha,
-                );
-                this.drawStats.glGlyphs++;
-              }
-            }
-          }
-          // Main glyphs
           for (let q = 0; q < quads.length; q++) {
             const g = quads[q];
-            glr.addGlyph(
-              rx + g.x,
-              ry + g.y,
-              g.w,
-              g.h,
-              g.u0,
-              g.v0,
-              g.u1,
-              g.v1,
-              color,
-              effectiveAlpha,
-            );
+            glr.addGlyph(rx + g.x, ry + g.y, g.w, g.h, g.u0, g.v0, g.u1, g.v1, color, alpha);
             this.drawStats.glGlyphs++;
           }
         } else {
           // Canvas2D fallback (emoji / out-of-atlas glyphs, or no WebGL).
-          // CTX-0046: when style needs outline/shadow, bypass the rasterCache
-          // (which bakes color+font without chrome) and draw styled text directly.
-          const needsStyledCanvas = this._style.outlineEnabled || this._style.shadowEnabled;
-          if (curAlpha !== effectiveAlpha) {
-            renderer.setGlobalAlpha(effectiveAlpha);
-            curAlpha = effectiveAlpha;
+          if (curAlpha !== s.params.opacity) {
+            renderer.setGlobalAlpha(s.params.opacity);
+            curAlpha = s.params.opacity;
           }
-          if (!needsStyledCanvas) {
-            const r = this._rasterCache.get(font, s.params.color, s.params.text);
-            if (r) {
-              this.drawStats.c2dBlits++;
-              renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
-              // Keep curAlpha for next iteration; already set
-              // Need continue to next slot? r case done.
-            } else {
-              this.drawStats.c2dFillText++;
-              renderer.fillText(s.params.text, rx, textY, font, s.params.color);
-            }
+          const r = this._rasterCache.get(font, s.params.color, s.params.text);
+          if (r) {
+            this.drawStats.c2dBlits++;
+            renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
           } else {
-            // Styled Canvas2D path: shadow -> outline -> main (Bilibili black border)
             this.drawStats.c2dFillText++;
-            this._fillStyledText(
-              renderer,
-              s.params.text,
-              rx,
-              textY,
-              font,
-              s.params.color,
-              effectiveAlpha,
-            );
+            renderer.fillText(s.params.text, rx, textY, font, s.params.color);
           }
         }
       }
     }
 
-    // --- Special pass: glitch / rotation / rainbow / outline / glow ---
+    // --- Special pass: glitch / rainbow (rotation removed CTX-0044) ---
     if (special) {
       for (let i = 0; i < special.length; i++) {
         this._renderSpecial(renderer, special[i], stageW, stageH, interactive, false, frozen);
@@ -1017,19 +839,11 @@ export class DanmakuLayer extends Entity {
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
     const font = slotFont(s);
-    const effectiveAlpha = Math.max(0, Math.min(1, opacity * this._style.opacity));
-    renderer.setGlobalAlpha(effectiveAlpha);
+    renderer.setGlobalAlpha(opacity);
 
-
-    if (isRotation) {
-      renderer.save();
-      renderer.translate(Math.round(s.x), Math.round(s.y));
-      this._renderRotatedChars(renderer, s, font, color, fontSize);
-      renderer.restore();
-      renderer.setGlobalAlpha(1);
-      return;
-    }
-
+    // CTX-0044: rotation removed — former per-char save/translate/rotate path
+    // cost ~10fps at style-showcase density; legacy 'rotation' now falls through
+    // to plain single-fill (batched when possible) with no per-char state.
     const rx = Math.round(s.x);
     const ry = Math.round(s.y);
     const textY = ry + fontSize * 0.8;
@@ -1060,82 +874,12 @@ export class DanmakuLayer extends Entity {
         cx += charWidth(chars[i], fontSize, weight, family);
       }
     } else {
-      // CTX-0046: global Bilibili shadow + outline (per-danmaku outline still respects effects.outline)
-      const hasGlobalShadow = this._style.shadowEnabled;
-      const needOutline = this._style.outlineEnabled || effects.outline || isSelected;
-      // Global shadow is drawn first so outline and main sit on top of it (Bilibili: shadow under stroke)
-      if (hasGlobalShadow) {
-        renderer.setGlobalAlpha(effectiveAlpha * 0.85);
-        renderer.fillText(
-          text,
-          rx + this._style.shadowOffsetX,
-          textY + this._style.shadowOffsetY,
-          font,
-          this._style.shadowColor,
-        );
-        // Cheap blur extra passes
-        for (let b = 1; b <= this._style.shadowBlur && b <= 3; b++) {
-          const a = effectiveAlpha * 0.85 * (1 - b * 0.18);
-          if (a <= 0.02) break;
-          renderer.setGlobalAlpha(a);
-          renderer.fillText(
-            text,
-            rx + this._style.shadowOffsetX + b,
-            textY + this._style.shadowOffsetY,
-            font,
-            this._style.shadowColor,
-          );
-          renderer.fillText(
-            text,
-            rx + this._style.shadowOffsetX,
-            textY + this._style.shadowOffsetY + b,
-            font,
-            this._style.shadowColor,
-          );
-        }
-        renderer.setGlobalAlpha(effectiveAlpha);
-      }
-      if (needOutline) {
-        const outlineColor = isSelected
-          ? DANMAKU_CHROME.selectedTextOutline
-          : effects.outline
-            ? 'rgba(0,0,0,0.6)'
-            : this._style.outlineColor;
-        const w = isSelected ? 1 : this._style.outlineEnabled ? this._style.outlineWidth : 1;
-        const offs: Array<[number, number]> =
-          w <= 1
-            ? [
-                [w, 0],
-                [-w, 0],
-                [0, w],
-                [0, -w],
-              ]
-            : w === 2
-              ? [
-                  [w, 0],
-                  [-w, 0],
-                  [0, w],
-                  [0, -w],
-                  [w, w],
-                  [-w, w],
-                  [w, -w],
-                  [-w, -w],
-                ]
-              : [
-                  [w, 0],
-                  [-w, 0],
-                  [0, w],
-                  [0, -w],
-                  [w, w],
-                  [-w, w],
-                  [w, -w],
-                  [-w, -w],
-                  [w, 1],
-                  [-w, 1],
-                ];
-        for (const [ox, oy] of offs) {
-          renderer.fillText(text, rx + ox, textY + oy, font, outlineColor);
-        }
+      if (effects.outline || isSelected) {
+        const outlineColor = isSelected ? DANMAKU_CHROME.selectedTextOutline : 'rgba(0,0,0,0.6)';
+        renderer.fillText(text, rx + 1, textY, font, outlineColor);
+        renderer.fillText(text, rx - 1, textY, font, outlineColor);
+        renderer.fillText(text, rx, textY + 1, font, outlineColor);
+        renderer.fillText(text, rx, textY - 1, font, outlineColor);
       }
       let paint: string | unknown = color;
       if (effects.gradient) {
@@ -1160,8 +904,6 @@ export class DanmakuLayer extends Entity {
     }
     renderer.setGlobalAlpha(1);
   }
-
-  
 
   /**
    * Per-danmaku interaction box, painted from the shared DANMAKU_CHROME
@@ -1229,23 +971,37 @@ export class DanmakuLayer extends Entity {
     const stage = this.getStage();
     const stageW = stage.w;
     const safeTop = stage.safeTop ?? 0;
-    // Centered under the danmaku text, clamped to stageW and safeTop — must
-    // match App's hotspot placement or the plate and the click targets drift
-    // (P1-1: left 142 vs centered 118).
+    // Bilibili speech bubble: centered below danmaku, not covering text, with tail.
+    // Must match AppPointer hotspot placement or the bubble and click targets drift.
     const unclampedLeft = rx + s.width / 2 - PILL_WIDTH_PX / 2;
     const pillLeft = Math.round(
       Math.min(
         Math.max(unclampedLeft, PILL_PLATE_MARGIN_PX),
-        Math.max(PILL_PLATE_MARGIN_PX, stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
+        Math.max(PILL_PLATE_MARGIN_PX, stageW - PILL_WIDTH_PX - PILL_PLATE_MARGIN_PX),
       ),
     );
-    const pillYRaw = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
-    const pillTopRaw = pillYRaw - PILL_HEIGHT_PX / 2;
+    const pillTopRaw = ry + s.params.fontSize * PILL_BASELINE_FACTOR + PILL_GAP_PX;
     const pillTop = Math.max(pillTopRaw, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
     const pillY = pillTop + PILL_HEIGHT_PX / 2;
-    const plateLeft = pillLeft - PILL_PLATE_MARGIN_PX;
+    // Bubble plate — speech bubble with same pillFill
     renderer.beginPath();
-    renderer.roundRect(plateLeft, pillTop, PILL_PLATE_WIDTH_PX, PILL_HEIGHT_PX, PILL_RADIUS_PX);
+    renderer.roundRect(pillLeft, pillTop, PILL_WIDTH_PX, PILL_HEIGHT_PX, PILL_RADIUS_PX);
+    renderer.fill(DANMAKU_CHROME.pillFill);
+    renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
+    // Tail — small triangle pointing to danmaku center, clamped inside bubble
+    const danmakuCenter = rx + s.width / 2;
+    const tailCenter = Math.min(
+      Math.max(danmakuCenter, pillLeft + PILL_TAIL_WIDTH_PX),
+      pillLeft + PILL_WIDTH_PX - PILL_TAIL_WIDTH_PX,
+    );
+    const tailLeft = tailCenter - PILL_TAIL_WIDTH_PX / 2;
+    const tailRight = tailCenter + PILL_TAIL_WIDTH_PX / 2;
+    const tailTipY = pillTop - PILL_TAIL_HEIGHT_PX;
+    renderer.beginPath();
+    renderer.moveTo(tailLeft, pillTop);
+    renderer.lineTo(tailCenter, tailTipY);
+    renderer.lineTo(tailRight, pillTop);
+    renderer.closePath();
     renderer.fill(DANMAKU_CHROME.pillFill);
     renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
     const hovered = this.getStage().hoveredAction ?? null;
