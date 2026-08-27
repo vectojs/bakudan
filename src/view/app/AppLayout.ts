@@ -24,7 +24,7 @@ type LayoutHost = {
     height: number;
     setCompact(c: boolean): { setWidth(w: number): unknown };
     setWidth(w: number): unknown;
-  };
+  } | null;
   commandDeck: {
     x: number;
     y: number;
@@ -40,7 +40,7 @@ type LayoutHost = {
       timeline: { x: number; width: number };
       rate: { x: number; width: number };
     };
-  };
+  } | null;
   labDrawer: {
     x: number;
     y: number;
@@ -50,6 +50,16 @@ type LayoutHost = {
     children: unknown[];
     setAvailableBounds(b: { width: number; height: number }): unknown;
   };
+  // Hybrid HTML chrome (CTX-0029-0030) — when present, CSS Grid owns layout
+  headerBar: unknown | null;
+  commandDeckHTML: unknown | null;
+  labDrawerHTML: {
+    getLayoutInfo(
+      stageH: number,
+      isMobile: boolean,
+    ): { y: number; height: number; width: number; open: boolean };
+    setOpen?(open: boolean): void;
+  } | null;
   labOpen: boolean;
   scene: { markDirty(): void; width: number; height: number };
   scheduler: { resize(w: number, h: number): void };
@@ -83,66 +93,66 @@ export function onViewportChange(host: App, viewport: VisualViewport): void {
 
 export function layoutCinema(host: App): void {
   const h = getHost(host);
-  const statusBar = h.statusBar as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    setCompact(c: boolean): { setWidth(w: number): unknown };
-    setWidth(w: number): unknown;
-  };
-  const commandDeck = h.commandDeck as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    setCompact(c: boolean): { setWidth(w: number): unknown };
-    setWidth(w: number): unknown;
-  };
-  const labDrawer = h.labDrawer as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    setAvailableBounds(b: { width: number; height: number }): unknown;
-  };
-  if (!statusBar || !commandDeck || !labDrawer) return;
+  // Hybrid shell (CTX-0030): HTML chrome is CSS-positioned. Keep fallback
+  // path for happy-dom tests where mounts are absent.
+  if (!h.labDrawer && !h.labDrawerHTML) return;
+  if (!h.statusBar && !h.headerBar) return;
+  if (!h.commandDeck && !h.commandDeckHTML) return;
   const margin = h.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
   const compact = h.isMobile;
   const viewportTop = Math.max(0, h._viewportTop);
   const viewportBottom = Math.min(h.stageH, Math.max(viewportTop, h._viewportBottom ?? h.stageH));
   const viewportHeight = Math.max(0, viewportBottom - viewportTop);
-  const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, h.stageW - margin * 2));
-  (
-    statusBar as unknown as {
-      setCompact(c: boolean): { setWidth(w: number): unknown };
-    }
-  )
-    .setCompact(compact)
-    .setWidth(Math.max(1, h.stageW - margin * 2));
-  statusBar.x = margin;
-  statusBar.y = viewportTop;
-  (
-    commandDeck as unknown as {
-      setCompact(c: boolean): { setWidth(w: number): unknown };
-    }
-  )
-    .setCompact(compact)
-    .setWidth(deckWidth);
-  commandDeck.x = Math.max(margin, (h.stageW - deckWidth) / 2);
+
+  // Header / statusBar: HTML header owns CSS Grid, otherwise layout canvas statusBar
+  if (h.headerBar) {
+    // no canvas statusBar
+  } else if (h.statusBar) {
+    (h.statusBar as unknown as { setCompact(c: boolean): { setWidth(w: number): unknown } })
+      .setCompact(compact)
+      .setWidth(Math.max(1, h.stageW - margin * 2));
+    (h.statusBar as unknown as { x: number }).x = margin;
+    (h.statusBar as unknown as { y: number }).y = viewportTop;
+  }
 
   const drawerHeight = Math.round(
     viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
   );
   const drawerY = viewportBottom - drawerHeight;
-  labDrawer.setAvailableBounds({ width: h.stageW, height: drawerHeight });
-  labDrawer.x = 0;
-  labDrawer.y = drawerY;
-  const commandBottom = h.labOpen ? drawerY - margin : viewportBottom - margin;
-  const stH = (statusBar as unknown as { height: number }).height;
-  const stY = (statusBar as unknown as { y: number }).y;
-  const cdH = (commandDeck as unknown as { height: number }).height;
-  commandDeck.y = Math.max(stY + stH + margin, commandBottom - cdH);
+  // Drawer: HTML drawer is CSS-positioned, skip canvas layout when active
+  if (h.labDrawerHTML) {
+    // no canvas labDrawer bounds
+  } else if ((h as unknown as { labDrawer: LayoutHost['labDrawer'] }).labDrawer) {
+    (h as unknown as { labDrawer: LayoutHost['labDrawer'] }).labDrawer.setAvailableBounds({
+      width: h.stageW,
+      height: drawerHeight,
+    });
+    (h as unknown as { labDrawer: LayoutHost['labDrawer'] }).labDrawer.x = 0;
+    (h as unknown as { labDrawer: LayoutHost['labDrawer'] }).labDrawer.y = drawerY;
+  }
+
+  // Command deck: HTML deck is CSS-positioned, skip canvas layout
+  if (h.commandDeckHTML) {
+    return;
+  }
+  if (!h.commandDeck) return;
+  {
+    const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, h.stageW - margin * 2));
+    (h.commandDeck as unknown as { setCompact(c: boolean): { setWidth(w: number): unknown } })
+      .setCompact(compact)
+      .setWidth(deckWidth);
+    (h.commandDeck as unknown as { x: number }).x = Math.max(margin, (h.stageW - deckWidth) / 2);
+    const commandBottom = h.labOpen ? drawerY - margin : viewportBottom - margin;
+    const stH = h.headerBar ? 0 : ((h.statusBar as unknown as { height: number })?.height ?? 0);
+    const stY = h.headerBar
+      ? viewportTop
+      : ((h.statusBar as unknown as { y: number })?.y ?? viewportTop);
+    const statusBottom = h.headerBar ? viewportTop + margin : stY + stH + margin;
+    (h.commandDeck as unknown as { y: number }).y = Math.max(
+      statusBottom,
+      commandBottom - (h.commandDeck as unknown as { height: number }).height,
+    );
+  }
 }
 
 export function getCinemaLayoutSnapshot(host: App): {
@@ -163,47 +173,175 @@ export function getCinemaLayoutSnapshot(host: App): {
     childCount: number;
   };
 } {
-  const h = getHost(host);
-  const sb = h.statusBar as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+  const h = getHost(host) as LayoutHost & {
+    stageW: number;
+    stageH: number;
+    isMobile: boolean;
+    labOpen: boolean;
+    scene: { width: number; height: number };
   };
-  const cd = h.commandDeck as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    layoutSnapshot(): ReturnType<
-      import('@vectojs/danmaku-kit/ui').DanmakuCommandDeck['layoutSnapshot']
-    >;
-  };
-  const ld = h.labDrawer as unknown as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    isOpen: boolean;
-    children: unknown[];
-  };
+  // Status: HTML header vs canvas statusBar
+  const status = (h as unknown as { headerBar: unknown }).headerBar
+    ? (() => {
+        const headerEl =
+          typeof document !== 'undefined' ? document.getElementById('bakudan-header') : null;
+        const rect = (
+          headerEl as unknown as { getBoundingClientRect?: () => { width: number; height: number } }
+        )?.getBoundingClientRect?.();
+        return {
+          x: 0,
+          y: 0,
+          width: (rect as unknown as { width: number })?.width ?? h.stageW,
+          height: (rect as unknown as { height: number })?.height ?? (h.isMobile ? 36 : 44),
+        };
+      })()
+    : (() => {
+        const sb = h.statusBar as unknown as {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        };
+        return { x: sb.x, y: sb.y, width: sb.width, height: sb.height };
+      })();
+
+  const command = (h as unknown as { commandDeckHTML: unknown }).commandDeckHTML
+    ? (() => {
+        const deckEl =
+          typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
+        const rect = (
+          deckEl as unknown as {
+            getBoundingClientRect?: () => {
+              width: number;
+              height: number;
+              left: number;
+              top: number;
+            };
+          }
+        )?.getBoundingClientRect?.();
+        const width =
+          (rect as unknown as { width: number })?.width ??
+          Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, h.stageW - 32));
+        const height = (rect as unknown as { height: number })?.height ?? 50;
+        const x =
+          (rect as unknown as { left: number })?.left ?? Math.max(0, (h.stageW - width) / 2);
+        const y = (rect as unknown as { top: number })?.top ?? 0;
+        const dummy = { x, y, width: 0, height: 0 };
+        return {
+          x,
+          y,
+          width,
+          height,
+          controls: {
+            input: dummy,
+            send: dummy,
+            play: dummy,
+            timeline: dummy,
+            rate: dummy,
+            lab: dummy,
+          },
+        };
+      })()
+    : h.commandDeck
+      ? {
+          x: (h.commandDeck as unknown as { x: number }).x,
+          y: (h.commandDeck as unknown as { y: number }).y,
+          width: (h.commandDeck as unknown as { width: number }).width,
+          height: (h.commandDeck as unknown as { height: number }).height,
+          controls: (
+            h.commandDeck as unknown as {
+              layoutSnapshot(): ReturnType<
+                import('@vectojs/danmaku-kit/ui').DanmakuCommandDeck['layoutSnapshot']
+              >;
+            }
+          ).layoutSnapshot(),
+        }
+      : (() => {
+          const deckEl =
+            typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
+          const rect = (
+            deckEl as unknown as {
+              getBoundingClientRect?: () => {
+                width: number;
+                height: number;
+                left: number;
+                top: number;
+              };
+            }
+          )?.getBoundingClientRect?.();
+          const width =
+            (rect as unknown as { width: number })?.width ??
+            Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, h.stageW - 32));
+          const height = (rect as unknown as { height: number })?.height ?? 50;
+          const x =
+            (rect as unknown as { left: number })?.left ?? Math.max(0, (h.stageW - width) / 2);
+          const y = (rect as unknown as { top: number })?.top ?? 0;
+          const dummy = { x, y, width: 0, height: 0 };
+          return {
+            x,
+            y,
+            width,
+            height,
+            controls: {
+              input: dummy,
+              send: dummy,
+              play: dummy,
+              timeline: dummy,
+              rate: dummy,
+              lab: dummy,
+            },
+          };
+        })();
+
+  const drawer = (h as unknown as { labDrawerHTML: LayoutHost['labDrawerHTML'] }).labDrawerHTML
+    ? (() => {
+        const info = (
+          h as unknown as { labDrawerHTML: LayoutHost['labDrawerHTML'] }
+        ).labDrawerHTML!.getLayoutInfo(
+          h.stageH || (h.scene as unknown as { height: number }).height,
+          h.isMobile,
+        );
+        return {
+          x: 0,
+          y: info.y,
+          width: info.width,
+          height: info.height,
+          open: info.open,
+          childCount: info.open ? 5 : 0,
+        };
+      })()
+    : {
+        x: (h.labDrawer as unknown as { x: number }).x,
+        y: (h.labDrawer as unknown as { y: number }).y,
+        width: (h.labDrawer as unknown as { width: number }).width,
+        height: (h.labDrawer as unknown as { height: number }).height,
+        open: (h.labDrawer as unknown as { isOpen: boolean }).isOpen,
+        childCount: (h.labDrawer as unknown as { children: unknown[] }).children.length,
+      };
+
   return {
-    status: { x: sb.x, y: sb.y, width: sb.width, height: sb.height },
+    status,
+    command: command as unknown as ReturnType<
+      import('@vectojs/danmaku-kit/ui').DanmakuCommandDeck['layoutSnapshot']
+    > & { x: number; y: number; width: number; height: number; controls: any },
+    drawer,
+  } as unknown as {
+    status: { x: number; y: number; width: number; height: number };
     command: {
-      x: cd.x,
-      y: cd.y,
-      width: cd.width,
-      height: cd.height,
-      controls: cd.layoutSnapshot(),
-    },
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      controls: ReturnType<import('@vectojs/danmaku-kit/ui').DanmakuCommandDeck['layoutSnapshot']>;
+    };
     drawer: {
-      x: ld.x,
-      y: ld.y,
-      width: ld.width,
-      height: ld.height,
-      open: ld.isOpen,
-      childCount: ld.children.length,
-    },
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      open: boolean;
+      childCount: number;
+    };
   };
 }
 
@@ -214,6 +352,14 @@ export function debugHitsLab(host: App, y: number): boolean {
     stageW: number;
     _hitsOverlay(o: { x: number; y: number; width: number; height: number }): boolean;
   };
+  // HTML drawer path
+  if ((h as unknown as { labDrawerHTML: LayoutHost['labDrawerHTML'] }).labDrawerHTML) {
+    if (!h.labOpen) return false;
+    const info = (
+      h as unknown as { labDrawerHTML: LayoutHost['labDrawerHTML'] }
+    ).labDrawerHTML!.getLayoutInfo(h.stageH, h.isMobile);
+    return y >= info.y && y <= h.stageH;
+  }
   const previousX = (h as unknown as { pointerX: number }).pointerX;
   const previousY = (h as unknown as { pointerY: number }).pointerY;
   (h as unknown as { pointerX: number }).pointerX = h.stageW / 2;

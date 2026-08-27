@@ -186,8 +186,8 @@ export class DevToolsPanelHTML {
     }
   }
 
-  setState(state: DevToolsState): void {
-    this.syncState(state);
+  setState(state: unknown): void {
+    this.syncState(state as DevToolsState);
   }
 
   destroy(): void {

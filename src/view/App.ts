@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { ReactionStore } from '../model/ReactionStore';
 import { runInPageBench, type BenchProgress } from '../model/InPageBench';
 import { BenchmarkPanel, type BenchmarkPanelState } from './BenchmarkPanel';
@@ -25,12 +24,7 @@ import {
   ThroughputPanel,
   VideosPanel,
 } from '@vectojs/danmaku-kit/ui';
-import type {
-  CommandDeckGroupId,
-  DanmakuStatusKind,
-  DevToolsAvailability,
-  VideoCatalogRow,
-} from '@vectojs/danmaku-kit/ui';
+import type { DanmakuStatusKind, DevToolsAvailability } from '@vectojs/danmaku-kit/ui';
 import { ContentLibrary } from '../model/ContentLibrary';
 import { FrameProfiler } from '../model/FrameProfiler';
 import { PRESET_TRANSLATIONS, detectBrowserLanguage, t } from '../model/i18n';
@@ -38,12 +32,7 @@ import type { Language } from '../model/i18n';
 import { generateLargeTimedTrack } from '../model/demoTimedTrack';
 import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
-import {
-  DEFAULT_VIDEO_ID,
-  VIDEO_CATALOG,
-  resolveVideoSelection,
-  videoById,
-} from '../model/VideoCatalog';
+import { DEFAULT_VIDEO_ID, VIDEO_CATALOG, videoById } from '../model/VideoCatalog';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   exitFullscreenIn,
@@ -68,54 +57,31 @@ import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
 import { HeaderBar, type StatusState } from './html/HeaderBar';
 import { CommandDeckHTML, type CommandDeckState } from './html/CommandDeck';
 
-const DESKTOP_POOL = 20_000;
-const MOBILE_POOL = 5_000;
-const MOBILE_BREAKPOINT = 768;
-const STATUS_UPDATE_INTERVAL_MS = 500;
-/** Pointer must be this still before the freeze zone arms (moving cursor freezes nothing). */
-const FREEZE_QUIET_MS = 150;
-/** Max hold per danmaku in the freeze zone; then it flows on — no permanent wall. */
-const FREEZE_HOLD_MS = 1800;
-/** Zone padding around the pointer point, so grazing danmaku count as crossing. */
-const FREEZE_PAD_PX = 4;
-const A11Y_UPDATE_INTERVAL_MS = 2000;
-// Canvas fallback geometry — kept for happy-dom tests where #bakudan-header /
-// #command-deck / #lab-drawer are absent. HTML shell uses CSS Grid + fixed
-// sheet (header 44/36, lab 46vh/69vh, command max-width 960) via shell.css.
-const DESKTOP_DRAWER_RATIO = 0.46;
-const MOBILE_DRAWER_RATIO = 0.69;
-const OVERLAY_MARGIN_DESKTOP = 16;
-const OVERLAY_MARGIN_MOBILE = 8;
-const COMMAND_DECK_MAX_WIDTH = 960;
-// Compose / transport / utility clusters (danmaku-kit#15): the flat uniform-gap
-// row read as one loose ~760px spread at desktop width, where modern players
-// cluster controls into three plates. groupGap only widens boundaries BETWEEN
-// clusters; intra-cluster spacing keeps the ordinary gap. The compact layout
-// ignores grouping by design -- its two width-starved rows collapse clusters
-// rather than risk unusable control widths.
-const COMMAND_DECK_GROUPS: readonly CommandDeckGroupId[][] = [
-  ['input', 'send'],
-  ['play', 'timeline', 'elapsed'],
-  ['rate', 'lab'],
-];
-// Cluster-boundary separation. At the narrowest desktop viewport (768px ->
-// deck 736px) fixed control widths plus two 24px boundaries still leave the
-// flexible input well ~95px; below 768px compact takes over and ignores this.
-const COMMAND_DECK_GROUP_GAP_PX = 24;
-const FRAME_METRICS = ['fps', 'frame-time'] as const;
-const DRAW_METRICS = ['gl-runs', 'gl-glyphs', 'canvas-slots'] as const;
-const DISTRIBUTIONS = ['steady', 'bursty'] as const;
-const EFFECT_IDS = ['glow', 'gradient', 'rainbow', 'outline'] as const;
-const RENDER_CLASSES = ['backend', 'glyphs', 'canvas'] as const;
-
-type AppMode = 'stress' | 'video';
-
-type LabTab = 'videos' | 'throughput' | 'benchmark' | 'interactions' | 'devtools';
-type FrameMetricId = (typeof FRAME_METRICS)[number];
-type DrawMetricId = (typeof DRAW_METRICS)[number];
-type DistributionId = (typeof DISTRIBUTIONS)[number];
-type EffectId = (typeof EFFECT_IDS)[number];
-type RenderClassId = (typeof RENDER_CLASSES)[number];
+import * as AppVideo from './app/AppVideo';
+import * as AppLayout from './app/AppLayout';
+import {
+  A11Y_UPDATE_INTERVAL_MS,
+  COMMAND_DECK_GROUP_GAP_PX,
+  COMMAND_DECK_GROUPS,
+  COMMAND_DECK_MAX_WIDTH,
+  DESKTOP_POOL,
+  EFFECT_IDS,
+  FREEZE_HOLD_MS,
+  FREEZE_PAD_PX,
+  FREEZE_QUIET_MS,
+  MOBILE_BREAKPOINT,
+  MOBILE_POOL,
+  STATUS_UPDATE_INTERVAL_MS,
+} from './app/types';
+import type {
+  AppMode,
+  DistributionId,
+  DrawMetricId,
+  EffectId,
+  FrameMetricId,
+  LabTab,
+  RenderClassId,
+} from './app/types';
 
 import { StageBackground } from './StageBackground';
 
@@ -373,6 +339,17 @@ export class App {
     this._profTargetCount = this._stressTargetBeforeVideo;
     this._profSpawnRate = this.scheduler.rate;
     this.scheduler.setTargetCount(0);
+    // Keep private fields used via AppVideo/AppLayout host casts
+    void this.pendingVideoSelection;
+    void this.pendingTrackProfileId;
+    void this._localObjectUrls;
+    void this._viewportTop;
+    void this._viewportBottom;
+    void this._onTrackProfileChange;
+    void this._sameVideoSelection;
+    void this._syncVideosState;
+    void AppVideo;
+    void AppLayout;
 
     const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
     const initialTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
@@ -422,7 +399,7 @@ export class App {
   /** Compose package surfaces once with Bakudan-owned data and actions. */
   private _buildUI(): void {
     const labels = cinemaLabelsFor(this.currentLang);
-    const catalog: VideoCatalogRow[] = VIDEO_CATALOG.map((entry) => ({
+    const catalog = VIDEO_CATALOG.map((entry) => ({
       ...entry,
       metadata: [
         { label: 'Duration', value: `${entry.durationHint}s` },
@@ -917,20 +894,7 @@ export class App {
   }
 
   selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
-    const sameSource = this._sameVideoSelection(selection, this.currentVideoSelection);
-    const profileId = requestedProfileId ?? resolveVideoSelection(selection).defaultTrackProfileId;
-    if (sameSource && profileId === this.currentTrackProfileId) {
-      if (this.mode !== 'video') {
-        this._setAppMode('video');
-        this._togglePlayback();
-      }
-      return;
-    }
-    if (sameSource) {
-      this._onTrackProfileChange(profileId);
-      return;
-    }
-    this._loadVideoSelection(selection, profileId);
+    AppVideo.selectVideo(this as unknown as App, selection, requestedProfileId);
   }
 
   /**
@@ -942,11 +906,7 @@ export class App {
    * path a user's panel interaction does.
    */
   applyStressTarget(target: number): void {
-    this._setAppMode('stress');
-    this._stressTargetBeforeVideo = target;
-    this._profTargetCount = target;
-    this.scheduler.setTargetCount(target);
-    this._syncThroughputState();
+    AppVideo.applyStressTarget(this as unknown as App, target);
   }
 
   /**
@@ -954,7 +914,7 @@ export class App {
    * for a local upload. Such sources are session-local by construction.
    */
   private _isLocalUploadUrl(url: string): boolean {
-    return url.startsWith('blob:') && this._localObjectUrls.includes(url);
+    return AppVideo.isLocalUploadUrl(this as unknown as App, url);
   }
 
   /**
@@ -962,11 +922,7 @@ export class App {
    * session-local blob: object URL routed through the custom-source pipeline.
    */
   private _onLocalFilePicked(file: File): void {
-    const url = URL.createObjectURL(file);
-    this._localObjectUrls.push(url);
-    // Custom selection => unique per upload (UUID inside the URL), so the
-    // same-selection comparison cannot mistake two files for one another.
-    this.selectVideo({ kind: 'custom', url });
+    AppVideo.onLocalFilePicked(this as unknown as App, file);
   }
 
   /**
@@ -975,152 +931,35 @@ export class App {
    * video alive on its still-needed blob.
    */
   private _pruneLocalObjectUrl(activeUrl: string | null): void {
-    for (const url of this._localObjectUrls) {
-      if (url !== activeUrl) URL.revokeObjectURL(url);
-    }
-    this._localObjectUrls = activeUrl ? [activeUrl] : [];
+    AppVideo.pruneLocalObjectUrl(this as unknown as App, activeUrl);
   }
 
   private _retryVideo(): void {
-    if (!this.pendingVideoSelection || !this.pendingTrackProfileId) return;
-    this._loadVideoSelection(this.pendingVideoSelection, this.pendingTrackProfileId);
+    AppVideo.retryVideo(this as unknown as App);
   }
 
   private _loadVideoSelection(selection: VideoSelection, requestedProfileId?: string): void {
-    const candidate = resolveVideoSelection(selection);
-    const profileId = requestedProfileId ?? candidate.defaultTrackProfileId;
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-
-    const requestId = ++this._videoRequestId;
-    this.pendingVideoSelection = selection;
-    this.pendingTrackProfileId = profileId;
-    this.videoLoading = true;
-    this.videoLoadState = { status: 'loading', candidateId: candidate.id };
-    this._setAppMode('video');
-    this._clearSelection();
-    this._setAppMode('video');
-    this._syncVideosState();
-    this._syncStatus();
-    this._syncPlaybackState();
-    void this.bg
-      .setVideo(candidate.source.url)
-      .then(() => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        this.videoLoading = false;
-        // The old source is fully disposed at this point (setVideo swapped),
-        // so its object URL can go. On failure we skip pruning: the previous
-        // video keeps playing from its still-live blob.
-        this._pruneLocalObjectUrl(selection.kind === 'custom' ? selection.url : null);
-        this._reactionStore = new ReactionStore(candidate.id, {
-          memoryOnly: this._isLocalUploadUrl(candidate.source.url),
-        });
-        this.currentVideoSelection = selection;
-        this.currentVideoId = candidate.id;
-        this.currentTrackProfileId = profile.id;
-        const duration = this.bg.duration || candidate.durationHint;
-        this._installVideoTrack(duration, candidate.id, profile.id);
-        this.videoLoadState = { status: 'ready', sourceId: candidate.id };
-        this.pendingVideoSelection = null;
-        this.pendingTrackProfileId = null;
-        this.bg.onEnded(() => {
-          this._syncPlaybackState();
-          this._syncStatus();
-        });
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-        void this.bg
-          .play()
-          .then(() => {
-            // Re-sync on success too: the sync above ran before play() resolved,
-            // so the status still says 'paused' for a video now playing.
-            if (requestId !== this._videoRequestId || this.destroyed) return;
-            this._syncPlaybackState();
-            this._syncStatus();
-          })
-          .catch((error: unknown) => {
-            const sourceError = this._asVideoSourceError(error);
-            if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
-            this._syncPlaybackState();
-            this._syncStatus();
-          });
-        this.scene.markDirty();
-      })
-      .catch((error: unknown) => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        const sourceError = this._asVideoSourceError(error);
-        this.videoLoading = false;
-        this.videoLoadState = {
-          status: 'error',
-          candidateId: candidate.id,
-          error: sourceError,
-        };
-        this._announceVideoError(sourceError);
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-      });
+    AppVideo.loadVideoSelection(this as unknown as App, selection, requestedProfileId);
   }
 
   private _onTrackProfileChange(profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile || profileId === this.currentTrackProfileId) return;
-    this.currentTrackProfileId = profileId;
-    if (this.bg.isVideoReady) {
-      this._clearSelection();
-      const currentTime = this.bg.currentTime;
-      this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
-      this.danmakuTrack.seek(currentTime);
-    }
-    this._syncVideosState();
-    this.scene.markDirty();
+    AppVideo.onTrackProfileChange(this as unknown as App, profileId);
   }
 
   private _installVideoTrack(duration: number, videoId: string, profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-    const profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
-    this.danmakuTrack = new ProfiledDanmakuTrack(profiledTrack.entries);
+    AppVideo.installVideoTrack(this as unknown as App, duration, videoId, profileId);
   }
 
   private _sameVideoSelection(a: VideoSelection, b: VideoSelection): boolean {
-    if (a.kind !== b.kind) return false;
-    if (a.kind === 'catalog' && b.kind === 'catalog') return a.id === b.id;
-    return a.kind === 'custom' && b.kind === 'custom' && a.url === b.url;
+    return AppVideo.sameVideoSelection(a, b);
   }
 
   private _asVideoSourceError(error: unknown): VideoSourceError {
-    if (error instanceof VideoSourceError) return error;
-    let code: VideoSourceError['code'] = 'media-error';
-    let message = 'Video source failed';
-    if (error && typeof error === 'object') {
-      if ('code' in error) {
-        const value = error.code;
-        if (
-          value === 'network-error' ||
-          value === 'metadata-error' ||
-          value === 'playback-rejected' ||
-          value === 'media-error'
-        ) {
-          code = value;
-        }
-      }
-      if ('message' in error && typeof error.message === 'string') message = error.message;
-    }
-    return new VideoSourceError(code, message);
+    return AppVideo.asVideoSourceError(error);
   }
 
   private _announceVideoError(error: VideoSourceError): void {
-    const key =
-      error.code === 'network-error'
-        ? 'video.error.network'
-        : error.code === 'metadata-error'
-          ? 'video.error.metadata'
-          : error.code === 'playback-rejected'
-            ? 'video.error.playback'
-            : 'video.error.media';
-    this.announcer.setSummary(t(key, this.currentLang));
+    AppVideo.announceVideoError(this as unknown as App, error);
   }
 
   private _throughputState() {
@@ -1460,150 +1299,19 @@ export class App {
    * real laid-out rect rather than a breakpoint guess.
    */
   debugHitsLab(y: number): boolean {
-    if (this.labDrawerHTML) {
-      if (!this.labOpen) return false;
-      const info = this.labDrawerHTML.getLayoutInfo(this.stageH, this.isMobile);
-      return y >= info.y && y <= this.stageH;
-    }
-    const previousX = this.pointerX;
-    const previousY = this.pointerY;
-    this.pointerX = this.stageW / 2;
-    this.pointerY = y;
-    const drawer = (this as unknown as { labDrawer?: unknown }).labDrawer as unknown as
-      | { x: number; y: number; width: number; height: number }
-      | undefined;
-    const result = this.labOpen && drawer ? this._hitsOverlay(drawer as never) : false;
-    this.pointerX = previousX;
-    this.pointerY = previousY;
-    return result;
+    return AppLayout.debugHitsLab(this as unknown as App, y);
   }
 
   getCinemaLayoutSnapshot() {
-    const status = this.headerBar
-      ? (() => {
-          const headerEl = document.getElementById('bakudan-header');
-          const rect = headerEl?.getBoundingClientRect();
-          return {
-            x: 0,
-            y: 0,
-            width: rect?.width ?? this.stageW,
-            height: rect?.height ?? (this.isMobile ? 36 : 44),
-          };
-        })()
-      : {
-          x: this.statusBar!.x,
-          y: this.statusBar!.y,
-          width: this.statusBar!.width,
-          height: this.statusBar!.height,
-        };
-
-    const command = this.commandDeckHTML
-      ? (() => {
-          const deckEl =
-            typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
-          const rect = deckEl?.getBoundingClientRect();
-          const width =
-            rect?.width ?? Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, this.stageW - 32));
-          const height = rect?.height ?? 50;
-          const x = rect?.left ?? Math.max(0, (this.stageW - width) / 2);
-          const y = rect?.top ?? 0;
-          const dummy = { x, y, width: 0, height: 0 };
-          return {
-            x,
-            y,
-            width,
-            height,
-            controls: {
-              input: dummy,
-              send: dummy,
-              play: dummy,
-              timeline: dummy,
-              rate: dummy,
-              lab: dummy,
-            },
-          };
-        })()
-      : this.commandDeck
-        ? {
-            x: this.commandDeck.x,
-            y: this.commandDeck.y,
-            width: this.commandDeck.width,
-            height: this.commandDeck.height,
-            controls: this.commandDeck.layoutSnapshot(),
-          }
-        : (() => {
-            const deckEl =
-              typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
-            const rect = deckEl?.getBoundingClientRect();
-            const width =
-              rect?.width ?? Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, this.stageW - 32));
-            const height = rect?.height ?? 50;
-            const x = rect?.left ?? Math.max(0, (this.stageW - width) / 2);
-            const y = rect?.top ?? 0;
-            const dummy = { x, y, width: 0, height: 0 };
-            return {
-              x,
-              y,
-              width,
-              height,
-              controls: {
-                input: dummy,
-                send: dummy,
-                play: dummy,
-                timeline: dummy,
-                rate: dummy,
-                lab: dummy,
-              },
-            };
-          })();
-
-    const drawer = this.labDrawerHTML
-      ? (() => {
-          const info = this.labDrawerHTML.getLayoutInfo(
-            this.stageH || this.scene.height,
-            this.isMobile,
-          );
-          return {
-            x: 0,
-            y: info.y,
-            width: info.width,
-            height: info.height,
-            open: info.open,
-            childCount: info.open ? 5 : 0,
-          };
-        })()
-      : {
-          x: this.labDrawer.x,
-          y: this.labDrawer.y,
-          width: this.labDrawer.width,
-          height: this.labDrawer.height,
-          open: this.labDrawer.isOpen,
-          childCount: this.labDrawer.children.length,
-        };
-
-    return {
-      status,
-      command,
-      drawer,
-    };
+    return AppLayout.getCinemaLayoutSnapshot(this as unknown as App);
   }
 
   onResize(width: number, height: number): void {
-    this.stageW = width;
-    this.stageH = height;
-    this.isMobile = width < MOBILE_BREAKPOINT;
-    this.scheduler.resize(width, height);
-    this.bg.width = width;
-    this.bg.height = height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onResize(this as unknown as App, width, height);
   }
 
   onViewportChange(viewport: VisualViewport): void {
-    this._viewportTop = viewport.offsetTop;
-    this._viewportBottom = viewport.offsetTop + viewport.height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onViewportChange(this as unknown as App, viewport);
   }
 
   /**
@@ -1615,62 +1323,7 @@ export class App {
    * missing (e.g. happy-dom tests). Keep fallback path intact.
    */
   private _layoutCinema(): void {
-    if (!this.labDrawer && !this.labDrawerHTML) return;
-    if (!this.statusBar && !this.headerBar) return;
-    if (!this.commandDeck && !this.commandDeckHTML) return;
-    const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
-    const compact = this.isMobile;
-    const viewportTop = Math.max(0, this._viewportTop);
-    const viewportBottom = Math.min(
-      this.stageH,
-      Math.max(viewportTop, this._viewportBottom ?? this.stageH),
-    );
-    const viewportHeight = Math.max(0, viewportBottom - viewportTop);
-
-    // Header / statusBar: HTML header owns CSS Grid, otherwise layout canvas statusBar
-    if (this.headerBar) {
-      // no canvas statusBar
-    } else if (this.statusBar) {
-      this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
-      this.statusBar.x = margin;
-      this.statusBar.y = viewportTop;
-    } else {
-      // neither header nor statusBar — still need drawer/command layout
-    }
-
-    const drawerHeight = Math.round(
-      viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
-    );
-    const drawerY = viewportBottom - drawerHeight;
-    // Drawer: HTML drawer is CSS-positioned, skip canvas layout when active
-    if (this.labDrawerHTML) {
-      // no canvas labDrawer bounds
-    } else if (this.labDrawer) {
-      this.labDrawer.setAvailableBounds({
-        width: this.stageW,
-        height: drawerHeight,
-      });
-      this.labDrawer.x = 0;
-      this.labDrawer.y = drawerY;
-    }
-
-    // Command deck: HTML deck is CSS-positioned, skip canvas layout
-    if (this.commandDeckHTML) {
-      return;
-    }
-    if (!this.commandDeck) return;
-    {
-      const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
-      this.commandDeck.setCompact(compact).setWidth(deckWidth);
-      this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
-      const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
-      const statusBottom = this.headerBar
-        ? viewportTop + margin
-        : this.statusBar
-          ? this.statusBar.y + this.statusBar.height + margin
-          : viewportTop + margin;
-      this.commandDeck.y = Math.max(statusBottom, commandBottom - this.commandDeck.height);
-    }
+    AppLayout.layoutCinema(this as unknown as App);
   }
 
   start(): void {
@@ -2208,12 +1861,7 @@ export class App {
    * rect. Reads the entity's own geometry so it can never drift from layout.
    */
   private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
-    return (
-      this.pointerX >= overlay.x &&
-      this.pointerX <= overlay.x + overlay.width &&
-      this.pointerY >= overlay.y &&
-      this.pointerY <= overlay.y + overlay.height
-    );
+    return AppLayout.hitsOverlay(this as unknown as App, overlay);
   }
 
   private _handlePointerDown = (event: PointerEvent) => {

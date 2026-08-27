@@ -1,11 +1,10 @@
-// @ts-nocheck
 import { BAKUDAN_THEME } from '../../cinemaConfig';
 import type { VideoLoadState, VideoSelection } from '@vectojs/danmaku-kit/model';
-import type { VideoCatalogEntry } from '../../../model/VideoCatalog';
+import type { VideoAttribution, VideoCatalogEntry } from '../../../model/VideoCatalog';
 
-export interface VideoCatalogRow extends VideoCatalogEntry {
+export interface VideoCatalogRow extends Omit<VideoCatalogEntry, 'attribution'> {
   metadata: readonly { label: string; value: string }[];
-  attribution: string;
+  attribution: string | VideoAttribution;
 }
 
 export interface VideoProfileRow {
@@ -36,8 +35,8 @@ export interface VideosPanelOptions {
     retry?: string;
     uploadFile?: string;
     loadState?: string;
-    formatLoadState?: (s: VideoLoadState) => string;
-    formatLoadError?: (e: unknown, id?: string) => string;
+    formatLoadState?: (s: any) => string;
+    formatLoadError?: (e: any, id?: string) => string;
     formatMetadata?: (rows: readonly { label: string; value: string }[]) => string;
     formatAttribution?: (s: string) => string;
   };
@@ -54,7 +53,7 @@ export interface VideosPanelOptions {
 export class VideosPanelHTML {
   readonly element: HTMLElement;
   private readonly opts: VideosPanelOptions;
-  private state: VideosPanelState;
+  private _state: VideosPanelState;
   private pendingSource: VideoSelection;
   private pendingProfileId: string;
 
@@ -73,7 +72,7 @@ export class VideosPanelHTML {
 
   constructor(opts: VideosPanelOptions) {
     this.opts = opts;
-    this.state = opts.state;
+    this._state = opts.state;
     this.pendingSource = opts.state.source;
     this.pendingProfileId = opts.state.profileId;
 
@@ -126,9 +125,15 @@ export class VideosPanelHTML {
       meta.textContent = fmtMeta;
       const attr = document.createElement('p');
       attr.className = 'bakudan-videos__card-attribution';
+      const cardAttrStr =
+        typeof row.attribution === 'string'
+          ? row.attribution
+          : row.attribution
+            ? `${row.attribution.label} · ${row.attribution.license} · ${row.attribution.url}`
+            : '';
       const fmtAttr = opts.labels?.formatAttribution
-        ? opts.labels.formatAttribution(row.attribution)
-        : row.attribution || 'No attribution required';
+        ? opts.labels.formatAttribution(cardAttrStr)
+        : cardAttrStr || 'No attribution required';
       attr.textContent = fmtAttr;
       card.append(title, meta, attr);
       card.addEventListener('click', () => {
@@ -278,24 +283,30 @@ export class VideosPanelHTML {
   }
 
   private updateSelectionUI(): void {
+    const src = this.pendingSource;
     const cards = this.gridEl.querySelectorAll<HTMLButtonElement>('.bakudan-videos__card');
     for (const card of cards) {
-      const isSelected =
-        this.pendingSource.kind === 'catalog' && card.dataset.videoId === this.pendingSource.id;
+      const isSelected = src.kind === 'catalog' && card.dataset.videoId === src.id;
       card.classList.toggle('bakudan-videos__card--selected', isSelected);
       card.setAttribute('aria-pressed', String(isSelected));
     }
     // Update metadata/attribution for selected catalog entry
-    if (this.pendingSource.kind === 'catalog') {
-      const row = this.opts.catalog.find((r) => r.id === this.pendingSource.id);
+    if (src.kind === 'catalog') {
+      const row = this.opts.catalog.find((r) => r.id === src.id);
       if (row) {
         const fmtMeta = this.opts.labels?.formatMetadata
           ? this.opts.labels.formatMetadata(row.metadata)
           : row.metadata.map((m) => `${m.label}: ${m.value}`).join(' · ');
         this.metadataEl.textContent = fmtMeta;
+        const attrStr =
+          typeof row.attribution === 'string'
+            ? row.attribution
+            : row.attribution
+              ? `${row.attribution.label} · ${row.attribution.license} · ${row.attribution.url}`
+              : '';
         const fmtAttr = this.opts.labels?.formatAttribution
-          ? this.opts.labels.formatAttribution(row.attribution)
-          : row.attribution || 'No attribution required';
+          ? this.opts.labels.formatAttribution(attrStr)
+          : attrStr || 'No attribution required';
         this.attributionEl.textContent = fmtAttr;
       }
     } else {
@@ -317,7 +328,8 @@ export class VideosPanelHTML {
   }
 
   private syncState(state: VideosPanelState): void {
-    this.state = state;
+    this._state = state;
+    void this._state;
     this.pendingSource = state.source;
     this.pendingProfileId = state.profileId;
     this.profileSelect.value = state.profileId;
@@ -326,33 +338,46 @@ export class VideosPanelHTML {
     this.customInput.value = state.source.kind === 'custom' ? state.source.url : '';
     this.updateSelectionUI();
 
-    // Format load state
-    const fmtState = this.opts.labels?.formatLoadState
-      ? this.opts.labels.formatLoadState(state.loadState)
-      : state.loadState.status === 'loading'
-        ? `Loading ${state.loadState.candidateId}`
-        : state.loadState.status === 'ready'
-          ? `Ready · ${state.loadState.sourceId}`
-          : 'Choose a source';
+    // Format load state — error is rendered via errorEl, not formatLoadState
+    const _ls: any = state.loadState as any;
+    let fmtState: string;
+    if (_ls.status === 'error') {
+      fmtState = 'Choose a source';
+    } else {
+      fmtState = this.opts.labels?.formatLoadState
+        ? this.opts.labels.formatLoadState(
+            state.loadState as Exclude<VideoLoadState, { status: 'error' }>,
+          )
+        : state.loadState.status === 'loading'
+          ? `Loading ${state.loadState.candidateId}`
+          : state.loadState.status === 'ready'
+            ? `Ready · ${state.loadState.sourceId}`
+            : 'Choose a source';
+    }
     this.loadStateEl.textContent = fmtState;
 
-    if (state.loadState.status === 'error') {
+    if ((state.loadState as any).status === 'error') {
+      const _err = state.loadState as any as {
+        status: 'error';
+        error: unknown;
+        candidateId?: string;
+      };
       const msg = this.opts.labels?.formatLoadError
-        ? this.opts.labels.formatLoadError(state.loadState.error, state.loadState.candidateId)
-        : state.loadState.error instanceof Error
-          ? state.loadState.error.message
-          : String(state.loadState.error);
+        ? this.opts.labels.formatLoadError(_err.error as any, _err.candidateId)
+        : _err.error instanceof Error
+          ? _err.error.message
+          : String(_err.error);
       this.errorEl.textContent = msg;
       this.retryButton.disabled = false;
     } else {
       this.errorEl.textContent = '';
-      this.retryButton.disabled = state.loadState.status !== 'error';
+      this.retryButton.disabled = true;
     }
     this.updateChooseDisabled();
   }
 
-  setState(state: VideosPanelState): void {
-    this.syncState(state);
+  setState(state: unknown): void {
+    this.syncState(state as VideosPanelState);
   }
 
   destroy(): void {

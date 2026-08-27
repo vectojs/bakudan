@@ -278,8 +278,8 @@ export class BenchmarkPanelHTML {
     }
   }
 
-  setState(state: BenchmarkState): void {
-    this.syncState(state);
+  setState(state: unknown): void {
+    this.syncState(state as BenchmarkState);
   }
 
   destroy(): void {

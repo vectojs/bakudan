@@ -224,35 +224,34 @@ export class InteractionsPanelHTML {
     this.element = root;
   }
 
-  setState(state: InteractionsState): void {
-    this.state = state;
+  setState(state: unknown): void {
+    const s = state as InteractionsState;
+    this.state = s;
     // Presets
     for (const input of this.presetGroup.querySelectorAll<HTMLInputElement>(
       'input[type="radio"]',
     )) {
-      input.checked = input.value === state.presetId;
+      input.checked = input.value === s.presetId;
     }
     // Effects
     for (const input of this.effectContainer.querySelectorAll<HTMLInputElement>(
       'input[type="checkbox"]',
     )) {
       const id = input.dataset.effect!;
-      if (id in state.effects) input.checked = !!state.effects[id];
+      if (id in s.effects) input.checked = !!s.effects[id];
     }
     // Toggles
-    if (state.hoverPause !== undefined) this.hoverPauseInput.checked = !!state.hoverPause;
-    if (state.dragEnabled !== undefined) this.dragInput.checked = !!state.dragEnabled;
-    if (state.reactionsEnabled !== undefined)
-      this.reactionsInput.checked = !!state.reactionsEnabled;
-    if (state.repulsionEnabled !== undefined)
-      this.repulsionInput.checked = !!state.repulsionEnabled;
-    if (state.gravityEnabled !== undefined) this.gravityInput.checked = !!state.gravityEnabled;
-    if (state.jellyEnabled !== undefined) this.jellyInput.checked = !!state.jellyEnabled;
+    if (s.hoverPause !== undefined) this.hoverPauseInput.checked = !!s.hoverPause;
+    if (s.dragEnabled !== undefined) this.dragInput.checked = !!s.dragEnabled;
+    if (s.reactionsEnabled !== undefined) this.reactionsInput.checked = !!s.reactionsEnabled;
+    if (s.repulsionEnabled !== undefined) this.repulsionInput.checked = !!s.repulsionEnabled;
+    if (s.gravityEnabled !== undefined) this.gravityInput.checked = !!s.gravityEnabled;
+    if (s.jellyEnabled !== undefined) this.jellyInput.checked = !!s.jellyEnabled;
     // Render classes
     for (const el of this.renderContainer.querySelectorAll<HTMLElement>('[data-render-class]')) {
       const id = el.dataset.renderClass!;
       const label = this.opts.renderClasses?.find((r) => r.id === id)?.label ?? id;
-      el.textContent = `${label}: ${state.renderClasses[id] ?? '—'}`;
+      el.textContent = `${label}: ${s.renderClasses[id] ?? '—'}`;
     }
   }
 

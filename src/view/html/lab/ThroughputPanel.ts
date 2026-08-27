@@ -366,8 +366,8 @@ export class ThroughputPanelHTML {
     }
   }
 
-  setState(state: ThroughputState): void {
-    this.syncState(state);
+  setState(state: unknown): void {
+    this.syncState(state as ThroughputState);
   }
 
   destroy(): void {
