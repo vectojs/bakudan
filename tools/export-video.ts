@@ -78,7 +78,36 @@ async function waitFor(url: string, timeoutMs: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    console.log(
+      [
+        'Usage: bun run tools/export-video.ts [options]',
+        '  --stress <n>     Stress danmaku count (default: 5000)',
+        '  --seconds <n>    Duration in seconds (default: 8)',
+        '  --fps <n>        Frames per second (default: 60)',
+        '  --width <n>      Width in pixels (default: 1920)',
+        '  --height <n>     Height in pixels (default: 1080)',
+        '  --out <file>     Output MP4 path (default: bakudan-clip.mp4)',
+        '  --port <n>       Preview server port (default: 4173)',
+        '  --dry            Parse args and exit without building/exporting',
+        '  --help, -h       Show this help',
+        '',
+        'Example: bun run tools/export-video.ts --stress 5000 --seconds 5 --out /tmp/out.mp4',
+        '         bun run tools/export-video.ts --dry',
+      ].join('\n'),
+    );
+    return;
+  }
+  if (rawArgs.includes('--dry')) {
+    const dryArgs = parseArgs(rawArgs);
+    console.log('[export] dry run — parsed args:', dryArgs);
+    console.log(
+      '[export] would build dist, serve via vite preview, and call exportVideo({url, outputPath, width, height, fps, duration})',
+    );
+    return;
+  }
+  const args = parseArgs(rawArgs);
   const controller = new AbortController();
   const onSignal = (): void => controller.abort();
   process.once('SIGINT', onSignal);
@@ -126,6 +155,9 @@ async function main(): Promise<void> {
       duration: args.seconds,
       signal: controller.signal,
     });
+    const { existsSync } = await import('node:fs');
+    if (!existsSync(args.out))
+      throw new Error(`export finished but output file missing: ${args.out}`);
     console.log(`[export] wrote ${args.out}`);
   } finally {
     process.off('SIGINT', onSignal);

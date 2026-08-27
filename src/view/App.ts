@@ -1341,9 +1341,22 @@ export class App {
    * is never interacted with.
    */
   hideChrome(): void {
-    this.scene.hideOverlay(this.statusBar);
-    this.scene.hideOverlay(this.commandDeck);
-    this.scene.hideOverlay(this.labDrawer);
+    if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
+    if (this.commandDeck?.parent) this.scene.hideOverlay(this.commandDeck);
+    const labDrawer = (this as unknown as { labDrawer?: Entity }).labDrawer as Entity | undefined;
+    if (labDrawer?.parent) this.scene.hideOverlay(labDrawer);
+    if (this.headerBar) {
+      this.headerBar.destroy();
+      this.headerBar = null;
+    }
+    if (this.commandDeckHTML) {
+      this.commandDeckHTML.destroy();
+      this.commandDeckHTML = null;
+    }
+    if (this.labDrawerHTML) {
+      this.labDrawerHTML.destroy();
+      this.labDrawerHTML = null;
+    }
   }
 
   start(): void {
