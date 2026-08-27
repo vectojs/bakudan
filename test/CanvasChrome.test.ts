@@ -155,9 +155,9 @@ describe('pill plate covers the clickable span', () => {
   it('hotspots stay independent of the visual margin (no geometry drift)', () => {
     // The margin pads only the painted plate; the placed hotspot split is a
     // function of the glyph offsets alone. Pin that independence: changing
-    // padding must never move like/copy click targets.
-    expect(PILL_COPY_OFFSET_PX).toBe(62);
-    expect(PILL_WIDTH_PX).toBe(118);
+    // padding must never move like/copy click targets. Bubble 80x28 tail.
+    expect(PILL_COPY_OFFSET_PX).toBe(44);
+    expect(PILL_WIDTH_PX).toBe(80);
   });
 });
 

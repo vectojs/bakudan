@@ -2,9 +2,9 @@ import {
   PAUSE_CHIP_SAFE_GAP_PX,
   PILL_BASELINE_FACTOR,
   PILL_COPY_OFFSET_PX,
+  PILL_GAP_PX,
   PILL_HEIGHT_PX,
   PILL_PLATE_MARGIN_PX,
-  PILL_PLATE_WIDTH_PX,
   PILL_WIDTH_PX,
 } from '../DanmakuLayer';
 import { FREEZE_HOLD_MS, FREEZE_PAD_PX, FREEZE_QUIET_MS } from './types';
@@ -87,12 +87,12 @@ export function updateHover(host: App): void {
       h.danmakuLayer?.getStage?.()?.safeTop ??
       (h.headerBar ? (h.isMobile ? 36 : 44) : h.statusBar ? h.statusBar.y + h.statusBar.height : 0);
     const pillTopRaw =
-      Math.round(selected.y) + selected.params.fontSize * PILL_BASELINE_FACTOR - PILL_HEIGHT_PX / 2;
+      Math.round(selected.y) + selected.params.fontSize * PILL_BASELINE_FACTOR + PILL_GAP_PX;
     const pillTop = Math.max(pillTopRaw, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
     const pillLeft = Math.round(
       Math.min(
         Math.max(selected.x + selected.width / 2 - PILL_WIDTH_PX / 2, PILL_PLATE_MARGIN_PX),
-        Math.max(PILL_PLATE_MARGIN_PX, h.stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
+        Math.max(PILL_PLATE_MARGIN_PX, h.stageW - PILL_WIDTH_PX - PILL_PLATE_MARGIN_PX),
       ),
     );
     h._selectionHotspots.liked = selected.liked ?? false;

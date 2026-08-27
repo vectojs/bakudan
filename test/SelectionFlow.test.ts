@@ -8,6 +8,7 @@ import {
   PAUSE_CHIP_PADDING_PX,
   PILL_BASELINE_FACTOR,
   PILL_COPY_OFFSET_PX,
+  PILL_GAP_PX,
   PILL_HEIGHT_PX,
   PILL_PLATE_WIDTH_PX,
   PILL_WIDTH_PX,
@@ -47,7 +48,11 @@ function fixture(width = 1280, height = 800): Fixture {
     host,
     videoFactory: () => document.createElement('video'),
   });
-  const scene = new Scene(canvas, { maxFPS: 0, maxDPR: 1, disableWindowResize: true });
+  const scene = new Scene(canvas, {
+    maxFPS: 0,
+    maxDPR: 1,
+    disableWindowResize: true,
+  });
   const app = new App(scene, { stageBackground: background });
   app.onResize(width, height);
   const value = { app, scene };
@@ -95,7 +100,13 @@ function primeSlot(
     opacity: 1,
     preset: opts.preset ?? 'scroll',
     presetParams: {},
-    effects: { glow: false, gradient: false, rainbow: false, outline: false, ...opts.effects },
+    effects: {
+      glow: false,
+      gradient: false,
+      rainbow: false,
+      outline: false,
+      ...opts.effects,
+    },
   };
   return s;
 }
@@ -190,7 +201,10 @@ describe('paint-order keys shared by draw and hit-test', () => {
     const plainHuge = primeSlot(app, { fontSize: 63 });
     const specialTiny = primeSlot(app, { fontSize: 16, preset: 'glitch' });
     expect(paintOrderKey(specialTiny) > paintOrderKey(plainHuge)).toBe(true);
-    const rainbow = primeSlot(app, { fontSize: 20, effects: { rainbow: true } });
+    const rainbow = primeSlot(app, {
+      fontSize: 20,
+      effects: { rainbow: true },
+    });
     expect(paintOrderKey(rainbow) > paintOrderKey(plainHuge)).toBe(true);
   });
 
@@ -254,7 +268,9 @@ describe('Bilibili-model selection semantics', () => {
     (app as unknown as { _handleLikeToggle(): void })._handleLikeToggle();
     expect(s.liked).toBe(true);
     const store = (
-      app as unknown as { _reactionStore: { get(k: string): { liked: boolean; count: number } } }
+      app as unknown as {
+        _reactionStore: { get(k: string): { liked: boolean; count: number } };
+      }
     )._reactionStore;
     const rx = store.get('t:前方高能');
     expect(rx.liked).toBe(true);
@@ -271,7 +287,9 @@ describe('Bilibili-model selection semantics', () => {
     // selection path alone — no in-session toggle may mask a missing read.
     const store = (
       app as unknown as {
-        _reactionStore: { toggle(k: string): { liked: boolean; count: number } };
+        _reactionStore: {
+          toggle(k: string): { liked: boolean; count: number };
+        };
       }
     )._reactionStore;
     expect(store.toggle('t:名场面')).toEqual({ liked: true, count: 1 });
@@ -302,8 +320,18 @@ describe('the action bar survives dismissal cycles and stays put', () => {});
 describe('hover maintenance runs even while the bar is hovered', () => {
   test('a danmaku hovered before the bar does not stay frozen behind it', () => {
     const { app } = fixture();
-    const selected = primeSlot(app, { x: 400, y: 400, width: 150, fontSize: 24 });
-    const neighbor = primeSlot(app, { x: 100, y: 100, width: 150, fontSize: 24 });
+    const selected = primeSlot(app, {
+      x: 400,
+      y: 400,
+      width: 150,
+      fontSize: 24,
+    });
+    const neighbor = primeSlot(app, {
+      x: 100,
+      y: 100,
+      width: 150,
+      fontSize: 24,
+    });
     tapSlot(app, selected);
     const upd = (app as unknown as { _updateHover(): void })._updateHover.bind(app);
 
@@ -457,7 +485,12 @@ describe('the painted pill carries the persisted like count', () => {
         opacity: 1,
         preset: 'scroll',
         presetParams: {},
-        effects: { glow: false, gradient: false, rainbow: false, outline: false },
+        effects: {
+          glow: false,
+          gradient: false,
+          rainbow: false,
+          outline: false,
+        },
       },
     } as unknown as PoolSlot;
     // liked=true and store count=7: only the real count is correct here.
@@ -496,7 +529,12 @@ describe('round-2 pill paint details stay coherent with the hotspots', () => {
         opacity: 1,
         preset: 'scroll',
         presetParams: {},
-        effects: { glow: false, gradient: false, rainbow: false, outline: false },
+        effects: {
+          glow: false,
+          gradient: false,
+          rainbow: false,
+          outline: false,
+        },
       },
     } as unknown as PoolSlot;
   }
@@ -576,7 +614,19 @@ describe('round-2 pill paint details stay coherent with the hotspots', () => {
   test('both icon centers share one optical line above the pill baseline', () => {
     const { calls, renderer } = makeRecordingRenderer();
     makeLayer().render(renderer);
-    const heartStart = calls.findIndex((c) => c.op === 'moveTo');
+    // Tail introduces a moveTo before the heart — find the heart's beginPath segment (the one with bezier)
+    let heartStart = -1;
+    for (let i = 0; i < calls.length; i++) {
+      if (calls[i]!.op !== 'beginPath') continue;
+      const nextBegin = calls.findIndex((c, idx) => idx > i && c.op === 'beginPath');
+      const seg = nextBegin === -1 ? calls.slice(i) : calls.slice(i, nextBegin);
+      if (seg.some((c) => c.op === 'bezierCurveTo')) {
+        const off = seg.findIndex((c) => c.op === 'moveTo');
+        if (off !== -1) heartStart = i + off;
+        break;
+      }
+    }
+    expect(heartStart).toBeGreaterThan(-1);
     const heart = pathYExtent(calls, heartStart);
     // The copy glyph is two roundRect sheets; each sheet center is its own
     // optical center, so average them.
@@ -590,7 +640,7 @@ describe('round-2 pill paint details stay coherent with the hotspots', () => {
     const heartCenter = (heart.min + heart.max) / 2;
     // One optical line, sub-pixel tolerance.
     expect(Math.abs(heartCenter - copyCenter)).toBeLessThanOrEqual(0.75);
-    const pillY = Math.round(50) + 24 * PILL_BASELINE_FACTOR;
+    const pillY = Math.round(50) + 24 * PILL_BASELINE_FACTOR + PILL_GAP_PX + PILL_HEIGHT_PX / 2;
     expect(heartCenter).toBeLessThan(pillY);
   });
 

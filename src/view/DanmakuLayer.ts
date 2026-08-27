@@ -13,14 +13,19 @@ import { BAKUDAN_THEME, DANMAKU_CHROME } from './cinemaConfig';
  */
 /** Vertical offset of the pill baseline from the danmaku origin, in font sizes. */
 export const PILL_BASELINE_FACTOR = 1.4;
-/** Horizontal offset of the like count from the pill's left edge. */
-export const PILL_COUNT_OFFSET_PX = 40;
+/** Gap between danmaku text bottom and bubble top — ensures speech bubble never covers text. */
+export const PILL_GAP_PX = 4;
+/** Horizontal offset of the like count from the pill's left edge (gap after heart). */
+export const PILL_COUNT_OFFSET_PX = 26;
 /** Horizontal offset of the copy glyph from the pill's left edge. */
-export const PILL_COPY_OFFSET_PX = 62;
-/** Total pill width, covering the like glyph, the count, and the copy glyph. */
-export const PILL_WIDTH_PX = 118;
+export const PILL_COPY_OFFSET_PX = 44;
+/** Total pill width, covering the like glyph, the count, and the copy glyph — Bilibili speech bubble. */
+export const PILL_WIDTH_PX = 80;
 /** Pill height; the hotspots span it fully. */
-export const PILL_HEIGHT_PX = 44;
+export const PILL_HEIGHT_PX = 28;
+/** Tail geometry for speech bubble pointing to danmaku center. */
+export const PILL_TAIL_WIDTH_PX = 8;
+export const PILL_TAIL_HEIGHT_PX = 6;
 /**
  * Corner radius of the action-pill backing plate. Derives from the theme so
  * the floating plate and every kit surface share one radius scale (the old
@@ -43,12 +48,12 @@ export const USER_BOX_RADIUS_PX = 6;
  * shared baseline), so alignment is deterministic - no font-metric offsets,
  * and no cross-shot identity drift (the r2 review's strongest eyesore).
  */
-/** Square icon box side, px. Both glyphs fit inside it. */
-export const PILL_ICON_SIZE_PX = 18;
+/** Square icon box side, px. Both glyphs fit inside it — compact for 80x28 bubble. */
+export const PILL_ICON_SIZE_PX = 14;
 /** Horizontal center of the heart icon, from the pill's left edge. */
-export const PILL_LIKE_ICON_CENTER_PX = 28;
-/** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [60,84]). */
-export const PILL_COPY_ICON_CENTER_PX = 94;
+export const PILL_LIKE_ICON_CENTER_PX = 14;
+/** Horizontal center of the copy icon, from the pill's left edge (its hotspot spans [44,80]). */
+export const PILL_COPY_ICON_CENTER_PX = 62;
 /** Hover affordance: the hovered icon scales by this factor about its center. */
 export const PILL_ICON_HOVER_SCALE = 1.15;
 /**
@@ -160,16 +165,14 @@ function glyphInkCenterAboveBaseline(text: string, font: string): number | null 
  * InteractionGeometry.test.ts pins the composed span on both sides.
  */
 const COPY_HOTSPOT_MIN_PX = 24;
-/** Uniform margin between the pill plate's edge and the hotspot span. */
-export const PILL_PLATE_MARGIN_PX = 12;
+void COPY_HOTSPOT_MIN_PX;
+/** Uniform margin between the pill plate's edge and the hotspot span — zero for speech bubble (plate == bubble). */
+export const PILL_PLATE_MARGIN_PX = 0;
 /**
- * Total pill plate width: the hotspot span (like [0,60] + copy [60,84])
- * plus one margin each side.
+ * Total pill plate width: the hotspot span (like [0,44] + copy [44,80])
+ * plus margins. For speech bubble plate == bubble width.
  */
-export const PILL_PLATE_WIDTH_PX =
-  PILL_COPY_OFFSET_PX +
-  Math.max(COPY_HOTSPOT_MIN_PX, PILL_WIDTH_PX - PILL_COPY_OFFSET_PX) +
-  PILL_PLATE_MARGIN_PX * 2;
+export const PILL_PLATE_WIDTH_PX = PILL_WIDTH_PX;
 /** Which visual state a danmaku's interaction box paints. */
 export type UserBoxKind = 'hover' | 'userSent' | 'selected';
 
@@ -856,23 +859,37 @@ export class DanmakuLayer extends Entity {
     const stage = this.getStage();
     const stageW = stage.w;
     const safeTop = stage.safeTop ?? 0;
-    // Centered under the danmaku text, clamped to stageW and safeTop — must
-    // match App's hotspot placement or the plate and the click targets drift
-    // (P1-1: left 142 vs centered 118).
+    // Bilibili speech bubble: centered below danmaku, not covering text, with tail.
+    // Must match AppPointer hotspot placement or the bubble and click targets drift.
     const unclampedLeft = rx + s.width / 2 - PILL_WIDTH_PX / 2;
     const pillLeft = Math.round(
       Math.min(
         Math.max(unclampedLeft, PILL_PLATE_MARGIN_PX),
-        Math.max(PILL_PLATE_MARGIN_PX, stageW - PILL_PLATE_WIDTH_PX - PILL_PLATE_MARGIN_PX),
+        Math.max(PILL_PLATE_MARGIN_PX, stageW - PILL_WIDTH_PX - PILL_PLATE_MARGIN_PX),
       ),
     );
-    const pillYRaw = ry + s.params.fontSize * PILL_BASELINE_FACTOR;
-    const pillTopRaw = pillYRaw - PILL_HEIGHT_PX / 2;
+    const pillTopRaw = ry + s.params.fontSize * PILL_BASELINE_FACTOR + PILL_GAP_PX;
     const pillTop = Math.max(pillTopRaw, safeTop + PAUSE_CHIP_SAFE_GAP_PX);
     const pillY = pillTop + PILL_HEIGHT_PX / 2;
-    const plateLeft = pillLeft - PILL_PLATE_MARGIN_PX;
+    // Bubble plate — speech bubble with same pillFill
     renderer.beginPath();
-    renderer.roundRect(plateLeft, pillTop, PILL_PLATE_WIDTH_PX, PILL_HEIGHT_PX, PILL_RADIUS_PX);
+    renderer.roundRect(pillLeft, pillTop, PILL_WIDTH_PX, PILL_HEIGHT_PX, PILL_RADIUS_PX);
+    renderer.fill(DANMAKU_CHROME.pillFill);
+    renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
+    // Tail — small triangle pointing to danmaku center, clamped inside bubble
+    const danmakuCenter = rx + s.width / 2;
+    const tailCenter = Math.min(
+      Math.max(danmakuCenter, pillLeft + PILL_TAIL_WIDTH_PX),
+      pillLeft + PILL_WIDTH_PX - PILL_TAIL_WIDTH_PX,
+    );
+    const tailLeft = tailCenter - PILL_TAIL_WIDTH_PX / 2;
+    const tailRight = tailCenter + PILL_TAIL_WIDTH_PX / 2;
+    const tailTipY = pillTop - PILL_TAIL_HEIGHT_PX;
+    renderer.beginPath();
+    renderer.moveTo(tailLeft, pillTop);
+    renderer.lineTo(tailCenter, tailTipY);
+    renderer.lineTo(tailRight, pillTop);
+    renderer.closePath();
     renderer.fill(DANMAKU_CHROME.pillFill);
     renderer.stroke(DANMAKU_CHROME.pillStroke, 1);
     const hovered = this.getStage().hoveredAction ?? null;
