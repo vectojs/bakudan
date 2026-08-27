@@ -105,7 +105,7 @@ declare module '@vectojs/danmaku-core' {
 /** Vertical offset of the pill baseline from the danmaku origin, in font sizes. */
 export const PILL_BASELINE_FACTOR = 1.4;
 /** Gap between danmaku text bottom and bubble top — ensures speech bubble never covers text. */
-export const PILL_GAP_PX = 4;
+export const PILL_GAP_PX = 8;
 /** Horizontal offset of the like count from the pill's left edge (gap after heart). */
 export const PILL_COUNT_OFFSET_PX = 26;
 /** Horizontal offset of the copy glyph from the pill's left edge. */
@@ -147,6 +147,8 @@ export const PILL_LIKE_ICON_CENTER_PX = 14;
 export const PILL_COPY_ICON_CENTER_PX = 62;
 /** Hover affordance: the hovered icon scales by this factor about its center. */
 export const PILL_ICON_HOVER_SCALE = 1.15;
+/** Vertical shift of the pill's content (count + icons) inside the bubble — fixes top-hugging. */
+export const PILL_CONTENT_Y_OFFSET_PX = 3;
 /**
  * Paused-chip geometry ("chip" tier): height, corner radius, horizontal
  * padding. The chip labels a hover-frozen danmaku so the freeze reads as
@@ -1014,11 +1016,11 @@ export class DanmakuLayer extends Entity {
     const countText = `${likeCount}`;
     const referenceCenter =
       glyphInkCenterAboveBaseline(countText, countFont) ?? COUNT_FALLBACK_INK_CENTER_PX;
-    const centerY = pillY - referenceCenter;
+    const centerY = pillY - referenceCenter + PILL_CONTENT_Y_OFFSET_PX;
     renderer.fillText(
       countText,
       pillLeft + PILL_COUNT_OFFSET_PX,
-      pillY,
+      pillY + PILL_CONTENT_Y_OFFSET_PX,
       countFont,
       DANMAKU_CHROME.pillCount,
     );
