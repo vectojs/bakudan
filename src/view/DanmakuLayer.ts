@@ -191,10 +191,12 @@ export function isSpecialSlot(s: PoolSlot): boolean {
   // P2-2: reduce over-classification. style-showcase's 73% special came from
   // glow(0.3)+gradient(0.25)+outline(0.35) each forcing the special pass and
   // bypassing the GL glyph batch. Only presets that truly need per-char or
-  // multi-pass rendering stay special: rotation (per-char angles), glitch
-  // (3-pass chroma), and rainbow (per-char hue). Glow/outline/gradient are
-  // single-fill with an extra stroke/gradient and can stay batched.
-  return s.params.preset === 'glitch' || s.params.preset === 'rotation' || eff.rainbow;
+  // multi-pass rendering stay special: glitch (3-pass chroma) and rainbow
+  // (per-char hue). Glow/outline/gradient are single-fill with an extra
+  // stroke/gradient and can stay batched.
+  // CTX-0044: rotation removed — per-char save/rotate bypassed GL batch and
+  // measured ~10fps in style-showcase; remaining specials are cheap or rarer.
+  return s.params.preset === 'glitch' || eff.rainbow;
 }
 
 /**
@@ -245,10 +247,11 @@ interface GlyphRun {
 const emojiRe = /\p{Extended_Pictographic}/u;
 
 /**
- * Shared per-(fontSize,char) width cache for the rare rainbow/rotation
+ * Shared per-(fontSize,char) width cache for the rare rainbow/glitch
  * presets, which draw character-by-character and need per-glyph advances.
  * fontSize is an integer (Scheduler floors it), so the key space is bounded
  * (~21 sizes × the small CJK/ASCII working set) and never leaks.
+ * CTX-0044: rotation removed, rainbow remains the sole per-char hue path.
  */
 const charWidthCache = new Map<string, number>();
 let measureCanvasCtx: CanvasRenderingContext2D | null = null;
@@ -314,16 +317,14 @@ export class DanmakuLayer extends Entity {
   }
 
   private _cullMargin(s: PoolSlot): number {
-    // P3-2: cull previously used 1.5*fs, underestimating sine(60), rotation(0.4*fs),
+    // P3-2: cull previously used 1.5*fs, underestimating sine(60),
     // glitch(3), repulsion(6), outline(2), glow(4), and jelly(0.16*fs).
+    // CTX-0044: rotation removed (was 0.4*fs per-char wobble).
     const fs = s.params.fontSize;
     let motion = 0;
     switch (s.params.preset) {
       case 'sine':
         motion = Math.abs(s.params.presetParams.amplitude ?? 60);
-        break;
-      case 'rotation':
-        motion = fs * 0.4;
         break;
       case 'glitch':
         motion = 3;
@@ -668,7 +669,7 @@ export class DanmakuLayer extends Entity {
       }
     }
 
-    // --- Special pass: glitch / rotation / rainbow / outline / glow ---
+    // --- Special pass: glitch / rainbow (rotation removed CTX-0044) ---
     if (special) {
       for (let i = 0; i < special.length; i++) {
         this._renderSpecial(renderer, special[i], stageW, stageH, interactive, false, frozen);
@@ -701,19 +702,11 @@ export class DanmakuLayer extends Entity {
     frozen: PoolSlot[] | null = null,
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
+    // CTX-0044: rotation removed — former per-char save/translate/rotate path
+    // cost ~10fps at style-showcase density; legacy 'rotation' now falls through
+    // to plain single-fill (batched when possible) with no per-char state.
     const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
     renderer.setGlobalAlpha(opacity);
-
-    const isRotation = preset === 'rotation' && s.charAngles && s.charAngles.length > 0;
-
-    if (isRotation) {
-      renderer.save();
-      renderer.translate(Math.round(s.x), Math.round(s.y));
-      this._renderRotatedChars(renderer, s, font, color, fontSize);
-      renderer.restore();
-      renderer.setGlobalAlpha(1);
-      return;
-    }
 
     const rx = Math.round(s.x);
     const ry = Math.round(s.y);
@@ -772,25 +765,6 @@ export class DanmakuLayer extends Entity {
       renderer.stroke(DANMAKU_CHROME.selectedStroke, 1);
     }
     renderer.setGlobalAlpha(1);
-  }
-
-  private _renderRotatedChars(
-    renderer: IRenderer,
-    s: PoolSlot,
-    font: string,
-    color: string,
-    fontSize: number,
-  ): void {
-    const chars = [...s.params.text];
-    let cx = 0;
-    for (let i = 0; i < chars.length; i++) {
-      renderer.save();
-      renderer.translate(cx, fontSize * 0.8);
-      renderer.rotate(s.charAngles[i] ?? 0);
-      renderer.fillText(chars[i], 0, 0, font, color);
-      renderer.restore();
-      cx += charWidth(chars[i], fontSize);
-    }
   }
 
   /**
