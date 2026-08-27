@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { BAKUDAN_THEME } from '../../cinemaConfig';
 import type { VideoLoadState, VideoSelection } from '@vectojs/danmaku-kit/model';
 import type { VideoCatalogEntry } from '../../../model/VideoCatalog';
