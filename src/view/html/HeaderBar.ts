@@ -41,6 +41,10 @@ export class HeaderBar {
   private readonly frameEl: HTMLElement;
   private readonly liveEl: HTMLElement;
   private readonly backendEl: HTMLElement;
+  // CTX-0046: Bilibili-like extras (logo icon, search affordance, user avatar)
+  private readonly logoIconEl: HTMLElement;
+  private readonly searchIconEl: HTMLElement;
+  private readonly avatarEl: HTMLElement;
   private destroyed = false;
 
   constructor(container: HTMLElement, opts: HeaderBarOptions) {
@@ -73,9 +77,24 @@ export class HeaderBar {
     this.root.className = 'bakudan-header';
     this.root.setAttribute('role', 'banner');
 
-    // Left: wordmark + status pill
+    // Left: wordmark + status pill — Bilibili TV pink icon + wordmark
     const left = document.createElement('div');
     left.className = 'bakudan-header__left';
+
+    this.logoIconEl = document.createElement('span');
+    this.logoIconEl.className = 'bakudan-header__logo-icon';
+    this.logoIconEl.setAttribute('aria-hidden', 'true');
+    this.logoIconEl.textContent = '📺';
+    this.logoIconEl.style.display = 'inline-flex';
+    this.logoIconEl.style.alignItems = 'center';
+    this.logoIconEl.style.justifyContent = 'center';
+    this.logoIconEl.style.width = '22px';
+    this.logoIconEl.style.height = '22px';
+    this.logoIconEl.style.borderRadius = '6px';
+    this.logoIconEl.style.background = 'var(--bakudan-accent, #f43f5e)';
+    this.logoIconEl.style.color = '#fff';
+    this.logoIconEl.style.fontSize = '12px';
+    this.logoIconEl.style.lineHeight = '1';
 
     this.wordmarkEl = document.createElement('span');
     this.wordmarkEl.className = 'bakudan-header__wordmark';
@@ -88,11 +107,19 @@ export class HeaderBar {
     // Data attribute drives kind-specific styling without hardcoding colors
     this.pillEl.dataset.kind = 'video';
 
-    left.append(this.wordmarkEl, this.pillEl);
+    left.append(this.logoIconEl, this.wordmarkEl, this.pillEl);
 
-    // Center: video / track labels (optional, may be empty)
+    // Center: video / track labels — Bilibili search-like pill
     const center = document.createElement('div');
     center.className = 'bakudan-header__center';
+
+    this.searchIconEl = document.createElement('span');
+    this.searchIconEl.className = 'bakudan-header__search-icon';
+    this.searchIconEl.setAttribute('aria-hidden', 'true');
+    this.searchIconEl.textContent = '⌕';
+    this.searchIconEl.style.fontSize = '14px';
+    this.searchIconEl.style.color = 'var(--bakudan-text-muted, #94a3b8)';
+    this.searchIconEl.style.marginRight = '6px';
 
     this.videoEl = document.createElement('span');
     this.videoEl.className = 'bakudan-header__video';
@@ -102,9 +129,9 @@ export class HeaderBar {
     this.trackEl.className = 'bakudan-header__track';
     this.trackEl.dataset.testid = 'track-label';
 
-    center.append(this.videoEl, this.trackEl);
+    center.append(this.searchIconEl, this.videoEl, this.trackEl);
 
-    // Right: metrics (fps, frameTime, live/capacity, backend)
+    // Right: metrics (fps, frameTime, live/capacity, backend) + Bilibili avatar
     const right = document.createElement('div');
     right.className = 'bakudan-header__right bakudan-header__metrics';
 
@@ -124,7 +151,23 @@ export class HeaderBar {
     this.backendEl.className = 'bakudan-header__metric bakudan-header__metric--backend secondary';
     this.backendEl.dataset.testid = 'backend';
 
-    right.append(this.fpsEl, this.frameEl, this.liveEl, this.backendEl);
+    this.avatarEl = document.createElement('span');
+    this.avatarEl.className = 'bakudan-header__avatar';
+    this.avatarEl.setAttribute('aria-hidden', 'true');
+    this.avatarEl.textContent = 'U';
+    this.avatarEl.style.display = 'inline-flex';
+    this.avatarEl.style.alignItems = 'center';
+    this.avatarEl.style.justifyContent = 'center';
+    this.avatarEl.style.width = '24px';
+    this.avatarEl.style.height = '24px';
+    this.avatarEl.style.borderRadius = '999px';
+    this.avatarEl.style.background = 'var(--bakudan-surface-raised, rgba(30,41,59,0.98))';
+    this.avatarEl.style.border = '1px solid var(--bakudan-border, rgba(248,250,252,0.18))';
+    this.avatarEl.style.color = 'var(--bakudan-text, #f8fafc)';
+    this.avatarEl.style.font = '600 11px Inter, system-ui, sans-serif';
+    this.avatarEl.style.marginLeft = '4px';
+
+    right.append(this.fpsEl, this.frameEl, this.liveEl, this.backendEl, this.avatarEl);
 
     this.root.append(left, center, right);
     this.container.replaceChildren(this.root);

@@ -10,6 +10,19 @@ export interface CommandDeckState {
   pendingSendText: string;
   labOpen: boolean;
   disabled?: boolean;
+  danmakuStyle?: {
+    opacity: number;
+    outlineEnabled: boolean;
+    outlineColor: string;
+    outlineWidth: number;
+    shadowEnabled: boolean;
+    shadowColor: string;
+    shadowBlur: number;
+    shadowOffsetX: number;
+    shadowOffsetY: number;
+  };
+  danmakuColor?: string;
+  fontSizeChoice?: string;
 }
 
 export interface CommandDeckOptions {
@@ -20,6 +33,9 @@ export interface CommandDeckOptions {
   onSend: (text: string) => void;
   onLabToggle: () => void;
   getState: () => CommandDeckState;
+  onColorChange?: (color: string) => void;
+  onDanmakuStyleChange?: (patch: Partial<NonNullable<CommandDeckState['danmakuStyle']>>) => void;
+  onFontSizeChange?: (size: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -69,6 +85,27 @@ function bufferedSignature(
  * a palette value. Timeline uses native <input type="range"> with CSS vars
  * --progress and --buffered-end for buffered span + playhead.
  */
+/**
+ * Bilibili's danmaku palette — 12 signature colors users pick from (white + primaries + bilibili pink/blue).
+ * Keep order stable so snapshot tests can assert it.
+ */
+export const BILIBILI_PALETTE: readonly string[] = [
+  '#FFFFFF',
+  '#FE0302',
+  '#FF7204',
+  '#FFAA02',
+  '#FFD302',
+  '#A0EE00',
+  '#00CD00',
+  '#019899',
+  '#00A1D6',
+  '#4266BE',
+  '#6525CF',
+  '#D4237A',
+  '#FB7299',
+  '#222222',
+] as const;
+
 export class CommandDeckHTML {
   private readonly container: HTMLElement;
   private readonly opts: CommandDeckOptions;
@@ -82,6 +119,15 @@ export class CommandDeckHTML {
   private readonly input: HTMLInputElement;
   private readonly sendButton: HTMLButtonElement;
   private readonly labButton: HTMLButtonElement;
+  // CTX-0046: Bilibili-like danmaku toolbar (color dots + style toggles)
+  private readonly styleBar: HTMLElement;
+  private readonly paletteWrap: HTMLElement;
+  private readonly colorDots = new Map<string, HTMLButtonElement>();
+  private readonly fontSizeGroup: HTMLElement;
+  private readonly outlineToggle: HTMLButtonElement;
+  private readonly shadowToggle: HTMLButtonElement;
+  private readonly opacityRange: HTMLInputElement;
+  private readonly opacityLabel: HTMLElement;
   private destroyed = false;
   private lastBufferedSignature = '';
   private lastDuration = 0;
@@ -191,6 +237,104 @@ export class CommandDeckHTML {
     this.labButton.setAttribute('aria-pressed', 'false');
     this.labButton.textContent = 'Lab';
 
+    // CTX-0046: Bilibili-like danmaku style bar — color palette + font/size + outline/shadow/opacity
+    // Mimics Bilibili's bottom control bar: "A" font buttons, color dots, border & shadow toggles, opacity slider.
+    this.styleBar = document.createElement('div');
+    this.styleBar.className = 'bakudan-command__stylebar';
+    this.styleBar.setAttribute('role', 'toolbar');
+    this.styleBar.setAttribute('aria-label', 'Danmaku style');
+
+    // Palette dots (Bilibili 12-color grid condensed to a row)
+    this.paletteWrap = document.createElement('div');
+    this.paletteWrap.className = 'bakudan-command__palette';
+    this.paletteWrap.setAttribute('role', 'group');
+    this.paletteWrap.setAttribute('aria-label', 'Danmaku color');
+    for (const col of BILIBILI_PALETTE) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'bakudan-command__color-dot';
+      dot.dataset.color = col;
+      dot.setAttribute('aria-label', `Danmaku color ${col}`);
+      dot.style.background = col;
+      // White needs border so it stays visible on dark deck
+      if (col.toLowerCase() === '#ffffff') dot.style.border = '1px solid rgba(148,163,184,0.6)';
+      dot.addEventListener('click', () => this.opts.onColorChange?.(col));
+      this.paletteWrap.append(dot);
+      this.colorDots.set(col, dot);
+    }
+    this.styleBar.append(this.paletteWrap);
+
+    // Font size quick pick (Bilibili "A" size: 小/标准/大)
+    this.fontSizeGroup = document.createElement('div');
+    this.fontSizeGroup.className = 'bakudan-command__fontsize';
+    this.fontSizeGroup.setAttribute('role', 'group');
+    this.fontSizeGroup.setAttribute('aria-label', 'Font size');
+    for (const sz of ['small', 'normal', 'large'] as const) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bakudan-command__fontsize-btn';
+      btn.dataset.size = sz;
+      btn.setAttribute('aria-label', `Font size ${sz}`);
+      // Visual: A with varying size like Bilibili
+      btn.textContent = sz === 'small' ? 'A-' : sz === 'large' ? 'A+' : 'A';
+      btn.style.fontSize = sz === 'small' ? '12px' : sz === 'large' ? '16px' : '14px';
+      btn.addEventListener('click', () => this.opts.onFontSizeChange?.(sz));
+      this.fontSizeGroup.append(btn);
+    }
+    this.styleBar.append(this.fontSizeGroup);
+
+    // Outline toggle (Bilibili “描边”)
+    this.outlineToggle = document.createElement('button');
+    this.outlineToggle.type = 'button';
+    this.outlineToggle.className = 'bakudan-command__style-toggle';
+    this.outlineToggle.dataset.toggle = 'outline';
+    this.outlineToggle.setAttribute('aria-pressed', 'true');
+    this.outlineToggle.setAttribute('aria-label', 'Outline');
+    this.outlineToggle.textContent = '◯';
+    this.outlineToggle.title = 'Border / Outline (Bilibili 描边)';
+    this.outlineToggle.addEventListener('click', () => {
+      const pressed = this.outlineToggle.getAttribute('aria-pressed') === 'true';
+      this.opts.onDanmakuStyleChange?.({ outlineEnabled: !pressed });
+    });
+    this.styleBar.append(this.outlineToggle);
+
+    // Shadow toggle (Bilibili “阴影”)
+    this.shadowToggle = document.createElement('button');
+    this.shadowToggle.type = 'button';
+    this.shadowToggle.className = 'bakudan-command__style-toggle';
+    this.shadowToggle.dataset.toggle = 'shadow';
+    this.shadowToggle.setAttribute('aria-pressed', 'true');
+    this.shadowToggle.setAttribute('aria-label', 'Shadow');
+    this.shadowToggle.textContent = '⬒';
+    this.shadowToggle.title = 'Shadow (Bilibili 阴影)';
+    this.shadowToggle.addEventListener('click', () => {
+      const pressed = this.shadowToggle.getAttribute('aria-pressed') === 'true';
+      this.opts.onDanmakuStyleChange?.({ shadowEnabled: !pressed });
+    });
+    this.styleBar.append(this.shadowToggle);
+
+    // Opacity slider (Bilibili “不透明度” 0-100%)
+    const opacityWrap = document.createElement('label');
+    opacityWrap.className = 'bakudan-command__opacity';
+    opacityWrap.textContent = 'Opacity';
+    this.opacityRange = document.createElement('input');
+    this.opacityRange.type = 'range';
+    this.opacityRange.className = 'bakudan-command__opacity-range';
+    this.opacityRange.min = '0.2';
+    this.opacityRange.max = '1';
+    this.opacityRange.step = '0.05';
+    this.opacityRange.value = '1';
+    this.opacityRange.setAttribute('aria-label', 'Danmaku opacity');
+    this.opacityLabel = document.createElement('span');
+    this.opacityLabel.className = 'bakudan-command__opacity-value';
+    this.opacityLabel.textContent = '100%';
+    this.opacityRange.addEventListener('input', () => {
+      const v = Number.parseFloat(this.opacityRange.value);
+      this.opts.onDanmakuStyleChange?.({ opacity: Number.isFinite(v) ? v : 1 });
+    });
+    opacityWrap.append(this.opacityRange, this.opacityLabel);
+    this.styleBar.append(opacityWrap);
+
     // Order: play, timeline, elapsed (inside wrap), rate, composer, lab
     // But spec order is [play] [timeline] [elapsed] [rate] [input+Send] [Lab]
     // We keep elapsed inside wrap next to timeline, then rate, composer, lab
@@ -200,6 +344,7 @@ export class CommandDeckHTML {
       this.rateSelect,
       this.composer,
       this.labButton,
+      this.styleBar,
     );
 
     // Events
@@ -395,6 +540,82 @@ export class CommandDeckHTML {
     this.labButton.setAttribute('aria-pressed', String(labOpen));
     // Keep text as "Lab" per spec (not Open/Close variant) but reflect pressed state via aria
     if (this.labButton.textContent !== 'Lab') this.labButton.textContent = 'Lab';
+
+    // CTX-0046: Bilibili palette + style sync — keep cheap, no extra events
+    const danmakuColor = typeof raw.danmakuColor === 'string' ? (raw.danmakuColor as string) : '';
+    if (danmakuColor) {
+      for (const [col, dot] of this.colorDots) {
+        const isActive = col.toLowerCase() === danmakuColor.toLowerCase();
+        dot.setAttribute('aria-pressed', String(isActive));
+        dot.classList.toggle('bakudan-command__color-dot--active', isActive);
+        dot.style.outline = isActive ? '2px solid var(--bakudan-focus-ring, #60a5fa)' : '';
+        dot.style.outlineOffset = isActive ? '2px' : '';
+      }
+      // Tint composer input border with the chosen color (bilibili: input shows active color)
+      this.input.style.borderColor = danmakuColor;
+      this.input.style.boxShadow = `0 0 0 2px ${danmakuColor}22`;
+    }
+    const fontSizeChoice =
+      typeof raw.fontSizeChoice === 'string' ? (raw.fontSizeChoice as string) : '';
+    if (fontSizeChoice) {
+      for (const btn of this.fontSizeGroup.querySelectorAll<HTMLButtonElement>(
+        '.bakudan-command__fontsize-btn',
+      )) {
+        const isActive = btn.dataset.size === fontSizeChoice;
+        btn.setAttribute('aria-pressed', String(isActive));
+        btn.classList.toggle('bakudan-command__fontsize-btn--active', isActive);
+        btn.style.background = isActive ? 'var(--bakudan-accent, #f43f5e)' : '';
+        btn.style.color = isActive ? '#fff' : '';
+      }
+    }
+    const ds = raw.danmakuStyle as
+      | {
+          opacity?: number;
+          outlineEnabled?: boolean;
+          outlineColor?: string;
+          outlineWidth?: number;
+          shadowEnabled?: boolean;
+          shadowColor?: string;
+          shadowBlur?: number;
+        }
+      | undefined;
+    if (ds) {
+      if (typeof ds.outlineEnabled === 'boolean') {
+        this.outlineToggle.setAttribute('aria-pressed', String(ds.outlineEnabled));
+        this.outlineToggle.classList.toggle(
+          'bakudan-command__style-toggle--active',
+          ds.outlineEnabled,
+        );
+        this.outlineToggle.style.background = ds.outlineEnabled
+          ? 'var(--bakudan-accent, #f43f5e)'
+          : '';
+        this.outlineToggle.style.color = ds.outlineEnabled ? '#fff' : '';
+      }
+      if (typeof ds.shadowEnabled === 'boolean') {
+        this.shadowToggle.setAttribute('aria-pressed', String(ds.shadowEnabled));
+        this.shadowToggle.classList.toggle(
+          'bakudan-command__style-toggle--active',
+          ds.shadowEnabled,
+        );
+        this.shadowToggle.style.background = ds.shadowEnabled
+          ? 'var(--bakudan-accent, #f43f5e)'
+          : '';
+        this.shadowToggle.style.color = ds.shadowEnabled ? '#fff' : '';
+      }
+      if (typeof ds.opacity === 'number' && Number.isFinite(ds.opacity)) {
+        const v = Math.max(0.2, Math.min(1, ds.opacity));
+        if (Math.abs(Number.parseFloat(this.opacityRange.value) - v) > 0.01) {
+          this.opacityRange.value = String(v);
+        }
+        this.opacityLabel.textContent = `${Math.round(v * 100)}%`;
+        this.opacityRange.setAttribute('aria-valuenow', String(v));
+      }
+    }
+    // Danmaku style bar disabled state mirrors composer disabled (video mode only)
+    const styleDisabled = disabled;
+    this.styleBar.setAttribute('aria-disabled', String(styleDisabled));
+    this.styleBar.style.opacity = styleDisabled ? '0.55' : '';
+    this.styleBar.style.pointerEvents = styleDisabled ? 'none' : '';
   }
 
   destroy(): void {

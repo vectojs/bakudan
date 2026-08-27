@@ -465,6 +465,42 @@
   }
 }
 
+/* CTX-0046: Bilibili-like drawer — rounded top, handle, softer shadow */
+#lab-drawer {
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+
+.bakudan-lab__header::before {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bakudan-border, rgba(248, 250, 252, 0.22));
+  margin: 0 auto 8px;
+  /* Center handle above title row — absolute positioning via flex */
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bakudan-lab__header {
+  position: relative;
+  padding-top: 16px;
+}
+
+/* Bilibili tabs: pink underline thicker, like Bilibili's 2px pink active */
+.bakudan-lab__tab[aria-selected="true"] {
+  border-bottom-width: 3px;
+}
+
+/* Range and color inputs inherit bilibili pink accent */
+.bakudan-lab__range {
+  accent-color: var(--bakudan-accent, #f43f5e);
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   #lab-drawer {

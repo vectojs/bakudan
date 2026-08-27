@@ -1,5 +1,6 @@
 import { BAKUDAN_THEME } from '../../cinemaConfig';
-import type { FontFamilyId, FontSizeId, FontWeightId } from '../../DanmakuLayer';
+import type { DanmakuStyle, FontFamilyId, FontSizeId, FontWeightId } from '../../DanmakuLayer';
+import { DEFAULT_DANMAKU_STYLE } from '../../DanmakuLayer';
 
 export interface InteractionsState {
   presetId: string;
@@ -15,6 +16,8 @@ export interface InteractionsState {
   fontFamily?: FontFamilyId;
   fontSizeChoice?: FontSizeId;
   fontWeight?: FontWeightId;
+  /** Bilibili-like danmaku style (CTX-0046) — outline / shadow / opacity */
+  danmakuStyle?: DanmakuStyle;
 }
 
 export interface InteractionsPanelOptions {
@@ -45,6 +48,7 @@ export interface InteractionsPanelOptions {
   onFontFamilyChange?: (id: FontFamilyId) => void;
   onFontSizeChange?: (id: FontSizeId) => void;
   onFontWeightChange?: (id: FontWeightId) => void;
+  onDanmakuStyleChange?: (patch: Partial<DanmakuStyle>) => void;
 }
 
 /**
@@ -68,6 +72,17 @@ export class InteractionsPanelHTML {
   private readonly fontFamilyGroup: HTMLElement;
   private readonly fontSizeGroup: HTMLElement;
   private readonly fontWeightGroup: HTMLElement;
+  // CTX-0046: danmaku style controls (Bilibili outline/shadow/opacity)
+  private readonly danmakuOpacityInput: HTMLInputElement;
+  private readonly danmakuOpacityValue: HTMLElement;
+  private readonly danmakuOutlineToggle: HTMLInputElement;
+  private readonly danmakuOutlineColor: HTMLInputElement;
+  private readonly danmakuOutlineWidth: HTMLInputElement;
+  private readonly danmakuOutlineWidthValue: HTMLElement;
+  private readonly danmakuShadowToggle: HTMLInputElement;
+  private readonly danmakuShadowColor: HTMLInputElement;
+  private readonly danmakuShadowBlur: HTMLInputElement;
+  private readonly danmakuShadowBlurValue: HTMLElement;
 
   constructor(opts: InteractionsPanelOptions) {
     this.opts = opts;
@@ -307,6 +322,215 @@ export class InteractionsPanelHTML {
 
     root.append(typoSection);
 
+    // CTX-0046: Danmaku style — Bilibili outline / shadow / opacity (more knobs than Bilibili itself)
+    const styleSection = document.createElement('div');
+    styleSection.className = 'bakudan-lab__section';
+    const styleHeading = document.createElement('h3');
+    styleHeading.textContent = 'Danmaku style';
+    styleHeading.title = 'Bilibili: 描边/阴影/不透明度 — plus outline color/width & shadow blur';
+    styleSection.append(styleHeading);
+
+    const styleDesc = document.createElement('p');
+    styleDesc.textContent =
+      'Bilibili-like: thick black outline + soft shadow keep text readable over video. More knobs than Bilibili — tweak color, width, blur, opacity.';
+    styleDesc.style.fontSize = '11px';
+    styleDesc.style.color = 'var(--bakudan-text-muted)';
+    styleDesc.style.margin = '4px 0 8px';
+    styleSection.append(styleDesc);
+
+    // Opacity slider (Bilibili 不透明度 20%–100%)
+    const opacityRow = document.createElement('div');
+    opacityRow.className = 'bakudan-lab__range-row';
+    const opacityLabelRow = document.createElement('div');
+    opacityLabelRow.style.display = 'flex';
+    opacityLabelRow.style.justifyContent = 'space-between';
+    opacityLabelRow.style.alignItems = 'center';
+    const opacityLabel = document.createElement('label');
+    opacityLabel.textContent = 'Opacity';
+    opacityLabel.style.fontSize = '12px';
+    this.danmakuOpacityValue = document.createElement('span');
+    this.danmakuOpacityValue.textContent = `${Math.round((this.state.danmakuStyle?.opacity ?? DEFAULT_DANMAKU_STYLE.opacity) * 100)}%`;
+    this.danmakuOpacityValue.style.fontFamily = 'var(--bakudan-font-mono)';
+    this.danmakuOpacityValue.style.fontSize = '11px';
+    opacityLabelRow.append(opacityLabel, this.danmakuOpacityValue);
+    opacityRow.append(opacityLabelRow);
+    this.danmakuOpacityInput = document.createElement('input');
+    this.danmakuOpacityInput.type = 'range';
+    this.danmakuOpacityInput.className = 'bakudan-lab__range';
+    this.danmakuOpacityInput.min = '0.2';
+    this.danmakuOpacityInput.max = '1';
+    this.danmakuOpacityInput.step = '0.05';
+    this.danmakuOpacityInput.value = String(
+      this.state.danmakuStyle?.opacity ?? DEFAULT_DANMAKU_STYLE.opacity,
+    );
+    this.danmakuOpacityInput.setAttribute('aria-label', 'Danmaku opacity');
+    this.danmakuOpacityInput.addEventListener('input', () => {
+      const v = Number.parseFloat(this.danmakuOpacityInput.value);
+      this.danmakuOpacityValue.textContent = `${Math.round(v * 100)}%`;
+      opts.onDanmakuStyleChange?.({ opacity: v });
+    });
+    opacityRow.append(this.danmakuOpacityInput);
+    styleSection.append(opacityRow);
+
+    // Outline toggle + color + width
+    const outlineRow = document.createElement('label');
+    outlineRow.className = 'bakudan-lab__checkbox-row';
+    this.danmakuOutlineToggle = document.createElement('input');
+    this.danmakuOutlineToggle.type = 'checkbox';
+    this.danmakuOutlineToggle.checked =
+      this.state.danmakuStyle?.outlineEnabled ?? DEFAULT_DANMAKU_STYLE.outlineEnabled;
+    this.danmakuOutlineToggle.setAttribute('aria-label', 'Outline');
+    this.danmakuOutlineToggle.addEventListener('change', () =>
+      opts.onDanmakuStyleChange?.({
+        outlineEnabled: this.danmakuOutlineToggle.checked,
+      }),
+    );
+    const outlineSpan = document.createElement('span');
+    outlineSpan.textContent = 'Outline — Border / 描边';
+    outlineRow.append(this.danmakuOutlineToggle, outlineSpan);
+    styleSection.append(outlineRow);
+
+    const outlineControls = document.createElement('div');
+    outlineControls.style.display = 'flex';
+    outlineControls.style.gap = '8px';
+    outlineControls.style.alignItems = 'center';
+    outlineControls.style.margin = '4px 0 8px 24px';
+    const ocLabel = document.createElement('span');
+    ocLabel.textContent = 'Color';
+    ocLabel.style.fontSize = '11px';
+    ocLabel.style.color = 'var(--bakudan-text-muted)';
+    this.danmakuOutlineColor = document.createElement('input');
+    this.danmakuOutlineColor.type = 'color';
+    this.danmakuOutlineColor.value = (() => {
+      const c = this.state.danmakuStyle?.outlineColor ?? DEFAULT_DANMAKU_STYLE.outlineColor;
+      // rgba -> hex fallback
+      if (c.startsWith('rgba')) return '#000000';
+      return c;
+    })();
+    this.danmakuOutlineColor.style.width = '36px';
+    this.danmakuOutlineColor.style.height = '24px';
+    this.danmakuOutlineColor.style.padding = '0';
+    this.danmakuOutlineColor.style.border = '1px solid var(--bakudan-border)';
+    this.danmakuOutlineColor.style.borderRadius = '6px';
+    this.danmakuOutlineColor.setAttribute('aria-label', 'Outline color');
+    this.danmakuOutlineColor.addEventListener('input', () =>
+      opts.onDanmakuStyleChange?.({
+        outlineColor: this.danmakuOutlineColor.value,
+      }),
+    );
+    const owLabel = document.createElement('span');
+    owLabel.textContent = 'Width';
+    owLabel.style.fontSize = '11px';
+    owLabel.style.color = 'var(--bakudan-text-muted)';
+    this.danmakuOutlineWidth = document.createElement('input');
+    this.danmakuOutlineWidth.type = 'range';
+    this.danmakuOutlineWidth.className = 'bakudan-lab__range';
+    this.danmakuOutlineWidth.min = '1';
+    this.danmakuOutlineWidth.max = '4';
+    this.danmakuOutlineWidth.step = '1';
+    this.danmakuOutlineWidth.value = String(
+      this.state.danmakuStyle?.outlineWidth ?? DEFAULT_DANMAKU_STYLE.outlineWidth,
+    );
+    this.danmakuOutlineWidth.style.flex = '1';
+    this.danmakuOutlineWidth.setAttribute('aria-label', 'Outline width');
+    this.danmakuOutlineWidthValue = document.createElement('span');
+    this.danmakuOutlineWidthValue.textContent = `${this.danmakuOutlineWidth.value}px`;
+    this.danmakuOutlineWidthValue.style.fontFamily = 'var(--bakudan-font-mono)';
+    this.danmakuOutlineWidthValue.style.fontSize = '11px';
+    this.danmakuOutlineWidth.addEventListener('input', () => {
+      const w = Number.parseInt(this.danmakuOutlineWidth.value, 10);
+      this.danmakuOutlineWidthValue.textContent = `${w}px`;
+      opts.onDanmakuStyleChange?.({ outlineWidth: w });
+    });
+    outlineControls.append(
+      ocLabel,
+      this.danmakuOutlineColor,
+      owLabel,
+      this.danmakuOutlineWidth,
+      this.danmakuOutlineWidthValue,
+    );
+    styleSection.append(outlineControls);
+
+    // Shadow toggle + color + blur
+    const shadowRow = document.createElement('label');
+    shadowRow.className = 'bakudan-lab__checkbox-row';
+    this.danmakuShadowToggle = document.createElement('input');
+    this.danmakuShadowToggle.type = 'checkbox';
+    this.danmakuShadowToggle.checked =
+      this.state.danmakuStyle?.shadowEnabled ?? DEFAULT_DANMAKU_STYLE.shadowEnabled;
+    this.danmakuShadowToggle.setAttribute('aria-label', 'Shadow');
+    this.danmakuShadowToggle.addEventListener('change', () =>
+      opts.onDanmakuStyleChange?.({
+        shadowEnabled: this.danmakuShadowToggle.checked,
+      }),
+    );
+    const shadowSpan = document.createElement('span');
+    shadowSpan.textContent = 'Shadow — Drop / 阴影';
+    shadowRow.append(this.danmakuShadowToggle, shadowSpan);
+    styleSection.append(shadowRow);
+
+    const shadowControls = document.createElement('div');
+    shadowControls.style.display = 'flex';
+    shadowControls.style.gap = '8px';
+    shadowControls.style.alignItems = 'center';
+    shadowControls.style.margin = '4px 0 8px 24px';
+    const scLabel = document.createElement('span');
+    scLabel.textContent = 'Color';
+    scLabel.style.fontSize = '11px';
+    scLabel.style.color = 'var(--bakudan-text-muted)';
+    this.danmakuShadowColor = document.createElement('input');
+    this.danmakuShadowColor.type = 'color';
+    this.danmakuShadowColor.value = (() => {
+      const c = this.state.danmakuStyle?.shadowColor ?? DEFAULT_DANMAKU_STYLE.shadowColor;
+      if (c.startsWith('rgba')) return '#000000';
+      return c;
+    })();
+    this.danmakuShadowColor.style.width = '36px';
+    this.danmakuShadowColor.style.height = '24px';
+    this.danmakuShadowColor.style.padding = '0';
+    this.danmakuShadowColor.style.border = '1px solid var(--bakudan-border)';
+    this.danmakuShadowColor.style.borderRadius = '6px';
+    this.danmakuShadowColor.setAttribute('aria-label', 'Shadow color');
+    this.danmakuShadowColor.addEventListener('input', () =>
+      opts.onDanmakuStyleChange?.({
+        shadowColor: this.danmakuShadowColor.value,
+      }),
+    );
+    const sbLabel = document.createElement('span');
+    sbLabel.textContent = 'Blur';
+    sbLabel.style.fontSize = '11px';
+    sbLabel.style.color = 'var(--bakudan-text-muted)';
+    this.danmakuShadowBlur = document.createElement('input');
+    this.danmakuShadowBlur.type = 'range';
+    this.danmakuShadowBlur.className = 'bakudan-lab__range';
+    this.danmakuShadowBlur.min = '0';
+    this.danmakuShadowBlur.max = '4';
+    this.danmakuShadowBlur.step = '1';
+    this.danmakuShadowBlur.value = String(
+      this.state.danmakuStyle?.shadowBlur ?? DEFAULT_DANMAKU_STYLE.shadowBlur,
+    );
+    this.danmakuShadowBlur.style.flex = '1';
+    this.danmakuShadowBlur.setAttribute('aria-label', 'Shadow blur');
+    this.danmakuShadowBlurValue = document.createElement('span');
+    this.danmakuShadowBlurValue.textContent = `${this.danmakuShadowBlur.value}`;
+    this.danmakuShadowBlurValue.style.fontFamily = 'var(--bakudan-font-mono)';
+    this.danmakuShadowBlurValue.style.fontSize = '11px';
+    this.danmakuShadowBlur.addEventListener('input', () => {
+      const b = Number.parseInt(this.danmakuShadowBlur.value, 10);
+      this.danmakuShadowBlurValue.textContent = `${b}`;
+      opts.onDanmakuStyleChange?.({ shadowBlur: b });
+    });
+    shadowControls.append(
+      scLabel,
+      this.danmakuShadowColor,
+      sbLabel,
+      this.danmakuShadowBlur,
+      this.danmakuShadowBlurValue,
+    );
+    styleSection.append(shadowControls);
+
+    root.append(styleSection);
+
     // Render classes
     const renderSection = document.createElement('div');
     renderSection.className = 'bakudan-lab__section';
@@ -386,6 +610,28 @@ export class InteractionsPanelHTML {
         'input[type="radio"]',
       )) {
         input.checked = input.value === s.fontWeight;
+      }
+    }
+    // Danmaku style (CTX-0046)
+    if (s.danmakuStyle) {
+      const ds = s.danmakuStyle;
+      if (ds.opacity !== undefined) {
+        this.danmakuOpacityInput.value = String(ds.opacity);
+        this.danmakuOpacityValue.textContent = `${Math.round(ds.opacity * 100)}%`;
+      }
+      if (ds.outlineEnabled !== undefined) this.danmakuOutlineToggle.checked = !!ds.outlineEnabled;
+      if (ds.outlineColor !== undefined && !ds.outlineColor.startsWith('rgba'))
+        this.danmakuOutlineColor.value = ds.outlineColor;
+      if (ds.outlineWidth !== undefined) {
+        this.danmakuOutlineWidth.value = String(ds.outlineWidth);
+        this.danmakuOutlineWidthValue.textContent = `${ds.outlineWidth}px`;
+      }
+      if (ds.shadowEnabled !== undefined) this.danmakuShadowToggle.checked = !!ds.shadowEnabled;
+      if (ds.shadowColor !== undefined && !ds.shadowColor.startsWith('rgba'))
+        this.danmakuShadowColor.value = ds.shadowColor;
+      if (ds.shadowBlur !== undefined) {
+        this.danmakuShadowBlur.value = String(ds.shadowBlur);
+        this.danmakuShadowBlurValue.textContent = `${ds.shadowBlur}`;
       }
     }
   }
