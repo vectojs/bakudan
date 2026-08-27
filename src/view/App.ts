@@ -137,7 +137,8 @@ export class App {
   private devtoolsPanelHTML: DevToolsPanelHTML | null = null;
   private benchPanelHTML: BenchmarkPanelHTML | null = null;
   private videosPanel: VideosPanel<string> | null = null;
-  private throughputPanel: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId> | null = null;
+  private throughputPanel: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId> | null =
+    null;
   private interactionsPanel: InteractionsPanel<PresetId, EffectId, RenderClassId> | null = null;
   private devtoolsPanel: DevToolsInfoPanel | null = null;
   private benchPanel: BenchmarkPanel | null = null;
@@ -384,6 +385,9 @@ export class App {
     void AppLayout;
     void AppPointer;
     void AppSelection;
+    void this._repulsionEnabled;
+    void this._gravityEnabled;
+    void this._jellyEnabled;
 
     const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
     const initialTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
