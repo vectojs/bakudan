@@ -131,13 +131,13 @@ export class InteractionsPanelHTML {
     this.presetGroup.style.display = 'flex';
     this.presetGroup.style.flexDirection = 'column';
     this.presetGroup.style.gap = '8px';
+    // CTX-0044: rotation removed — per-char save/rotate was 10fps
     const presets = opts.presets ?? [
       { id: 'scroll', label: 'Scroll →' },
       { id: 'reverse', label: '← Reverse' },
       { id: 'top', label: 'Top Fixed' },
       { id: 'bottom', label: 'Bottom Fixed' },
       { id: 'sine', label: 'Sine Wave' },
-      { id: 'rotation', label: 'Rotating Chars' },
       { id: 'glitch', label: 'Glitch Effect' },
       { id: 'repulsion', label: 'Cursor Repulsion' },
     ];

@@ -575,10 +575,12 @@ export class App {
       theme: BAKUDAN_THEME,
       labels: labels.panels.interactions,
       state: this._interactionsState(),
-      presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
-        id,
-        label: PRESET_TRANSLATIONS[this.currentLang][id],
-      })),
+      presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[])
+        .filter((id) => id !== 'rotation')
+        .map((id) => ({
+          id,
+          label: PRESET_TRANSLATIONS[this.currentLang][id],
+        })),
       effects: EFFECT_IDS.map((id) => ({
         id,
         label: t(`fx.${id}`, this.currentLang),
@@ -694,10 +696,12 @@ export class App {
           dragEnabled: this._dragEnabled,
           reactionsEnabled: this._reactionsEnabled,
         },
-        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
-          id,
-          label: PRESET_TRANSLATIONS[this.currentLang][id],
-        })),
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[])
+          .filter((id) => id !== 'rotation')
+          .map((id) => ({
+            id,
+            label: PRESET_TRANSLATIONS[this.currentLang][id],
+          })),
         effects: EFFECT_IDS.map((id) => ({
           id,
           label: t(`fx.${id}`, this.currentLang),
@@ -861,10 +865,12 @@ export class App {
         theme: BAKUDAN_THEME,
         labels: labels.panels.interactions,
         state: this._interactionsState(),
-        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
-          id,
-          label: PRESET_TRANSLATIONS[this.currentLang][id],
-        })),
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[])
+          .filter((id) => id !== 'rotation')
+          .map((id) => ({
+            id,
+            label: PRESET_TRANSLATIONS[this.currentLang][id],
+          })),
         effects: EFFECT_IDS.map((id) => ({
           id,
           label: t(`fx.${id}`, this.currentLang),
