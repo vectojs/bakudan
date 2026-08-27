@@ -27,6 +27,12 @@
         "typescript": "^7.0.2",
         "vite": "^8.2.2",
       },
+      "peerDependencies": {
+        "@vectojs/danmaku-kit": "^0.8.0",
+      },
+      "optionalPeers": [
+        "@vectojs/danmaku-kit",
+      ],
     },
   },
   "packages": {

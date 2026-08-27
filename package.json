@@ -1,6 +1,6 @@
 {
   "name": "bakudan",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -31,6 +31,14 @@
     "@vectojs/danmaku-core": "0.3.0",
     "@vectojs/danmaku-kit": "0.8.0",
     "@vectojs/ui": "2.20.1"
+  },
+  "peerDependencies": {
+    "@vectojs/danmaku-kit": "^0.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@vectojs/danmaku-kit": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",

@@ -3,6 +3,12 @@ import { runInPageBench, type BenchProgress } from '../model/InPageBench';
 import { BenchmarkPanel, type BenchmarkPanelState } from './BenchmarkPanel';
 import { type HoveredAction, SelectionHotspots } from './SelectionHotspots';
 import { installKeyboardShortcuts } from './KeyboardShortcuts';
+import { LabDrawerHTML } from './html/lab/LabDrawer';
+import { VideosPanelHTML } from './html/lab/VideosPanel';
+import { ThroughputPanelHTML } from './html/lab/ThroughputPanel';
+import { InteractionsPanelHTML } from './html/lab/InteractionsPanel';
+import { BenchmarkPanelHTML } from './html/lab/BenchmarkPanel';
+import { DevToolsPanelHTML } from './html/lab/DevToolsPanel';
 
 import { Entity, Scene } from '@vectojs/core';
 import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
@@ -18,12 +24,7 @@ import {
   ThroughputPanel,
   VideosPanel,
 } from '@vectojs/danmaku-kit/ui';
-import type {
-  CommandDeckGroupId,
-  DanmakuStatusKind,
-  DevToolsAvailability,
-  VideoCatalogRow,
-} from '@vectojs/danmaku-kit/ui';
+import type { DanmakuStatusKind, DevToolsAvailability } from '@vectojs/danmaku-kit/ui';
 import { ContentLibrary } from '../model/ContentLibrary';
 import { FrameProfiler } from '../model/FrameProfiler';
 import { PRESET_TRANSLATIONS, detectBrowserLanguage, t } from '../model/i18n';
@@ -31,12 +32,7 @@ import type { Language } from '../model/i18n';
 import { generateLargeTimedTrack } from '../model/demoTimedTrack';
 import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
-import {
-  DEFAULT_VIDEO_ID,
-  VIDEO_CATALOG,
-  resolveVideoSelection,
-  videoById,
-} from '../model/VideoCatalog';
+import { DEFAULT_VIDEO_ID, VIDEO_CATALOG, videoById } from '../model/VideoCatalog';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   exitFullscreenIn,
@@ -58,52 +54,34 @@ import {
 import { loadMSDFAtlas } from './MSDFAtlas';
 import type { StageBackgroundOptions } from './StageBackground';
 import { BAKUDAN_THEME, cinemaLabelsFor } from './cinemaConfig';
+import { HeaderBar, type StatusState } from './html/HeaderBar';
+import { CommandDeckHTML, type CommandDeckState } from './html/CommandDeck';
 
-const DESKTOP_POOL = 20_000;
-const MOBILE_POOL = 5_000;
-const MOBILE_BREAKPOINT = 768;
-const STATUS_UPDATE_INTERVAL_MS = 500;
-/** Pointer must be this still before the freeze zone arms (moving cursor freezes nothing). */
-const FREEZE_QUIET_MS = 150;
-/** Max hold per danmaku in the freeze zone; then it flows on — no permanent wall. */
-const FREEZE_HOLD_MS = 1800;
-/** Zone padding around the pointer point, so grazing danmaku count as crossing. */
-const FREEZE_PAD_PX = 4;
-const A11Y_UPDATE_INTERVAL_MS = 2000;
-const DESKTOP_DRAWER_RATIO = 0.46;
-const MOBILE_DRAWER_RATIO = 0.69;
-const OVERLAY_MARGIN_DESKTOP = 16;
-const OVERLAY_MARGIN_MOBILE = 8;
-const COMMAND_DECK_MAX_WIDTH = 960;
-// Compose / transport / utility clusters (danmaku-kit#15): the flat uniform-gap
-// row read as one loose ~760px spread at desktop width, where modern players
-// cluster controls into three plates. groupGap only widens boundaries BETWEEN
-// clusters; intra-cluster spacing keeps the ordinary gap. The compact layout
-// ignores grouping by design -- its two width-starved rows collapse clusters
-// rather than risk unusable control widths.
-const COMMAND_DECK_GROUPS: readonly CommandDeckGroupId[][] = [
-  ['input', 'send'],
-  ['play', 'timeline', 'elapsed'],
-  ['rate', 'lab'],
-];
-// Cluster-boundary separation. At the narrowest desktop viewport (768px ->
-// deck 736px) fixed control widths plus two 24px boundaries still leave the
-// flexible input well ~95px; below 768px compact takes over and ignores this.
-const COMMAND_DECK_GROUP_GAP_PX = 24;
-const FRAME_METRICS = ['fps', 'frame-time'] as const;
-const DRAW_METRICS = ['gl-runs', 'gl-glyphs', 'canvas-slots'] as const;
-const DISTRIBUTIONS = ['steady', 'bursty'] as const;
-const EFFECT_IDS = ['glow', 'gradient', 'rainbow', 'outline'] as const;
-const RENDER_CLASSES = ['backend', 'glyphs', 'canvas'] as const;
-
-type AppMode = 'stress' | 'video';
-
-type LabTab = 'videos' | 'throughput' | 'benchmark' | 'interactions' | 'devtools';
-type FrameMetricId = (typeof FRAME_METRICS)[number];
-type DrawMetricId = (typeof DRAW_METRICS)[number];
-type DistributionId = (typeof DISTRIBUTIONS)[number];
-type EffectId = (typeof EFFECT_IDS)[number];
-type RenderClassId = (typeof RENDER_CLASSES)[number];
+import * as AppVideo from './app/AppVideo';
+import * as AppLayout from './app/AppLayout';
+import {
+  A11Y_UPDATE_INTERVAL_MS,
+  COMMAND_DECK_GROUP_GAP_PX,
+  COMMAND_DECK_GROUPS,
+  COMMAND_DECK_MAX_WIDTH,
+  DESKTOP_POOL,
+  EFFECT_IDS,
+  FREEZE_HOLD_MS,
+  FREEZE_PAD_PX,
+  FREEZE_QUIET_MS,
+  MOBILE_BREAKPOINT,
+  MOBILE_POOL,
+  STATUS_UPDATE_INTERVAL_MS,
+} from './app/types';
+import type {
+  AppMode,
+  DistributionId,
+  DrawMetricId,
+  EffectId,
+  FrameMetricId,
+  LabTab,
+  RenderClassId,
+} from './app/types';
 
 import { StageBackground } from './StageBackground';
 
@@ -156,9 +134,17 @@ export class App {
   private bg: StageBackground;
   private danmakuLayer!: DanmakuLayer;
   private announcer: DanmakuAnnouncer;
-  private statusBar!: DanmakuStatusBar;
-  private commandDeck!: DanmakuCommandDeck;
+  private statusBar: DanmakuStatusBar | null = null;
+  private headerBar: HeaderBar | null = null;
+  private commandDeck: DanmakuCommandDeck | null = null;
+  private commandDeckHTML: CommandDeckHTML | null = null;
   private labDrawer!: DanmakuLabDrawer<LabTab>;
+  private labDrawerHTML: LabDrawerHTML | null = null;
+  private videosPanelHTML: VideosPanelHTML | null = null;
+  private throughputPanelHTML: ThroughputPanelHTML | null = null;
+  private interactionsPanelHTML: InteractionsPanelHTML | null = null;
+  private devtoolsPanelHTML: DevToolsPanelHTML | null = null;
+  private benchPanelHTML: BenchmarkPanelHTML | null = null;
   private videosPanel!: VideosPanel<string>;
   private throughputPanel!: ThroughputPanel<DistributionId, FrameMetricId, DrawMetricId>;
   private interactionsPanel!: InteractionsPanel<PresetId, EffectId, RenderClassId>;
@@ -362,6 +348,17 @@ export class App {
     this._profTargetCount = this._stressTargetBeforeVideo;
     this._profSpawnRate = this.scheduler.rate;
     this.scheduler.setTargetCount(0);
+    // Keep private fields used via AppVideo/AppLayout host casts
+    void this.pendingVideoSelection;
+    void this.pendingTrackProfileId;
+    void this._localObjectUrls;
+    void this._viewportTop;
+    void this._viewportBottom;
+    void this._onTrackProfileChange;
+    void this._sameVideoSelection;
+    void this._syncVideosState;
+    void AppVideo;
+    void AppLayout;
 
     const initialProfile = TRACK_PROFILES.get(this.currentTrackProfileId)!;
     const initialTrack = generateLargeTimedTrack(15, initialProfile, this.currentVideoId);
@@ -378,7 +375,14 @@ export class App {
       // Top-bar safe zone (round 3): chips must never paint under the opaque
       // status bar - the r2 QA hover capture had a chip vanish behind it.
       // Read live from the placed kit bar rather than duplicating its height.
-      safeTop: this.statusBar ? this.statusBar.y + this.statusBar.height : 0,
+      // In hybrid header mode the bar is HTML (44px desktop / 36px mobile).
+      safeTop: this.headerBar
+        ? this.isMobile
+          ? 36
+          : 44
+        : this.statusBar
+          ? this.statusBar.y + this.statusBar.height
+          : 0,
     }));
     this.danmakuLayer.profiler = this.profiler;
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from
@@ -404,7 +408,7 @@ export class App {
   /** Compose package surfaces once with Bakudan-owned data and actions. */
   private _buildUI(): void {
     const labels = cinemaLabelsFor(this.currentLang);
-    const catalog: VideoCatalogRow[] = VIDEO_CATALOG.map((entry) => ({
+    const catalog = VIDEO_CATALOG.map((entry) => ({
       ...entry,
       metadata: [
         { label: 'Duration', value: `${entry.durationHint}s` },
@@ -423,32 +427,56 @@ export class App {
         `${Math.round(profile.clusterRatio * 100)}% clustered`,
     }));
 
-    this.statusBar = new DanmakuStatusBar({
-      width: window.innerWidth,
-      product: labels.kit.product,
-      labels: labels.kit,
-      theme: BAKUDAN_THEME,
-      compact: this.isMobile,
-    });
-    this.commandDeck = new DanmakuCommandDeck({
-      width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
-      labels: labels.kit,
-      theme: BAKUDAN_THEME,
-      compact: this.isMobile,
-      labOpen: this.labOpen,
-      groups: COMMAND_DECK_GROUPS,
-      groupGap: COMMAND_DECK_GROUP_GAP_PX,
-      callbacks: {
-        onSend: (text) => this._onUserSend(text),
-        onPlayPause: () => this._togglePlayback(),
+    const headerContainer = document.getElementById('bakudan-header');
+    if (headerContainer) {
+      this.headerBar = new HeaderBar(headerContainer, {
+        getState: () => this._headerState(),
+      });
+    } else {
+      this.statusBar = new DanmakuStatusBar({
+        width: window.innerWidth,
+        product: labels.kit.product,
+        labels: labels.kit,
+        theme: BAKUDAN_THEME,
+        compact: this.isMobile,
+      });
+    }
+    const commandContainer =
+      typeof document !== 'undefined' ? document.getElementById('command-deck') : null;
+    if (commandContainer) {
+      this.commandDeckHTML = new CommandDeckHTML(commandContainer, {
+        onTogglePlayback: () => this._togglePlayback(),
         onSeek: (time) => this._onSeek(time),
+        onSeekDelta: (delta) => this.seekBy(delta),
         onRateChange: (rate) => {
           this.bg.playbackRate = rate;
           this._syncPlaybackState();
         },
-        onToggleLab: () => this.setLabOpen(!this.labOpen),
-      },
-    });
+        onSend: (text) => this._onUserSend(text),
+        onLabToggle: () => this.setLabOpen(!this.labOpen),
+        getState: () => this._commandDeckState(),
+      });
+    } else {
+      this.commandDeck = new DanmakuCommandDeck({
+        width: Math.min(COMMAND_DECK_MAX_WIDTH, Math.max(1, window.innerWidth - 32)),
+        labels: labels.kit,
+        theme: BAKUDAN_THEME,
+        compact: this.isMobile,
+        labOpen: this.labOpen,
+        groups: COMMAND_DECK_GROUPS,
+        groupGap: COMMAND_DECK_GROUP_GAP_PX,
+        callbacks: {
+          onSend: (text) => this._onUserSend(text),
+          onPlayPause: () => this._togglePlayback(),
+          onSeek: (time) => this._onSeek(time),
+          onRateChange: (rate) => {
+            this.bg.playbackRate = rate;
+            this._syncPlaybackState();
+          },
+          onToggleLab: () => this.setLabOpen(!this.labOpen),
+        },
+      });
+    }
     this.videosPanel = new VideosPanel({
       theme: BAKUDAN_THEME,
       labels: labels.panels.videos,
@@ -564,60 +592,318 @@ export class App {
       onCopy: () => void this._copyBenchJson(),
       onDownload: () => this._downloadBenchJson(),
     });
-    this.labDrawer = new DanmakuLabDrawer<LabTab>({
-      theme: BAKUDAN_THEME,
-      labels: labels.kit.lab,
-      panels: [
-        { id: 'videos', label: labels.kit.lab.videos, panel: this.videosPanel },
-        {
-          id: 'throughput',
-          label: labels.kit.lab.throughput,
-          panel: this.throughputPanel,
+
+    const labContainer =
+      typeof document !== 'undefined'
+        ? (document.getElementById('lab-drawer') as HTMLElement | null)
+        : null;
+    if (labContainer) {
+      // HTML lab drawer path (CTX-0029) — vanilla HTML, no kit UI chrome for the drawer itself.
+      this.videosPanelHTML = new VideosPanelHTML({
+        catalog,
+        profiles,
+        state: {
+          source: this.currentVideoSelection,
+          profileId: this.currentTrackProfileId,
+          loadState: this.videoLoadState,
         },
-        {
-          id: 'benchmark',
-          label: labels.panels.benchmark.tab,
-          panel: this.benchPanel,
+        labels: labels.panels.videos,
+        onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+        onUploadFile: (file) => this._onLocalFilePicked(file),
+        onRetry: () => this._retryVideo(),
+      });
+      this.throughputPanelHTML = new ThroughputPanelHTML({
+        state: this._throughputState(),
+        isMobile: this.isMobile,
+        distributions: [
+          { id: 'steady', label: 'Steady' },
+          { id: 'bursty', label: 'Bursty' },
+        ],
+        frameMetrics: [
+          { id: 'fps', label: 'FPS' },
+          { id: 'frame-time', label: 'Frame ms' },
+        ],
+        drawMetrics: [
+          { id: 'gl-runs', label: 'GL runs' },
+          { id: 'gl-glyphs', label: 'GL glyphs' },
+          { id: 'canvas-slots', label: 'Canvas slots' },
+        ],
+        targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+        quickTargets: this.isMobile
+          ? [
+              { value: 1000, label: '1K' },
+              { value: 2500, label: '2.5K' },
+              { value: 5000, label: '5K' },
+            ]
+          : [
+              { value: 5000, label: '5K' },
+              { value: 10_000, label: '10K' },
+              { value: 20_000, label: '20K' },
+            ],
+        rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
+        labels: labels.panels.throughput,
+        onTargetChange: (target) => this.applyStressTarget(target),
+        onRateChange: (rate) => {
+          this._setAppMode('stress');
+          this._profSpawnRate = rate;
+          this.scheduler.setSpawnRate(rate);
+          this._syncThroughputState();
         },
-        {
-          id: 'interactions',
-          label: labels.kit.lab.interactions,
-          panel: this.interactionsPanel,
+        onDistributionChange: (distributionId) => {
+          this.distributionId = distributionId as DistributionId;
+          this._syncThroughputState();
         },
-        {
-          id: 'devtools',
-          label: labels.kit.lab.devtools,
-          panel: this.devtoolsPanel,
+      });
+      this.interactionsPanelHTML = new InteractionsPanelHTML({
+        state: {
+          presetId: this.activePreset,
+          effects: { ...this.effects },
+          renderClasses: this._interactionsState().renderClasses,
         },
-      ],
-      open: this.labOpen,
-      activeTab: this.activeLabTab,
-      onOpenChange: (open) => this.setLabOpen(open),
-      onActiveTabChange: (tabId) => this.setActiveLabTab(tabId),
-    });
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+          id,
+          label: PRESET_TRANSLATIONS[this.currentLang][id],
+        })),
+        effects: EFFECT_IDS.map((id) => ({
+          id,
+          label: t(`fx.${id}`, this.currentLang),
+        })),
+        renderClasses: [
+          { id: 'backend', label: 'Backend' },
+          { id: 'glyphs', label: 'MSDF glyphs' },
+          { id: 'canvas', label: 'Canvas fallbacks' },
+        ],
+        labels: labels.panels.interactions,
+        onPresetChange: (presetId) => {
+          this.activePreset = presetId as PresetId;
+          this._syncInteractionsState();
+        },
+        onEffectChange: (effectId, enabled) => {
+          this.effects[effectId as EffectId] = enabled;
+          this.scheduler.activeEffects = { ...this.effects };
+          this._syncInteractionsState();
+        },
+      });
+      this.devtoolsPanelHTML = new DevToolsPanelHTML({
+        state: {
+          availability: this.devtoolsAvailability,
+          canReload: import.meta.env.DEV,
+        },
+        labels: labels.panels.devtools,
+        onReload: () => this._loadDevtools(),
+      });
+      this.benchPanelHTML = new BenchmarkPanelHTML({
+        state: {
+          frameRate: this._frameRate,
+          backendLabel: `${labels.panels.benchmark.renderer}: ${(this.scene as unknown as { pointRenderer?: unknown }).pointRenderer ? 'WebGL/MSDF' : 'Canvas2D'}`,
+          running: this._benchRunning,
+          statusLine: this._benchRunning ? this._benchStatusLine : labels.panels.benchmark.idle,
+          resultLines: this._benchResultLines,
+          saturationLine: this._saturationLine,
+          copied: this._benchCopied,
+        },
+        labels: labels.panels.benchmark,
+        onFrameRateChange: (hz) => {
+          this._frameRate = hz;
+          this.scene.maxFPS = hz;
+          this._syncBenchState();
+        },
+        onRun: () => void this._runBenchmark(),
+        onCopy: () => void this._copyBenchJson(),
+        onDownload: () => this._downloadBenchJson(),
+      });
+      this.labDrawerHTML = new LabDrawerHTML(labContainer, {
+        open: this.labOpen,
+        activeTab: this.activeLabTab,
+        onOpenChange: (open) => this.setLabOpen(open),
+        onActiveTabChange: (tabId) => this.setActiveLabTab(tabId as LabTab),
+        panels: [
+          {
+            id: 'videos',
+            label: labels.kit.lab.videos,
+            panel: this.videosPanelHTML,
+          },
+          {
+            id: 'throughput',
+            label: labels.kit.lab.throughput,
+            panel: this.throughputPanelHTML,
+          },
+          {
+            id: 'interactions',
+            label: labels.kit.lab.interactions,
+            panel: this.interactionsPanelHTML,
+          },
+          {
+            id: 'benchmark',
+            label: labels.panels.benchmark.tab,
+            panel: this.benchPanelHTML,
+          },
+          {
+            id: 'devtools',
+            label: labels.kit.lab.devtools,
+            panel: this.devtoolsPanelHTML,
+          },
+        ],
+        labels: { title: labels.kit.lab.title, close: labels.kit.lab.close },
+      });
+    } else {
+      this.videosPanel = new VideosPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.videos,
+        state: {
+          source: this.currentVideoSelection,
+          profileId: this.currentTrackProfileId,
+          loadState: this.videoLoadState,
+        },
+        catalog,
+        profiles,
+        onChoose: (selection) => this.selectVideo(selection.source, selection.profileId),
+        onUploadFile: (file) => this._onLocalFilePicked(file),
+        onRetry: () => this._retryVideo(),
+      });
+      this.throughputPanel = new ThroughputPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.throughput,
+        state: this._throughputState(),
+        distributions: [
+          { id: 'steady', label: 'Steady' },
+          { id: 'bursty', label: 'Bursty' },
+        ],
+        frameMetrics: [
+          { id: 'fps', label: 'FPS' },
+          { id: 'frame-time', label: 'Frame ms' },
+        ],
+        drawMetrics: [
+          { id: 'gl-runs', label: 'GL runs' },
+          { id: 'gl-glyphs', label: 'GL glyphs' },
+          { id: 'canvas-slots', label: 'Canvas slots' },
+        ],
+        targetRange: { min: 0, max: this.pool.capacity, step: 100 },
+        quickTargets: this.isMobile
+          ? [
+              { value: 1000, label: '1K' },
+              { value: 2500, label: '2.5K' },
+              { value: 5000, label: '5K' },
+            ]
+          : [
+              { value: 5000, label: '5K' },
+              { value: 10_000, label: '10K' },
+              { value: 20_000, label: '20K' },
+            ],
+        rateRange: { min: 1, max: this.isMobile ? 3000 : 6000, step: 10 },
+        onTargetChange: (target) => {
+          this.applyStressTarget(target);
+        },
+        onRateChange: (rate) => {
+          this._setAppMode('stress');
+          this._profSpawnRate = rate;
+          this.scheduler.setSpawnRate(rate);
+          this._syncThroughputState();
+        },
+        onDistributionChange: (distributionId) => {
+          this.distributionId = distributionId;
+          this._syncThroughputState();
+        },
+      });
+      this.interactionsPanel = new InteractionsPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.interactions,
+        state: this._interactionsState(),
+        presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
+          id,
+          label: PRESET_TRANSLATIONS[this.currentLang][id],
+        })),
+        effects: EFFECT_IDS.map((id) => ({
+          id,
+          label: t(`fx.${id}`, this.currentLang),
+        })),
+        renderClasses: [
+          { id: 'backend', label: 'Backend' },
+          { id: 'glyphs', label: 'MSDF glyphs' },
+          { id: 'canvas', label: 'Canvas fallbacks' },
+        ],
+        onPresetChange: (presetId) => {
+          this.activePreset = presetId;
+          this._syncInteractionsState();
+        },
+        onEffectChange: (effectId, enabled) => {
+          this.effects[effectId] = enabled;
+          this.scheduler.activeEffects = { ...this.effects };
+          this._syncInteractionsState();
+        },
+      });
+      this.devtoolsPanel = new DevToolsInfoPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.devtools,
+        state: {
+          availability: this.devtoolsAvailability,
+          canReload: import.meta.env.DEV,
+        },
+        onReload: () => this._loadDevtools(),
+      });
+      this.benchPanel = new BenchmarkPanel({
+        theme: BAKUDAN_THEME,
+        labels: labels.panels.benchmark,
+        state: this._benchState(),
+        onFrameRateChange: (hz) => {
+          this._frameRate = hz;
+          this.scene.maxFPS = hz;
+          this._syncBenchState();
+        },
+        onRun: () => void this._runBenchmark(),
+        onCopy: () => void this._copyBenchJson(),
+        onDownload: () => this._downloadBenchJson(),
+      });
+      this.labDrawer = new DanmakuLabDrawer<LabTab>({
+        theme: BAKUDAN_THEME,
+        labels: labels.kit.lab,
+        panels: [
+          {
+            id: 'videos',
+            label: labels.kit.lab.videos,
+            panel: this.videosPanel,
+          },
+          {
+            id: 'throughput',
+            label: labels.kit.lab.throughput,
+            panel: this.throughputPanel,
+          },
+          {
+            id: 'benchmark',
+            label: labels.panels.benchmark.tab,
+            panel: this.benchPanel,
+          },
+          {
+            id: 'interactions',
+            label: labels.kit.lab.interactions,
+            panel: this.interactionsPanel,
+          },
+          {
+            id: 'devtools',
+            label: labels.kit.lab.devtools,
+            panel: this.devtoolsPanel,
+          },
+        ],
+        open: this.labOpen,
+        activeTab: this.activeLabTab,
+        onOpenChange: (open) => this.setLabOpen(open),
+        onActiveTabChange: (tabId) => this.setActiveLabTab(tabId),
+      });
+    }
 
     this._syncStatus();
     this._syncPlaybackState();
-    this.scene.showOverlay(this.statusBar);
-    this.scene.showOverlay(this.commandDeck);
-    this.scene.showOverlay(this.labDrawer);
+    if (this.statusBar) this.scene.showOverlay(this.statusBar);
+    if (this.commandDeck) this.scene.showOverlay(this.commandDeck);
+    if (this.labDrawer) {
+      this.scene.showOverlay(this.labDrawer);
+    } else if (this.labDrawerHTML) {
+      // HTML drawer is already in DOM; do not add as canvas overlay
+    }
   }
 
   selectVideo(selection: VideoSelection, requestedProfileId?: string): void {
-    const sameSource = this._sameVideoSelection(selection, this.currentVideoSelection);
-    const profileId = requestedProfileId ?? resolveVideoSelection(selection).defaultTrackProfileId;
-    if (sameSource && profileId === this.currentTrackProfileId) {
-      if (this.mode !== 'video') {
-        this._setAppMode('video');
-        this._togglePlayback();
-      }
-      return;
-    }
-    if (sameSource) {
-      this._onTrackProfileChange(profileId);
-      return;
-    }
-    this._loadVideoSelection(selection, profileId);
+    AppVideo.selectVideo(this as unknown as App, selection, requestedProfileId);
   }
 
   /**
@@ -629,11 +915,7 @@ export class App {
    * path a user's panel interaction does.
    */
   applyStressTarget(target: number): void {
-    this._setAppMode('stress');
-    this._stressTargetBeforeVideo = target;
-    this._profTargetCount = target;
-    this.scheduler.setTargetCount(target);
-    this._syncThroughputState();
+    AppVideo.applyStressTarget(this as unknown as App, target);
   }
 
   /**
@@ -641,7 +923,7 @@ export class App {
    * for a local upload. Such sources are session-local by construction.
    */
   private _isLocalUploadUrl(url: string): boolean {
-    return url.startsWith('blob:') && this._localObjectUrls.includes(url);
+    return AppVideo.isLocalUploadUrl(this as unknown as App, url);
   }
 
   /**
@@ -649,11 +931,7 @@ export class App {
    * session-local blob: object URL routed through the custom-source pipeline.
    */
   private _onLocalFilePicked(file: File): void {
-    const url = URL.createObjectURL(file);
-    this._localObjectUrls.push(url);
-    // Custom selection => unique per upload (UUID inside the URL), so the
-    // same-selection comparison cannot mistake two files for one another.
-    this.selectVideo({ kind: 'custom', url });
+    AppVideo.onLocalFilePicked(this as unknown as App, file);
   }
 
   /**
@@ -662,152 +940,35 @@ export class App {
    * video alive on its still-needed blob.
    */
   private _pruneLocalObjectUrl(activeUrl: string | null): void {
-    for (const url of this._localObjectUrls) {
-      if (url !== activeUrl) URL.revokeObjectURL(url);
-    }
-    this._localObjectUrls = activeUrl ? [activeUrl] : [];
+    AppVideo.pruneLocalObjectUrl(this as unknown as App, activeUrl);
   }
 
   private _retryVideo(): void {
-    if (!this.pendingVideoSelection || !this.pendingTrackProfileId) return;
-    this._loadVideoSelection(this.pendingVideoSelection, this.pendingTrackProfileId);
+    AppVideo.retryVideo(this as unknown as App);
   }
 
   private _loadVideoSelection(selection: VideoSelection, requestedProfileId?: string): void {
-    const candidate = resolveVideoSelection(selection);
-    const profileId = requestedProfileId ?? candidate.defaultTrackProfileId;
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-
-    const requestId = ++this._videoRequestId;
-    this.pendingVideoSelection = selection;
-    this.pendingTrackProfileId = profileId;
-    this.videoLoading = true;
-    this.videoLoadState = { status: 'loading', candidateId: candidate.id };
-    this._setAppMode('video');
-    this._clearSelection();
-    this._setAppMode('video');
-    this._syncVideosState();
-    this._syncStatus();
-    this._syncPlaybackState();
-    void this.bg
-      .setVideo(candidate.source.url)
-      .then(() => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        this.videoLoading = false;
-        // The old source is fully disposed at this point (setVideo swapped),
-        // so its object URL can go. On failure we skip pruning: the previous
-        // video keeps playing from its still-live blob.
-        this._pruneLocalObjectUrl(selection.kind === 'custom' ? selection.url : null);
-        this._reactionStore = new ReactionStore(candidate.id, {
-          memoryOnly: this._isLocalUploadUrl(candidate.source.url),
-        });
-        this.currentVideoSelection = selection;
-        this.currentVideoId = candidate.id;
-        this.currentTrackProfileId = profile.id;
-        const duration = this.bg.duration || candidate.durationHint;
-        this._installVideoTrack(duration, candidate.id, profile.id);
-        this.videoLoadState = { status: 'ready', sourceId: candidate.id };
-        this.pendingVideoSelection = null;
-        this.pendingTrackProfileId = null;
-        this.bg.onEnded(() => {
-          this._syncPlaybackState();
-          this._syncStatus();
-        });
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-        void this.bg
-          .play()
-          .then(() => {
-            // Re-sync on success too: the sync above ran before play() resolved,
-            // so the status still says 'paused' for a video now playing.
-            if (requestId !== this._videoRequestId || this.destroyed) return;
-            this._syncPlaybackState();
-            this._syncStatus();
-          })
-          .catch((error: unknown) => {
-            const sourceError = this._asVideoSourceError(error);
-            if (sourceError.code !== 'playback-rejected') this._announceVideoError(sourceError);
-            this._syncPlaybackState();
-            this._syncStatus();
-          });
-        this.scene.markDirty();
-      })
-      .catch((error: unknown) => {
-        if (requestId !== this._videoRequestId || this.destroyed) return;
-        const sourceError = this._asVideoSourceError(error);
-        this.videoLoading = false;
-        this.videoLoadState = {
-          status: 'error',
-          candidateId: candidate.id,
-          error: sourceError,
-        };
-        this._announceVideoError(sourceError);
-        this._syncVideosState();
-        this._syncPlaybackState();
-        this._syncStatus();
-      });
+    AppVideo.loadVideoSelection(this as unknown as App, selection, requestedProfileId);
   }
 
   private _onTrackProfileChange(profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile || profileId === this.currentTrackProfileId) return;
-    this.currentTrackProfileId = profileId;
-    if (this.bg.isVideoReady) {
-      this._clearSelection();
-      const currentTime = this.bg.currentTime;
-      this._installVideoTrack(this.bg.duration || 15, this.currentVideoId, profileId);
-      this.danmakuTrack.seek(currentTime);
-    }
-    this._syncVideosState();
-    this.scene.markDirty();
+    AppVideo.onTrackProfileChange(this as unknown as App, profileId);
   }
 
   private _installVideoTrack(duration: number, videoId: string, profileId: string): void {
-    const profile = TRACK_PROFILES.get(profileId);
-    if (!profile) throw new Error(`Unknown track profile id: ${profileId}`);
-    const profiledTrack = generateLargeTimedTrack(duration, profile, videoId);
-    this.danmakuTrack = new ProfiledDanmakuTrack(profiledTrack.entries);
+    AppVideo.installVideoTrack(this as unknown as App, duration, videoId, profileId);
   }
 
   private _sameVideoSelection(a: VideoSelection, b: VideoSelection): boolean {
-    if (a.kind !== b.kind) return false;
-    if (a.kind === 'catalog' && b.kind === 'catalog') return a.id === b.id;
-    return a.kind === 'custom' && b.kind === 'custom' && a.url === b.url;
+    return AppVideo.sameVideoSelection(a, b);
   }
 
   private _asVideoSourceError(error: unknown): VideoSourceError {
-    if (error instanceof VideoSourceError) return error;
-    let code: VideoSourceError['code'] = 'media-error';
-    let message = 'Video source failed';
-    if (error && typeof error === 'object') {
-      if ('code' in error) {
-        const value = error.code;
-        if (
-          value === 'network-error' ||
-          value === 'metadata-error' ||
-          value === 'playback-rejected' ||
-          value === 'media-error'
-        ) {
-          code = value;
-        }
-      }
-      if ('message' in error && typeof error.message === 'string') message = error.message;
-    }
-    return new VideoSourceError(code, message);
+    return AppVideo.asVideoSourceError(error);
   }
 
   private _announceVideoError(error: VideoSourceError): void {
-    const key =
-      error.code === 'network-error'
-        ? 'video.error.network'
-        : error.code === 'metadata-error'
-          ? 'video.error.metadata'
-          : error.code === 'playback-rejected'
-            ? 'video.error.playback'
-            : 'video.error.media';
-    this.announcer.setSummary(t(key, this.currentLang));
+    AppVideo.announceVideoError(this as unknown as App, error);
   }
 
   private _throughputState() {
@@ -845,19 +1006,25 @@ export class App {
   }
 
   private _syncVideosState(): void {
-    this.videosPanel.setState({
+    const state = {
       source: this.currentVideoSelection,
       profileId: this.currentTrackProfileId,
       loadState: this.videoLoadState,
-    });
+    };
+    if (this.videosPanelHTML) this.videosPanelHTML.setState(state);
+    else if (this.videosPanel) this.videosPanel.setState(state);
   }
 
   private _syncThroughputState(): void {
-    this.throughputPanel.setState(this._throughputState());
+    const state = this._throughputState();
+    if (this.throughputPanelHTML) this.throughputPanelHTML.setState(state);
+    else if (this.throughputPanel) this.throughputPanel.setState(state);
   }
 
   private _syncInteractionsState(): void {
-    this.interactionsPanel.setState(this._interactionsState());
+    const state = this._interactionsState();
+    if (this.interactionsPanelHTML) this.interactionsPanelHTML.setState(state);
+    else if (this.interactionsPanel) this.interactionsPanel.setState(state);
   }
 
   private _benchState(): BenchmarkPanelState {
@@ -877,7 +1044,9 @@ export class App {
   }
 
   private _syncBenchState(): void {
-    this.benchPanel.setState(this._benchState());
+    const state = this._benchState();
+    if (this.benchPanelHTML) this.benchPanelHTML.setState(state);
+    else if (this.benchPanel) this.benchPanel.setState(state);
   }
 
   /**
@@ -1004,7 +1173,31 @@ export class App {
     return 'video';
   }
 
+  private _headerState(): StatusState {
+    const kind = this._statusKind();
+    const videoEntry = videoById(this.currentVideoId);
+    const profile = TRACK_PROFILES.get(this.currentTrackProfileId);
+    return {
+      kind,
+      videoTitle: videoEntry?.title ?? this.currentVideoId,
+      trackProfileLabel: profile?.label ?? this.currentTrackProfileId,
+      fps: this._lastFps,
+      frameTime: this._frameTimeMs,
+      liveCount: this.pool.activeCount,
+      capacity: this.pool.capacity,
+      backend: (this.scene as unknown as { pointRenderer?: unknown }).pointRenderer
+        ? 'webgl'
+        : 'canvas2d',
+      language: this.currentLang,
+    };
+  }
+
   private _syncStatus(): void {
+    if (this.headerBar) {
+      this.headerBar.update(this._headerState());
+      return;
+    }
+    if (!this.statusBar) return;
     this.statusBar.setStatus({
       state: this._statusKind(),
       fps: this._lastFps,
@@ -1016,7 +1209,25 @@ export class App {
     });
   }
 
+  private _commandDeckState(): CommandDeckState {
+    return {
+      isPlaying: this.isVideoPlaying,
+      currentTime: this.bg.currentTime,
+      duration: this.bg.duration,
+      bufferedRanges: this.mode === 'video' ? this.bg.bufferedRanges : [],
+      rate: this.bg.playbackRate,
+      pendingSendText: '',
+      labOpen: this.labOpen,
+      disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
+    };
+  }
+
   private _syncPlaybackState(): void {
+    if (this.commandDeckHTML) {
+      this.commandDeckHTML.update(this._commandDeckState());
+      return;
+    }
+    if (!this.commandDeck) return;
     this.commandDeck.setPlaybackState({
       currentTime: this.bg.currentTime,
       duration: this.bg.duration,
@@ -1032,7 +1243,9 @@ export class App {
   setLabOpen(open: boolean): void {
     if (this.labOpen === open) return;
     this.labOpen = open;
-    this.labDrawer.setOpen(open);
+    if (this.labDrawer) this.labDrawer.setOpen(open);
+    if (this.commandDeckHTML) this._syncPlaybackState();
+    if (this.labDrawerHTML) this.labDrawerHTML.setOpen(open);
     this._layoutCinema();
     this.scene.markDirty();
   }
@@ -1040,7 +1253,9 @@ export class App {
   setActiveLabTab(tabId: LabTab): void {
     if (this.activeLabTab === tabId) return;
     this.activeLabTab = tabId;
-    this.labDrawer.setActiveTab(tabId);
+    if (this.labDrawerHTML) this.labDrawerHTML.setActiveTab(tabId);
+    else if ((this as unknown as { labDrawer?: { setActiveTab: (t: string) => void } }).labDrawer)
+      this.labDrawer.setActiveTab(tabId);
     this.scene.markDirty();
   }
 
@@ -1050,18 +1265,22 @@ export class App {
       .then(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'available';
-        this.devtoolsPanel.setState({
-          availability: 'available',
+        const state = {
+          availability: 'available' as const,
           canReload: false,
-        });
+        };
+        if (this.devtoolsPanelHTML) this.devtoolsPanelHTML.setState(state);
+        else if (this.devtoolsPanel) this.devtoolsPanel.setState(state);
       })
       .catch(() => {
         if (this.destroyed) return;
         this.devtoolsAvailability = 'unavailable';
-        this.devtoolsPanel.setState({
-          availability: 'unavailable',
+        const state = {
+          availability: 'unavailable' as const,
           canReload: false,
-        });
+        };
+        if (this.devtoolsPanelHTML) this.devtoolsPanelHTML.setState(state);
+        else if (this.devtoolsPanel) this.devtoolsPanel.setState(state);
       });
   }
 
@@ -1089,97 +1308,31 @@ export class App {
    * real laid-out rect rather than a breakpoint guess.
    */
   debugHitsLab(y: number): boolean {
-    const previousX = this.pointerX;
-    const previousY = this.pointerY;
-    this.pointerX = this.stageW / 2;
-    this.pointerY = y;
-    const result = this.labOpen && this._hitsOverlay(this.labDrawer);
-    this.pointerX = previousX;
-    this.pointerY = previousY;
-    return result;
+    return AppLayout.debugHitsLab(this as unknown as App, y);
   }
 
   getCinemaLayoutSnapshot() {
-    return {
-      status: {
-        x: this.statusBar.x,
-        y: this.statusBar.y,
-        width: this.statusBar.width,
-        height: this.statusBar.height,
-      },
-      command: {
-        x: this.commandDeck.x,
-        y: this.commandDeck.y,
-        width: this.commandDeck.width,
-        height: this.commandDeck.height,
-        controls: this.commandDeck.layoutSnapshot(),
-      },
-      drawer: {
-        x: this.labDrawer.x,
-        y: this.labDrawer.y,
-        width: this.labDrawer.width,
-        height: this.labDrawer.height,
-        open: this.labDrawer.isOpen,
-        childCount: this.labDrawer.children.length,
-      },
-    };
+    return AppLayout.getCinemaLayoutSnapshot(this as unknown as App);
   }
 
   onResize(width: number, height: number): void {
-    this.stageW = width;
-    this.stageH = height;
-    this.isMobile = width < MOBILE_BREAKPOINT;
-    this.scheduler.resize(width, height);
-    this.bg.width = width;
-    this.bg.height = height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onResize(this as unknown as App, width, height);
   }
 
   onViewportChange(viewport: VisualViewport): void {
-    this._viewportTop = viewport.offsetTop;
-    this._viewportBottom = viewport.offsetTop + viewport.height;
-    this._layoutCinema();
-    this.scene.markDirty();
+    AppLayout.onViewportChange(this as unknown as App, viewport);
   }
 
+  /**
+   * Hybrid shell (final, CTX-0030): stageW/H come from #stage-container's rect
+   * via main.ts (disableWindowResize island). Grid owns header/footer, stage
+   * is the canvas island. HTML chrome (headerBar, commandDeckHTML,
+   * labDrawerHTML) is CSS-positioned; canvas overlays (statusBar,
+   * commandDeck, labDrawer) remain only as fallback when HTML mounts are
+   * missing (e.g. happy-dom tests). Keep fallback path intact.
+   */
   private _layoutCinema(): void {
-    if (!this.statusBar || !this.commandDeck || !this.labDrawer) return;
-    const margin = this.isMobile ? OVERLAY_MARGIN_MOBILE : OVERLAY_MARGIN_DESKTOP;
-    const compact = this.isMobile;
-    const viewportTop = Math.max(0, this._viewportTop);
-    const viewportBottom = Math.min(
-      this.stageH,
-      Math.max(viewportTop, this._viewportBottom ?? this.stageH),
-    );
-    const viewportHeight = Math.max(0, viewportBottom - viewportTop);
-    const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, this.stageW - margin * 2));
-    this.statusBar.setCompact(compact).setWidth(Math.max(1, this.stageW - margin * 2));
-    this.statusBar.x = margin;
-    // Flush against the visible top boundary: viewportTop is already a boundary
-    // coordinate (visualViewport.offsetTop, 0 unless pinch-zoom/keyboard shifts
-    // it), so adding the overlay margin here opened a gap above the chrome that
-    // video and danmaku passed through. Vertical breathing room belongs to the
-    // bar itself, which centres its content in a fixed 34/44px height.
-    this.statusBar.y = viewportTop;
-    this.commandDeck.setCompact(compact).setWidth(deckWidth);
-    this.commandDeck.x = Math.max(margin, (this.stageW - deckWidth) / 2);
-
-    const drawerHeight = Math.round(
-      viewportHeight * (compact ? MOBILE_DRAWER_RATIO : DESKTOP_DRAWER_RATIO),
-    );
-    const drawerY = viewportBottom - drawerHeight;
-    this.labDrawer.setAvailableBounds({
-      width: this.stageW,
-      height: drawerHeight,
-    });
-    this.labDrawer.x = 0;
-    this.labDrawer.y = drawerY;
-    const commandBottom = this.labOpen ? drawerY - margin : viewportBottom - margin;
-    this.commandDeck.y = Math.max(
-      this.statusBar.y + this.statusBar.height + margin,
-      commandBottom - this.commandDeck.height,
-    );
+    AppLayout.layoutCinema(this as unknown as App);
   }
 
   /**
@@ -1730,12 +1883,7 @@ export class App {
    * rect. Reads the entity's own geometry so it can never drift from layout.
    */
   private _hitsOverlay(overlay: { x: number; y: number; width: number; height: number }): boolean {
-    return (
-      this.pointerX >= overlay.x &&
-      this.pointerX <= overlay.x + overlay.width &&
-      this.pointerY >= overlay.y &&
-      this.pointerY <= overlay.y + overlay.height
-    );
+    return AppLayout.hitsOverlay(this as unknown as App, overlay);
   }
 
   private _handlePointerDown = (event: PointerEvent) => {
@@ -1755,8 +1903,35 @@ export class App {
     // (stageH - 500) sat 236px below the drawer's real top, so pointerdowns in
     // that band were treated as stage taps and stolen from the drawer; at 800px
     // tall it sat 132px above it, swallowing real stage taps instead.
-    const inCommandDeck = this.mode === 'video' && this._hitsOverlay(this.commandDeck);
-    const inLab = this.labOpen && this._hitsOverlay(this.labDrawer);
+    const inCommandDeck = this.commandDeck
+      ? this.mode === 'video' && this._hitsOverlay(this.commandDeck)
+      : false;
+    const inLab = this.labDrawerHTML
+      ? this.labOpen && this.debugHitsLab(this.pointerY)
+      : this.labOpen &&
+          (
+            this as unknown as {
+              labDrawer?: {
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+              };
+            }
+          ).labDrawer
+        ? this._hitsOverlay(
+            (
+              this as unknown as {
+                labDrawer: {
+                  x: number;
+                  y: number;
+                  width: number;
+                  height: number;
+                };
+              }
+            ).labDrawer,
+          )
+        : false;
 
     if (this.labOpen && !inLab && !inCommandDeck) {
       this.setLabOpen(false);
@@ -1818,10 +1993,22 @@ export class App {
     canvas.removeEventListener('pointerdown', this._handlePointerDown);
     canvas.removeEventListener('pointerup', this._handlePointerEnd);
     canvas.removeEventListener('pointerleave', this._handlePointerEnd);
-    this.labDrawer.setOpen(false);
-    if (this.statusBar.parent) this.scene.hideOverlay(this.statusBar);
-    if (this.commandDeck.parent) this.scene.hideOverlay(this.commandDeck);
-    if (this.labDrawer.parent) this.scene.hideOverlay(this.labDrawer);
+    if (this.labDrawer) this.labDrawer.setOpen(false);
+    if (this.labDrawerHTML) this.labDrawerHTML.setOpen(false);
+    if (this.statusBar?.parent) this.scene.hideOverlay(this.statusBar);
+    if (this.headerBar) {
+      this.headerBar.destroy();
+      this.headerBar = null;
+    }
+    if (this.commandDeck?.parent) this.scene.hideOverlay(this.commandDeck);
+    this.commandDeckHTML?.destroy();
+    this.commandDeckHTML = null;
+    if (this.labDrawerHTML) {
+      this.labDrawerHTML.destroy();
+      this.labDrawerHTML = null;
+    } else if (this.labDrawer?.parent) {
+      this.scene.hideOverlay(this.labDrawer);
+    }
     if (this.ticker?.parent) this.scene.remove(this.ticker);
     if (this.announcer.parent) this.scene.remove(this.announcer);
     if (this.danmakuLayer.parent) this.scene.remove(this.danmakuLayer);

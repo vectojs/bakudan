@@ -1,0 +1,461 @@
+/* Lab drawer — bottom sheet HTML (CTX-0029)
+ * Replaces DanmakuLabDrawer (canvas) with HTML sheet.
+ * Uses BAKUDAN_THEME CSS vars set on #lab-drawer by LabDrawerHTML.
+ */
+
+#lab-drawer {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 46vh;
+  height: 46dvh;
+  max-height: 46vh;
+  max-height: 46dvh;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  border-top: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  color: var(--bakudan-text, #f8fafc);
+  z-index: 30;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+  /* No pointerEvents:none — that killed wheel/drag per TODO.md. Keep auto. */
+  pointer-events: auto;
+  overflow: hidden;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+}
+
+#lab-drawer.bakudan-lab--open {
+  transform: translateY(0);
+}
+
+#lab-drawer.bakudan-lab--closed {
+  transform: translateY(100%);
+  /* Keep invisible when closed but still in DOM for a11y test; hidden handled via aria-hidden */
+}
+
+.bakudan-lab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 12px 16px 8px;
+  gap: 12px;
+  border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+}
+
+.bakudan-lab__title {
+  font: var(--bakudan-font-display, 600 14px "Outfit", "Inter", sans-serif);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bakudan-text, #f8fafc);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.bakudan-lab__close {
+  appearance: none;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.bakudan-lab__close:hover {
+  background: var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-lab__close:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+.bakudan-lab__tabs {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+}
+
+.bakudan-lab__tab {
+  appearance: none;
+  flex: 0 0 auto;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--bakudan-text-muted, #94a3b8);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 12px 14px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.bakudan-lab__tab:hover {
+  color: var(--bakudan-text, #f8fafc);
+}
+
+.bakudan-lab__tab[aria-selected="true"] {
+  color: var(--bakudan-accent, #f43f5e);
+  border-bottom-color: var(--bakudan-accent, #f43f5e);
+}
+
+.bakudan-lab__tab:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.bakudan-lab__panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+}
+
+.bakudan-lab__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  /* pointerEvents must stay auto so wheel/drag scroll works. */
+  pointer-events: auto;
+  display: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bakudan-border, rgba(148, 163, 184, 0.3)) transparent;
+}
+
+.bakudan-lab__panel.bakudan-lab__panel--active {
+  display: block;
+}
+
+.bakudan-lab__panel:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: -2px;
+}
+
+/* Generic panel typography */
+.bakudan-lab__panel h3,
+.bakudan-lab__panel h4 {
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bakudan-text-muted, #94a3b8);
+  margin: 0 0 8px;
+}
+
+.bakudan-lab__panel label {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--bakudan-text, #f8fafc);
+}
+
+.bakudan-lab__panel p {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--bakudan-text, #f8fafc);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.bakudan-lab__section {
+  margin-bottom: 20px;
+}
+
+.bakudan-lab__section:last-child {
+  margin-bottom: 0;
+}
+
+/* Forms inside panels */
+.bakudan-lab__input,
+.bakudan-lab__select,
+.bakudan-lab__textarea {
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.bakudan-lab__input:focus,
+.bakudan-lab__select:focus,
+.bakudan-lab__textarea:focus {
+  border-color: var(--bakudan-focus-ring, #60a5fa);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--bakudan-focus-ring, #60a5fa) 30%, transparent);
+}
+
+.bakudan-lab__input::placeholder {
+  color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-lab__button {
+  appearance: none;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  line-height: 1;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.bakudan-lab__button:hover {
+  background: var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-lab__button:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+.bakudan-lab__button--primary {
+  background: var(--bakudan-accent, #f43f5e);
+  border-color: var(--bakudan-accent, #f43f5e);
+  color: #ffffff;
+}
+
+.bakudan-lab__button--primary:hover {
+  background: var(--bakudan-accent-hover, #e11d48);
+  border-color: var(--bakudan-accent-hover, #e11d48);
+}
+
+.bakudan-lab__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bakudan-lab__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.bakudan-lab__checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--bakudan-accent, #f43f5e);
+  cursor: pointer;
+}
+
+.bakudan-lab__range-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bakudan-lab__range {
+  width: 100%;
+  accent-color: var(--bakudan-accent, #f43f5e);
+}
+
+.bakudan-lab__error {
+  color: var(--bakudan-danger, #fb7185);
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 12px;
+  margin-top: 6px;
+  word-break: break-word;
+}
+
+/* Video cards grid — 2 cols desktop, 2 cols mobile per spec */
+.bakudan-videos__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .bakudan-videos__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bakudan-videos__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bakudan-videos__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  border-radius: 10px;
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.bakudan-videos__card:hover {
+  border-color: var(--bakudan-text-muted, #94a3b8);
+}
+
+.bakudan-videos__card--selected {
+  border-color: var(--bakudan-accent, #f43f5e);
+  background: color-mix(
+    in srgb,
+    var(--bakudan-accent, #f43f5e) 12%,
+    var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98))
+  );
+}
+
+.bakudan-videos__card:focus-visible {
+  outline: 2px solid var(--bakudan-focus-ring, #60a5fa);
+  outline-offset: 2px;
+}
+
+.bakudan-videos__card-title {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bakudan-text, #f8fafc);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bakudan-videos__card-meta {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  font-size: 11px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.bakudan-videos__card-attribution {
+  font: var(--bakudan-font-ui, 500 13px "Inter", system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--bakudan-text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.bakudan-videos__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Throughput quick targets */
+.bakudan-throughput__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bakudan-throughput__quick button {
+  flex: 0 0 auto;
+}
+
+/* DevTools status */
+.bakudan-devtools__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  font-size: 11px;
+  color: var(--bakudan-text, #f8fafc);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+}
+
+.bakudan-devtools__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bakudan-text-muted, #94a3b8);
+  flex-shrink: 0;
+}
+
+.bakudan-devtools__dot--available {
+  background: #4ade80;
+}
+
+.bakudan-devtools__dot--reload-required {
+  background: var(--bakudan-signal, #60a5fa);
+}
+
+.bakudan-devtools__dot--unavailable {
+  background: var(--bakudan-text-muted, #94a3b8);
+}
+
+/* Mobile bottom sheet: 69% height */
+@media (max-width: 767px) {
+  #lab-drawer {
+    height: 69vh;
+    height: 69dvh;
+    max-height: 69vh;
+    max-height: 69dvh;
+  }
+
+  .bakudan-lab__header {
+    padding: 10px 12px 6px;
+  }
+
+  .bakudan-lab__tab {
+    padding: 10px 12px 8px;
+    font-size: 10px;
+  }
+
+  .bakudan-lab__panel {
+    padding: 12px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #lab-drawer {
+    transition: none;
+  }
+}

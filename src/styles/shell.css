@@ -1,0 +1,74 @@
+/* Hybrid shell — CSS Grid stage island (final, CTX-0030) */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body.hybrid {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "header"
+    "stage"
+    "footer";
+  height: 100dvh;
+  background-color: var(--bg-color, #07090d);
+}
+
+#bakudan-header {
+  grid-area: header;
+  /* Height owned by header.css: 44px desktop / 36px mobile */
+}
+
+#stage-container {
+  grid-area: stage;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+}
+
+#command-deck {
+  grid-area: footer;
+  /* Height owned by command.css: flex row, padding 8px, max-width 960 centered */
+}
+
+#lab-drawer {
+  /* Fixed bottom sheet — styles owned by lab.css (46vh desktop / 69vh mobile) */
+}
+
+/* Inside the island, canvas fills the container (disableWindowResize mode) */
+#stage-container #bakudan-bg,
+#stage-container #bakudan-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Keep layer order inside the island: video z0, GL z1, Canvas2D z2 */
+#stage-container #bakudan-bg {
+  z-index: 0;
+  overflow: hidden;
+}
+
+#stage-container #bakudan-bg > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.72) saturate(0.92);
+}
+
+#stage-container #bakudan-canvas {
+  z-index: 2;
+}
+
+/* Fallback when hybrid class is absent (should not happen after CTX-0026) */
+body:not(.hybrid) #stage-container {
+  position: absolute;
+  inset: 0;
+}

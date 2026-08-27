@@ -53,51 +53,23 @@
         background-color: var(--bg-color);
         color: var(--text-color);
         font-family:
-          'Inter',
+          "Inter",
           system-ui,
           -apple-system,
           sans-serif;
       }
-      canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-        position: absolute;
-        top: 0;
-        left: 0;
-      }
-      /* Layer stack (bottom → top):
-         - #bakudan-bg (z0): <video> background over the page surface
-         - Scene's stacked WebGL canvas (z1, set in main.ts): plain danmaku glyphs
-         - #bakudan-canvas (z2): Canvas2D special-pass danmaku + HUD/panel UI
-         The danmaku must sit ABOVE the background but BELOW the UI, which is why
-         the background can't share the 2D canvas — it moves to its own DOM layer. */
-      #bakudan-bg {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 0;
-        overflow: hidden;
-      }
-      #bakudan-bg > video {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        filter: brightness(0.72) saturate(0.92);
-      }
-      #bakudan-canvas {
-        z-index: 2;
-      }
     </style>
+    <link rel="stylesheet" href="/src/styles/shell.css" />
+    <link rel="stylesheet" href="/src/styles/lab.css" />
   </head>
-  <body>
-    <div id="bakudan-bg"></div>
-    <canvas id="bakudan-canvas"></canvas>
+  <body class="hybrid">
+    <header id="bakudan-header" aria-label="Bakudan status"></header>
+    <div id="stage-container">
+      <div id="bakudan-bg"></div>
+      <canvas id="bakudan-canvas"></canvas>
+    </div>
+    <footer id="command-deck" aria-label="Playback controls"></footer>
+    <aside id="lab-drawer" aria-label="Laboratory drawer"></aside>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
