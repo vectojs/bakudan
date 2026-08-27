@@ -481,8 +481,105 @@ export class DanmakuLayer extends Entity {
     let effect = 0;
     if (s.params.effects.outline) effect += 2;
     if (s.params.effects.glow) effect += 4;
+    // CTX-0054: include global Bilibili style outline/shadow, gated at 8k/300k so 5k showcase keeps style but 20k stress stays ~4ms.
+    if (this._isStyleActiveForCull()) {
+      if (this._style.outlineEnabled) effect += this._style.outlineWidth;
+      if (this._style.shadowEnabled)
+        effect +=
+          Math.max(Math.abs(this._style.shadowOffsetX), Math.abs(this._style.shadowOffsetY)) +
+          this._style.shadowBlur;
+    }
     const jelly = s.jellyScaleY !== 1 || s.jellyScaleX !== 1 ? Math.ceil(fs * 0.32 * 0.5) : 0;
     return Math.ceil(motion + effect + jelly);
+  }
+
+  private _isStyleActiveForCull(): boolean {
+    // Cull runs before drawStats for this frame, so gate only on activeCount; glyph budget is checked per-slot during draw.
+    return (
+      (this._style.outlineEnabled || this._style.shadowEnabled) && this.pool.activeCount <= 8000
+    );
+  }
+
+  private _isStyleActiveForDraw(): boolean {
+    if (!this._style.outlineEnabled && !this._style.shadowEnabled) return false;
+    if (this.pool.activeCount > 8000) return false;
+    if (this.drawStats.glGlyphs > 300_000) return false;
+    return true;
+  }
+
+  /**
+   * CTX-0046: Canvas2D helper — Bilibili danmaku is white with a thick black
+   * stroke and a soft drop shadow so it reads over bright video. This draws the
+   * style's shadow (offset copy, optional blur via extra passes), then the
+   * outline (4 or 8 copies at `outlineWidth`), then the main glyph. No save/
+   * restore — caller owns globalAlpha. Gated by _isStyleActiveForDraw.
+   */
+  private _fillStyledText(
+    renderer: IRenderer,
+    text: string,
+    x: number,
+    y: number,
+    font: string,
+    color: string,
+    alpha: number,
+  ): void {
+    const s = this._style;
+    // Shadow: one primary offset + `shadowBlur` extra jitter passes for softness
+    if (s.shadowEnabled) {
+      const baseAlpha = alpha * 0.85;
+      renderer.fillText(text, x + s.shadowOffsetX, y + s.shadowOffsetY, font, s.shadowColor);
+      // Cheap blur: extra copies around the shadow origin; alpha fades with distance
+      for (let b = 1; b <= s.shadowBlur && b <= 3; b++) {
+        const a = baseAlpha * (1 - b * 0.18);
+        if (a <= 0.02) break;
+        renderer.setGlobalAlpha(a);
+        renderer.fillText(text, x + s.shadowOffsetX + b, y + s.shadowOffsetY, font, s.shadowColor);
+        renderer.fillText(text, x + s.shadowOffsetX, y + s.shadowOffsetY + b, font, s.shadowColor);
+      }
+      renderer.setGlobalAlpha(alpha);
+    }
+    if (s.outlineEnabled) {
+      const w = s.outlineWidth;
+      const oc = s.outlineColor;
+      const offs: Array<[number, number]> =
+        w <= 1
+          ? [
+              [w, 0],
+              [-w, 0],
+              [0, w],
+              [0, -w],
+            ]
+          : w === 2
+            ? [
+                [w, 0],
+                [-w, 0],
+                [0, w],
+                [0, -w],
+                [w, w],
+                [-w, w],
+                [w, -w],
+                [-w, -w],
+              ]
+            : [
+                [w, 0],
+                [-w, 0],
+                [0, w],
+                [0, -w],
+                [w, w],
+                [-w, w],
+                [w, -w],
+                [-w, -w],
+                [w, 1],
+                [-w, 1],
+                [1, w],
+                [-1, w],
+              ];
+      for (const [ox, oy] of offs) {
+        renderer.fillText(text, x + ox, y + oy, font, oc);
+      }
+    }
+    renderer.setGlobalAlpha(alpha);
+    renderer.fillText(text, x, y, font, color);
   }
 
   // --- WebGL/MSDF text path (set once the atlas loads; null → Canvas2D) ---
@@ -740,7 +837,8 @@ export class DanmakuLayer extends Entity {
     if (glr && this._texture) glr.setMSDFTexture(this._texture, this._distanceRange);
 
     // --- Plain batched pass. GL path: one addGlyph per glyph (no ctx.font /
-    //     fillStyle churn). Canvas2D fallback: font-size buckets + bitmap cache. ---
+    //     fillStyle churn). Canvas2D fallback: font-size buckets + bitmap cache.
+    //     CTX-0054: Bilibili style (outline/shadow/opacity) restored but gated at 8k active or 300k glyphs — keeps 5k showcase styled, but 20k stress not 48ms.
     let curAlpha = -1;
     for (let fs = 0; fs < buckets.length; fs++) {
       const bucket = buckets[fs];
@@ -753,14 +851,17 @@ export class DanmakuLayer extends Entity {
         // Per-slot font (CTX-0045): weight/family vary per danmaku, so the
         // bucket-level FONT_STRINGS is not sufficient.
         const font = slotFont(s);
+        // CTX-0054: effective alpha includes global Bilibili opacity; gated style never disables opacity (cheap), only outline/shadow extra work.
+        const effectiveAlpha = Math.max(0, Math.min(1, s.params.opacity * this._style.opacity));
+        const styleActive = this._isStyleActiveForDraw();
         // Interaction chrome (user-sent box / hover-pause cue) stays on
         // Canvas2D, behind glyphs. The hover box is the affordance that tells
         // the user this danmaku is paused under their pointer; without it a
         // freeze reads as a dropped frame.
         if ((s.userSent || (interactive && s.hovered)) && s.width > 0) {
-          if (curAlpha !== s.params.opacity) {
-            renderer.setGlobalAlpha(s.params.opacity);
-            curAlpha = s.params.opacity;
+          if (curAlpha !== effectiveAlpha) {
+            renderer.setGlobalAlpha(effectiveAlpha);
+            curAlpha = effectiveAlpha;
           }
           // Identity outranks inspection: a user-sent danmaku keeps its rose
           // marker even while hovered, so ownership never flickers away under
@@ -781,8 +882,9 @@ export class DanmakuLayer extends Entity {
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
         // CTX-0045: MSDF atlas is sans/400 only — serif/mono/bold remain Canvas2D.
+        // CTX-0054: when styleActive, GL glyphs get extra outline/shadow glyphs (vertex cost, still one draw call) rather than falling back to Canvas2D and losing the 5k batch advantage.
         if (glr && this._font && !s.userSent && cache.glSafe && isGLCompatible(s)) {
-          // GPU path: push this run's glyph quads to the batch.
+          // GPU path: push this run's glyph quads to the batch (+ outline/shadow if style demands).
           this.drawStats.glRuns++;
           if (!cache.glRun || cache.lastFS !== fs) {
             cache.glRun = this._glyphRun(s.params.text, fs);
@@ -790,26 +892,137 @@ export class DanmakuLayer extends Entity {
           }
           const run = cache.glRun!;
           const color = s.params.color;
-          const alpha = s.params.opacity;
           const quads = run.quads;
+          // Shadow layer (one offset copy, cheaper than per-pixel blur) — gated
+          if (styleActive && this._style.shadowEnabled) {
+            const sox = this._style.shadowOffsetX;
+            const soy = this._style.shadowOffsetY;
+            for (let q = 0; q < quads.length; q++) {
+              const g = quads[q];
+              // Early glyph budget kill-switch: if we already blew 300k, stop adding style glyphs for this frame
+              if (this.drawStats.glGlyphs > 300_000) break;
+              glr.addGlyph(
+                rx + g.x + sox,
+                ry + g.y + soy,
+                g.w,
+                g.h,
+                g.u0,
+                g.v0,
+                g.u1,
+                g.v1,
+                this._style.shadowColor,
+                effectiveAlpha * 0.9,
+              );
+              this.drawStats.glGlyphs++;
+            }
+          }
+          // Outline layer: 4 or 8 offset copies depending on width — gated
+          if (styleActive && this._style.outlineEnabled) {
+            const w = this._style.outlineWidth;
+            const offs: Array<[number, number]> =
+              w <= 1
+                ? [
+                    [w, 0],
+                    [-w, 0],
+                    [0, w],
+                    [0, -w],
+                  ]
+                : [
+                    [w, 0],
+                    [-w, 0],
+                    [0, w],
+                    [0, -w],
+                    [w, w],
+                    [-w, w],
+                    [w, -w],
+                    [-w, -w],
+                  ];
+            for (const [ox, oy] of offs) {
+              if (this.drawStats.glGlyphs > 300_000) break;
+              for (let q = 0; q < quads.length; q++) {
+                const g = quads[q];
+                glr.addGlyph(
+                  rx + g.x + ox,
+                  ry + g.y + oy,
+                  g.w,
+                  g.h,
+                  g.u0,
+                  g.v0,
+                  g.u1,
+                  g.v1,
+                  this._style.outlineColor,
+                  effectiveAlpha,
+                );
+                this.drawStats.glGlyphs++;
+              }
+            }
+          }
+          // Main glyphs
           for (let q = 0; q < quads.length; q++) {
             const g = quads[q];
-            glr.addGlyph(rx + g.x, ry + g.y, g.w, g.h, g.u0, g.v0, g.u1, g.v1, color, alpha);
+            glr.addGlyph(
+              rx + g.x,
+              ry + g.y,
+              g.w,
+              g.h,
+              g.u0,
+              g.v0,
+              g.u1,
+              g.v1,
+              color,
+              effectiveAlpha,
+            );
             this.drawStats.glGlyphs++;
           }
         } else {
           // Canvas2D fallback (emoji / out-of-atlas glyphs, or no WebGL).
-          if (curAlpha !== s.params.opacity) {
-            renderer.setGlobalAlpha(s.params.opacity);
-            curAlpha = s.params.opacity;
+          // CTX-0054: when style needs outline/shadow, bypass the rasterCache
+          // (which bakes color+font without chrome) and draw styled text directly — gated at 8k/300k.
+          const needsStyledCanvas =
+            styleActive && (this._style.outlineEnabled || this._style.shadowEnabled);
+          if (curAlpha !== effectiveAlpha) {
+            renderer.setGlobalAlpha(effectiveAlpha);
+            curAlpha = effectiveAlpha;
           }
-          const r = this._rasterCache.get(font, s.params.color, s.params.text);
-          if (r) {
-            this.drawStats.c2dBlits++;
-            renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
+          if (!needsStyledCanvas) {
+            const r = this._rasterCache.get(font, s.params.color, s.params.text);
+            if (r) {
+              this.drawStats.c2dBlits++;
+              renderer.drawImage(r.canvas, rx - r.offsetX, textY - r.offsetY, r.width, r.height);
+            } else {
+              this.drawStats.c2dFillText++;
+              renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+            }
           } else {
-            this.drawStats.c2dFillText++;
-            renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+            // Styled Canvas2D path: shadow -> outline -> main (Bilibili black border) — auto-disable keeps 20k from 48ms.
+            if (this.drawStats.c2dFillText > 6000) {
+              // Glyph budget for Canvas2D styled path: each styled danmaku is ~4-8 fillText calls; cap total to keep 20k stress <8ms.
+              const r2 = this._rasterCache.get(font, s.params.color, s.params.text);
+              if (r2) {
+                this.drawStats.c2dBlits++;
+                renderer.drawImage(
+                  r2.canvas,
+                  rx - r2.offsetX,
+                  textY - r2.offsetY,
+                  r2.width,
+                  r2.height,
+                );
+              } else {
+                this.drawStats.c2dFillText++;
+                renderer.fillText(s.params.text, rx, textY, font, s.params.color);
+              }
+            } else {
+              this.drawStats.c2dFillText++;
+              this._fillStyledText(
+                renderer,
+                s.params.text,
+                rx,
+                textY,
+                font,
+                s.params.color,
+                effectiveAlpha,
+              );
+            }
           }
         }
       }
@@ -849,7 +1062,9 @@ export class DanmakuLayer extends Entity {
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
     const font = slotFont(s);
-    renderer.setGlobalAlpha(opacity);
+    // CTX-0054: restore opacity branch — plain previously ignored _style.opacity, now gated but cheap so always applied; outline/shadow gated at 8k/300k.
+    const effectiveAlpha = Math.max(0, Math.min(1, opacity * this._style.opacity));
+    renderer.setGlobalAlpha(effectiveAlpha);
 
     // CTX-0044: rotation removed — former per-char save/translate/rotate path
     // cost ~10fps at style-showcase density; legacy 'rotation' now falls through
@@ -884,12 +1099,90 @@ export class DanmakuLayer extends Entity {
         cx += charWidth(chars[i], fontSize, weight, family);
       }
     } else {
-      if (effects.outline || isSelected) {
-        const outlineColor = isSelected ? DANMAKU_CHROME.selectedTextOutline : 'rgba(0,0,0,0.6)';
-        renderer.fillText(text, rx + 1, textY, font, outlineColor);
-        renderer.fillText(text, rx - 1, textY, font, outlineColor);
-        renderer.fillText(text, rx, textY + 1, font, outlineColor);
-        renderer.fillText(text, rx, textY - 1, font, outlineColor);
+      // CTX-0054: global Bilibili shadow + outline restored but gated — auto-disable at 8k/300k keeps 20k stress <8ms, 5k showcase keeps style.
+      const styleActive = this._isStyleActiveForDraw();
+      const hasGlobalShadow = styleActive && this._style.shadowEnabled;
+      const needOutline =
+        (styleActive && this._style.outlineEnabled) || effects.outline || isSelected;
+      // Global shadow is drawn first so outline and main sit on top of it (Bilibili: shadow under stroke)
+      if (hasGlobalShadow) {
+        renderer.setGlobalAlpha(effectiveAlpha * 0.85);
+        renderer.fillText(
+          text,
+          rx + this._style.shadowOffsetX,
+          textY + this._style.shadowOffsetY,
+          font,
+          this._style.shadowColor,
+        );
+        // Cheap blur extra passes
+        for (let b = 1; b <= this._style.shadowBlur && b <= 3; b++) {
+          const a = effectiveAlpha * 0.85 * (1 - b * 0.18);
+          if (a <= 0.02) break;
+          renderer.setGlobalAlpha(a);
+          renderer.fillText(
+            text,
+            rx + this._style.shadowOffsetX + b,
+            textY + this._style.shadowOffsetY,
+            font,
+            this._style.shadowColor,
+          );
+          renderer.fillText(
+            text,
+            rx + this._style.shadowOffsetX,
+            textY + this._style.shadowOffsetY + b,
+            font,
+            this._style.shadowColor,
+          );
+        }
+        renderer.setGlobalAlpha(effectiveAlpha);
+      }
+      if (needOutline) {
+        const outlineColor = isSelected
+          ? DANMAKU_CHROME.selectedTextOutline
+          : effects.outline
+            ? 'rgba(0,0,0,0.6)'
+            : this._style.outlineColor;
+        const w = isSelected
+          ? 1
+          : styleActive && this._style.outlineEnabled
+            ? this._style.outlineWidth
+            : 1;
+        const offs: Array<[number, number]> =
+          w <= 1
+            ? [
+                [w, 0],
+                [-w, 0],
+                [0, w],
+                [0, -w],
+              ]
+            : w === 2
+              ? [
+                  [w, 0],
+                  [-w, 0],
+                  [0, w],
+                  [0, -w],
+                  [w, w],
+                  [-w, w],
+                  [w, -w],
+                  [-w, -w],
+                ]
+              : [
+                  [w, 0],
+                  [-w, 0],
+                  [0, w],
+                  [0, -w],
+                  [w, w],
+                  [-w, w],
+                  [w, -w],
+                  [-w, -w],
+                  [w, 1],
+                  [-w, 1],
+                  [1, w],
+                  [-1, w],
+                ];
+        for (const [ox, oy] of offs) {
+          renderer.fillText(text, rx + ox, textY + oy, font, outlineColor);
+        }
       }
       let paint: string | unknown = color;
       if (effects.gradient) {
