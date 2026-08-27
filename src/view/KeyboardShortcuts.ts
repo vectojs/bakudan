@@ -165,6 +165,16 @@ export interface ShortcutEventSource {
  * scene channel's job — see the module docstring. Returns a disposer; call it
  * from the owner's `destroy()` so a re-mounted app does not accumulate
  * listeners.
+ *
+ * Hybrid shell fallback: Scene's channel rides a window bubble listener gated
+ * by ownsKeyboard(activeElement). When the app boots with focus on <body>
+ * (or the a11y focusSentinel) the scene channel still fires, but if HTML
+ * chrome steals focus on load (e.g., an autofocus input or a LabDrawer
+ * focus-trap) or if the canvas lost its tabIndex, keys would silently die.
+ * This install also taps window directly for the body case so Space/k/j/l/
+ * Home/End/f/Escape stay live even before the canvas is focused; the handler
+ * is idempotent via defaultPrevented so a double-dispatch does not toggle
+ * twice.
  */
 export function installKeyboardShortcuts(
   source: ShortcutEventSource,
@@ -178,5 +188,35 @@ export function installKeyboardShortcuts(
   };
 
   source.on('keydown', onKeyDown);
-  return () => source.off('keydown', onKeyDown);
+
+  // Window fallback for the hybrid shell when document.activeElement is body
+  // (nothing HTML owns focus). Scene's own window listener already handles
+  // this, but this layer ensures coverage if the canvas has not yet been
+  // focused or if a previous ownsKeyboard-suppressed element was removed and
+  // focus fell to body without a new handler dispatch.
+  const onWindowKeyDown = (e: KeyboardEvent): void => {
+    if (e.defaultPrevented || e.repeat) return;
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (
+      active &&
+      active !== document.body &&
+      active !== document.documentElement &&
+      !(active as Element).hasAttribute?.('data-vecto-a11y-root')
+    ) {
+      return;
+    }
+    const intent = decodeShortcut(e as unknown as ShortcutKeyInput);
+    if (!intent) return;
+    if (applyShortcut(intent, target)) e.preventDefault();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', onWindowKeyDown);
+  }
+
+  return () => {
+    source.off('keydown', onKeyDown);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', onWindowKeyDown);
+    }
+  };
 }

@@ -73,6 +73,13 @@ function getHost(app: App): LayoutHost {
 
 export function onResize(host: App, width: number, height: number): void {
   const h = getHost(host);
+  // Guard the hybrid path where both Scene's canvas ResizeObserver and
+  // main.ts's stageContainer observer can fire for the same logical size —
+  // and where getBoundingClientRect inside readStageSize is layout-triggering.
+  // Without this, a stable Grid stage would realloc the backing store on every
+  // observer tick. Bench mountHost never resizes during measure; hybrid must
+  // mirror that quietness once settled.
+  if (h.stageW === width && h.stageH === height && h.isMobile === width < MOBILE_BREAKPOINT) return;
   h.stageW = width;
   h.stageH = height;
   h.isMobile = width < MOBILE_BREAKPOINT;
@@ -108,7 +115,11 @@ export function layoutCinema(host: App): void {
   if (h.headerBar) {
     // no canvas statusBar
   } else if (h.statusBar) {
-    (h.statusBar as unknown as { setCompact(c: boolean): { setWidth(w: number): unknown } })
+    (
+      h.statusBar as unknown as {
+        setCompact(c: boolean): { setWidth(w: number): unknown };
+      }
+    )
       .setCompact(compact)
       .setWidth(Math.max(1, h.stageW - margin * 2));
     (h.statusBar as unknown as { x: number }).x = margin;
@@ -138,7 +149,11 @@ export function layoutCinema(host: App): void {
   if (!h.commandDeck) return;
   {
     const deckWidth = Math.max(1, Math.min(COMMAND_DECK_MAX_WIDTH, h.stageW - margin * 2));
-    (h.commandDeck as unknown as { setCompact(c: boolean): { setWidth(w: number): unknown } })
+    (
+      h.commandDeck as unknown as {
+        setCompact(c: boolean): { setWidth(w: number): unknown };
+      }
+    )
       .setCompact(compact)
       .setWidth(deckWidth);
     (h.commandDeck as unknown as { x: number }).x = Math.max(margin, (h.stageW - deckWidth) / 2);
@@ -186,7 +201,9 @@ export function getCinemaLayoutSnapshot(host: App): {
         const headerEl =
           typeof document !== 'undefined' ? document.getElementById('bakudan-header') : null;
         const rect = (
-          headerEl as unknown as { getBoundingClientRect?: () => { width: number; height: number } }
+          headerEl as unknown as {
+            getBoundingClientRect?: () => { width: number; height: number };
+          }
         )?.getBoundingClientRect?.();
         return {
           x: 0,

@@ -1590,7 +1590,11 @@ export class App {
         effects: entry.effects ?? { ...this.effects },
       });
     }
-    this._syncPlaybackState();
+    // Playback UI is throttled to STATUS_UPDATE_INTERVAL_MS (500ms) via
+    // frame()'s scheduled _syncPlaybackState batch — per-frame sync here
+    // would write --progress + buffered-end CSS vars at rAF rate (240fps)
+    // and is not needed for correctness. Seek/play handlers already sync
+    // eagerly; ongoing time is reflected in the next 500ms tick.
   }
 
   private _togglePlayback(): void {

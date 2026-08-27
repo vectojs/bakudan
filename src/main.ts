@@ -60,6 +60,13 @@ async function main(): Promise<void> {
     window.__app = app;
   }
 
+  // Guarded resize: prevent backing-store realloc every observer tick when
+  // size hasn't changed (readStageSize uses layout-triggering
+  // getBoundingClientRect). Bench mountHost never resizes during measure;
+  // hybrid must also be quiet once the Grid settles.
+  let prevW = -1;
+  let prevH = -1;
+
   function readStageSize(): { width: number; height: number } {
     if (stageContainer) {
       const rect = stageContainer.getBoundingClientRect();
@@ -71,6 +78,10 @@ async function main(): Promise<void> {
 
   function resize(): void {
     const { width, height } = readStageSize();
+    if (width <= 0 || height <= 0) return;
+    if (width === prevW && height === prevH) return;
+    prevW = width;
+    prevH = height;
     // In embedded mode Scene's ResizeObserver already resized the backing
     // store on canvas size change; calling resize() is still needed to sync
     // App's stageW/H, scheduler, and overlay layout to the same size.
@@ -80,10 +91,21 @@ async function main(): Promise<void> {
 
   // Hybrid: observe the stage container for CSS Grid size changes (header
   // collapse, lab drawer, browser chrome). Window resize alone no longer
-  // fires for embedded scenes.
+  // fires for embedded scenes. Use the observer's contentRect when available
+  // to avoid an extra getBoundingClientRect inside the callback, and guard
+  // on actual change so the callback is not a per-frame realloc (bench never
+  // resizes; hybrid container settles after first layout).
   let stageObserver: ResizeObserver | null = null;
   if (stageContainer && typeof ResizeObserver !== 'undefined') {
-    stageObserver = new ResizeObserver(() => resize());
+    stageObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const w = Math.round(entry.contentRect.width);
+        const h = Math.round(entry.contentRect.height);
+        if (w > 0 && h > 0 && w === prevW && h === prevH) return;
+      }
+      resize();
+    });
     stageObserver.observe(stageContainer);
   } else {
     window.addEventListener('resize', resize);
@@ -94,6 +116,7 @@ async function main(): Promise<void> {
     window.visualViewport.addEventListener('resize', () => {
       app.onViewportChange(window.visualViewport!);
       // visualViewport changes can affect the Grid height; re-read stage size
+      // but the resize guard ensures no backing-store churn if layout is stable.
       resize();
     });
   }
@@ -103,9 +126,32 @@ async function main(): Promise<void> {
     (window as unknown as { __stageContainer?: HTMLElement }).__stageContainer = stageContainer;
   }
 
+  // Ensure canvas is keyboard-focusable for Scene's window keyboard channel.
+  // Scene's channel gates on ownsKeyboard(activeElement) and only fires when
+  // focus is on body/documentElement or a non-owning element; an unfocusable
+  // canvas would leave activeElement on body (which still fires) but a tabbable
+  // canvas gives a stable focus target for playwright-cli press and restores
+  // parity with the bench's mountHost (which is 100vw/vh and receives focus).
+  if (canvas.tabIndex < 0) canvas.tabIndex = 0;
+  canvas.setAttribute('tabindex', '0');
+
   resize();
   scene.start();
   app.start();
+
+  // Focus the canvas when nothing HTML owns focus on load — otherwise an
+  // autofocus/input or LabDrawer tab trap could steal focus and make the
+  // scene channel suppress every key via ownsKeyboard. RequestAnimationFrame
+  // defers until after Scene's focusSentinel is in the DOM.
+  requestAnimationFrame(() => {
+    const active = document.activeElement as HTMLElement | null;
+    const owns = active?.hasAttribute?.('data-vecto-a11y-root');
+    const isBodyLike =
+      !active || active === document.body || active === document.documentElement || !!owns;
+    if (isBodyLike && document.activeElement !== canvas) {
+      canvas.focus({ preventScroll: true });
+    }
+  });
 
   // Stress-mode startup seam: `?stress=<n>` enters stress mode at n danmaku
   // after the app boots, through the same App.applyStressTarget path the
