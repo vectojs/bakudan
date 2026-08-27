@@ -185,14 +185,13 @@ export type UserBoxKind = 'hover' | 'userSent' | 'selected';
  */
 export function isSpecialSlot(s: PoolSlot): boolean {
   const eff = s.params.effects;
-  return (
-    s.params.preset === 'glitch' ||
-    s.params.preset === 'rotation' ||
-    eff.rainbow ||
-    eff.outline ||
-    eff.glow ||
-    eff.gradient
-  );
+  // P2-2: reduce over-classification. style-showcase's 73% special came from
+  // glow(0.3)+gradient(0.25)+outline(0.35) each forcing the special pass and
+  // bypassing the GL glyph batch. Only presets that truly need per-char or
+  // multi-pass rendering stay special: rotation (per-char angles), glitch
+  // (3-pass chroma), and rainbow (per-char hue). Glow/outline/gradient are
+  // single-fill with an extra stroke/gradient and can stay batched.
+  return s.params.preset === 'glitch' || s.params.preset === 'rotation' || eff.rainbow;
 }
 
 /**
@@ -274,7 +273,7 @@ function charWidth(ch: string, fontSize: number): number {
 }
 
 const FONT_STRINGS = Array.from(
-  { length: 64 },
+  { length: 128 },
   (_, fs) => `400 ${fs}px system-ui, -apple-system, sans-serif`,
 );
 
@@ -309,6 +308,34 @@ export class DanmakuLayer extends Entity {
       this._slotCaches.set(s, c);
     }
     return c;
+  }
+
+  private _cullMargin(s: PoolSlot): number {
+    // P3-2: cull previously used 1.5*fs, underestimating sine(60), rotation(0.4*fs),
+    // glitch(3), repulsion(6), outline(2), glow(4), and jelly(0.16*fs).
+    const fs = s.params.fontSize;
+    let motion = 0;
+    switch (s.params.preset) {
+      case 'sine':
+        motion = Math.abs(s.params.presetParams.amplitude ?? 60);
+        break;
+      case 'rotation':
+        motion = fs * 0.4;
+        break;
+      case 'glitch':
+        motion = 3;
+        break;
+      case 'repulsion':
+        motion = 6;
+        break;
+      default:
+        break;
+    }
+    let effect = 0;
+    if (s.params.effects.outline) effect += 2;
+    if (s.params.effects.glow) effect += 4;
+    const jelly = s.jellyScaleY !== 1 || s.jellyScaleX !== 1 ? Math.ceil(fs * 0.32 * 0.5) : 0;
+    return Math.ceil(motion + effect + jelly);
   }
 
   // --- WebGL/MSDF text path (set once the atlas loads; null → Canvas2D) ---
@@ -365,8 +392,10 @@ export class DanmakuLayer extends Entity {
   ) {
     super();
     this.interactive = false;
-    // Pre-size buckets for integer font sizes 0..63 (Scheduler emits 16..36).
-    for (let i = 0; i < 64; i++) this._buckets.push([]);
+    // P3-3: buckets[63] coalesced overflow (different sizes sharing 63). Expand
+    // to 128 so all real font sizes (16..36) each have their own bucket and
+    // overflow only for truly out-of-range sizes >127.
+    for (let i = 0; i < 128; i++) this._buckets.push([]);
   }
 
   /**
@@ -522,8 +551,15 @@ export class DanmakuLayer extends Entity {
       const s = slots[i];
       if (!s.active) continue;
       const fontSize = s.params.fontSize;
-      // Inline frustum cull — skip anything fully off-screen.
-      if (s.x > stageW || s.x + s.width < 0 || s.y > stageH || s.y + fontSize * 1.5 < 0) {
+      // P3-2: frustum cull previously used 1.5*fs, underestimating sine(60px),
+      // glow(4px), outline(2px) and jelly. Use 1.2*fs (actual text height) + outset.
+      const outset = this._cullMargin(s);
+      if (
+        s.x > stageW ||
+        s.x + s.width < 0 ||
+        s.y > stageH + outset ||
+        s.y + fontSize * 1.2 + outset < 0
+      ) {
         continue;
       }
       if (s.interactionLocked) {
@@ -562,7 +598,7 @@ export class DanmakuLayer extends Entity {
     for (let fs = 0; fs < buckets.length; fs++) {
       const bucket = buckets[fs];
       if (bucket.length === 0) continue;
-      const font = FONT_STRINGS[fs] || FONT_STRINGS[63];
+      const font = FONT_STRINGS[fs] ?? FONT_STRINGS[127] ?? FONT_STRINGS[63];
       for (let j = 0; j < bucket.length; j++) {
         const s = bucket[j];
         const rx = (s.x + 0.5) | 0;
