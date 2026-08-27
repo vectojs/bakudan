@@ -15,6 +15,7 @@ import { DanmakuPool, Scheduler } from '@vectojs/danmaku-core';
 import type { CharacterEffects, PoolSlot, PresetId } from '@vectojs/danmaku-core';
 import { VideoSourceError } from '@vectojs/danmaku-kit/model';
 import type { VideoLoadState, VideoSelection } from '@vectojs/danmaku-kit/model';
+import type { ProfiledTimedDanmakuEntry } from '../model/TrackProfiles';
 import {
   DanmakuCommandDeck,
   DanmakuLabDrawer,
@@ -234,6 +235,12 @@ export class App {
   private _videoBuffering = false;
   private _videoRequestId = 0;
   private _stressTargetBeforeVideo = 500;
+  // P1: video lane saturation retry queue + metrics (20-40% bursts at 60Hz)
+  private _videoSpawnDropped = 0;
+  private _videoSpawnTotal = 0;
+  private _videoRetryQueue: ProfiledTimedDanmakuEntry[] = [];
+  // P3-1: video preset font tier distribution (mirrors Scheduler.FONT_TIERS)
+  private readonly _videoFontTiers = [18, 24, 30] as const;
 
   // Language and stable video/profile identity.
   currentLang: Language;
@@ -538,6 +545,7 @@ export class App {
       },
       onDistributionChange: (distributionId) => {
         this.distributionId = distributionId;
+        this._applyDistribution();
         this._syncThroughputState();
       },
     });
@@ -651,6 +659,7 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId as DistributionId;
+          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -802,6 +811,7 @@ export class App {
         },
         onDistributionChange: (distributionId) => {
           this.distributionId = distributionId;
+          this._applyDistribution();
           this._syncThroughputState();
         },
       });
@@ -1019,6 +1029,31 @@ export class App {
     const state = this._throughputState();
     if (this.throughputPanelHTML) this.throughputPanelHTML.setState(state);
     else if (this.throughputPanel) this.throughputPanel.setState(state);
+  }
+
+  private _applyDistribution(): void {
+    // P2-1: wire distributionId to scheduler (steady vs bursty). Bursty bursts
+    // inflow by 50% over the slider rate so the toggle is observable; steady
+    // restores the slider-driven rate. Verify not regressed from CTX-0038.
+    const anySched = this.scheduler as unknown as {
+      distributionId?: string;
+      setSpawnRate(r: number): void;
+      rate: number;
+    };
+    anySched.distributionId = this.distributionId;
+    const base =
+      (this as unknown as { _profSpawnRate?: number })._profSpawnRate ?? this.scheduler.rate;
+    if (this.distributionId === 'bursty') {
+      const burstyRate = Math.min(6000, Math.max(base ?? 10, 10) * 1.5);
+      if (Math.abs(this.scheduler.rate - burstyRate) > 0.5) {
+        this.scheduler.setSpawnRate(burstyRate);
+      }
+    } else {
+      const targetRate = base ?? this.scheduler.rate;
+      if (Math.abs(this.scheduler.rate - targetRate) > 0.5) {
+        this.scheduler.setSpawnRate(targetRate);
+      }
+    }
   }
 
   private _syncInteractionsState(): void {
@@ -1574,21 +1609,89 @@ export class App {
     this.scene.markDirty();
   }
 
+  private _pickVideoFontSize(): number {
+    // P3-1: distribute video danmaku across 18/24/30 instead of fixed 24
+    // so bucket 24 does not hold 100% of video spawns.
+    const tiers = this._videoFontTiers;
+    return tiers[Math.floor(Math.random() * tiers.length)]!;
+  }
+
+  private _pickVideoSpeed(fontSize: number): number {
+    // P3-1: vary speed with font-size correlation — larger reads slower
+    const base = 160 + Math.random() * 120;
+    return fontSize >= 30 ? base * 0.9 : fontSize <= 18 ? base * 1.1 : base;
+  }
+
   private _frameVideo(): void {
     if (!this.bg.isVideoReady) return;
     const t = this.bg.currentTime;
+    // Retry previously saturated spawns first (P1 requeue contract).
+    if (this._videoRetryQueue.length > 0) {
+      const pending = this._videoRetryQueue;
+      this._videoRetryQueue = [];
+      for (const entry of pending) {
+        const ok = this.scheduler.userSpawn(
+          {
+            text: entry.text,
+            color: entry.color ?? '#f8fafc',
+            fontSize: entry.fontSize ?? this._pickVideoFontSize(),
+            speed: entry.speed ?? this._pickVideoSpeed(entry.fontSize ?? 24),
+            opacity: 0.9,
+            preset: entry.preset ?? 'scroll',
+            presetParams: {},
+            effects: entry.effects ?? { ...this.effects },
+          },
+          false,
+        );
+        if (!ok) {
+          this._videoRetryQueue.push(entry);
+          this._videoSpawnDropped++;
+        }
+      }
+    }
     const fired = this.danmakuTrack.sync(t);
+    if (fired.length === 0) return;
+    let droppedThisFrame = 0;
     for (const entry of fired) {
-      this.scheduler.userSpawn({
-        text: entry.text,
-        color: entry.color ?? '#f8fafc',
-        fontSize: entry.fontSize ?? 24,
-        speed: entry.speed ?? 200,
-        opacity: 0.9,
-        preset: entry.preset ?? 'scroll',
-        presetParams: {},
-        effects: entry.effects ?? { ...this.effects },
-      });
+      this._videoSpawnTotal++;
+      const fontSize = entry.fontSize ?? this._pickVideoFontSize();
+      const speed = entry.speed ?? this._pickVideoSpeed(fontSize);
+      const spawned = this.scheduler.userSpawn(
+        {
+          text: entry.text,
+          color: entry.color ?? '#f8fafc',
+          fontSize,
+          speed,
+          opacity: 0.9,
+          preset: entry.preset ?? 'scroll',
+          presetParams: {},
+          effects: entry.effects ?? { ...this.effects },
+        },
+        false,
+      );
+      if (!spawned) {
+        droppedThisFrame++;
+        this._videoSpawnDropped++;
+        // Requeue for next frame instead of silent drop (P1-1).
+        this._videoRetryQueue.push({
+          ...entry,
+          fontSize,
+          speed,
+        } as ProfiledTimedDanmakuEntry);
+      }
+    }
+    if (droppedThisFrame > 0) {
+      // Log metric sampled to avoid spam — every 10th drop or burst >=3.
+      if (this._videoSpawnDropped % 10 === 1 || droppedThisFrame >= 3) {
+        console.warn(
+          `[bakudan] video lane saturated: dropped ${droppedThisFrame}/${fired.length} this frame, total ${this._videoSpawnDropped}/${this._videoSpawnTotal}`,
+        );
+      }
+      // Keep retry queue bounded: cap at 30 to avoid unbounded growth under
+      // sustained flood (35/s) on a small stage.
+      if (this._videoRetryQueue.length > 30) {
+        this._videoRetryQueue.splice(0, this._videoRetryQueue.length - 30);
+      }
     }
     // Playback UI is throttled to STATUS_UPDATE_INTERVAL_MS (500ms) via
     // frame()'s scheduled _syncPlaybackState batch — per-frame sync here
@@ -1737,6 +1840,8 @@ export class App {
 
   private _onUserSend(text: string): void {
     const time = this.mode === 'video' ? this.bg.currentTime : 0;
+    // P3-1: keep userSent at 24/200 for readability, but vary video fallback via
+    // _pickVideo* elsewhere. User danmaku stays distinct size so it reads as owned.
     const entry = {
       time: Math.round(time * 10) / 10,
       text,
@@ -1749,7 +1854,15 @@ export class App {
       effects: { ...this.effects },
       userSent: true,
     };
-    this.scheduler.userSpawn(entry, true);
+    const spawned = this.scheduler.userSpawn(entry, true);
+    if (!spawned) {
+      // P1-2: userSpawn return was ignored, losing typed danmaku with no feedback.
+      this._videoSpawnDropped++;
+      console.warn('[bakudan] user danmaku lane saturated — not shown');
+      this.announcer.setSummary(
+        t('a11y.laneSaturated', this.currentLang) ?? 'Lane saturated — try again shortly',
+      );
+    }
 
     if (this.mode === 'video') {
       // A local upload's id hashes its blob: URL, which is dead after reload;
