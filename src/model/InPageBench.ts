@@ -192,6 +192,16 @@ export async function runInPageBench(
   },
   frameRate = 240,
 ): Promise<BenchRunResult> {
+  // CTX-0052: calibrate on the idle page before stress fill — the shared
+  // bench harness (run-browsers.sh) does this pre-fill so refreshHz is the
+  // display's true ceiling (240.22 on this panel), not the workload-limited
+  // throughput (153.96 at 10k churning). Previous inpage calibrated at full
+  // density after fill+settle, folding 6ms jsBatch into rAF intervals and
+  // depressing refreshHz by ~36% (202→153). With the ceiling honest, fps vs
+  // refresh and overBudget become comparable across harnesses.
+  onProgress({ phase: 'calibrating', detail: labels.calibrating() });
+  const refreshHz = await measureCadence(1000, deps.requestAnimationFrame, deps.now);
+
   const effectiveTarget = deps.applyStressTarget(target);
   deps.setSpawnRate(BENCH_SPAWN_RATE);
 
@@ -213,12 +223,6 @@ export async function runInPageBench(
 
   onProgress({ phase: 'settling', detail: labels.settling() });
   await deps.sleep(SETTLE_MS);
-
-  onProgress({ phase: 'calibrating', detail: labels.calibrating() });
-  // Calibrated BEFORE the measured window while the pool churns at full
-  // density — the number lands in the envelope as context for the fps
-  // percentiles, exactly like the external harness's refreshHzProbe.
-  const refreshHz = await measureCadence(1000, deps.requestAnimationFrame, deps.now);
 
   onProgress({ phase: 'measuring', detail: labels.measuring() });
   deps.startProfiler();

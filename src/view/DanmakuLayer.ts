@@ -37,6 +37,8 @@ export const DEFAULT_TYPOGRAPHY: {
   fontWeight: 'normal',
 };
 
+// CTX-0052: memoize font strings — the stress pool calls slotFont 10k×/frame (2.4M strings/s at 240Hz) and each was a fresh allocation. Typography space is 3×3×2=18 combos, so a 64-entry LRU eliminates the alloc/GC pressure.
+const _fontStringCache = new Map<string, string>();
 export function fontStringFor(
   sizePx: number,
   weight: FontWeightId | number,
@@ -45,7 +47,13 @@ export function fontStringFor(
   const w = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
   const fam =
     (FONT_FAMILIES as Record<string, string>)[family as string] ?? family ?? FONT_FAMILIES.sans;
-  return `${w} ${sizePx}px ${fam}`;
+  const key = `${sizePx}|${w}|${fam}`;
+  const hit = _fontStringCache.get(key);
+  if (hit !== undefined) return hit;
+  const s = `${w} ${sizePx}px ${fam}`;
+  if (_fontStringCache.size > 64) _fontStringCache.clear();
+  _fontStringCache.set(key, s);
+  return s;
 }
 
 export function fontSizePx(choice: FontSizeId): number {
