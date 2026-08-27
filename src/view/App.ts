@@ -34,6 +34,13 @@ import { generateLargeTimedTrack } from '../model/demoTimedTrack';
 import { ProfiledDanmakuTrack, TRACK_PROFILES } from '../model/TrackProfiles';
 import { saveUserDanmaku } from '../model/UserDanmakuStore';
 import { DEFAULT_VIDEO_ID, VIDEO_CATALOG, videoById } from '../model/VideoCatalog';
+import {
+  DEFAULT_TYPOGRAPHY,
+  FONT_SIZES,
+  type FontFamilyId,
+  type FontSizeId,
+  type FontWeightId,
+} from './DanmakuLayer';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
   exitFullscreenIn,
@@ -288,6 +295,11 @@ export class App {
     rainbow: false,
     outline: false,
   };
+  // CTX-0045: Bilibili-like typography — stamped onto newly spawned danmaku
+  // (Scheduler "brush" pattern, like activeEffects).
+  private _fontFamily: FontFamilyId = DEFAULT_TYPOGRAPHY.fontFamily;
+  private _fontSizeChoice: FontSizeId = DEFAULT_TYPOGRAPHY.fontSize;
+  private _fontWeight: FontWeightId = DEFAULT_TYPOGRAPHY.fontWeight;
   private pointerX = 0;
   private pointerY = 0;
   /** Freeze-zone bookkeeping: pointer stillness + per-slot hold timers. */
@@ -332,6 +344,10 @@ export class App {
       // Inject the localized meme content — the engine ships no wording.
       { textSampler: () => ContentLibrary.sample() },
     );
+    // CTX-0045: patch Scheduler._spawnOne so newly spawned stress danmaku
+    // carry the current typography "brush" (family/size/weight). Keep band
+    // allocation correct by choosing fontSize before _assignBandStart.
+    this._patchSchedulerTypography();
 
     // Reactions key off the default video until a real selection re-keys the
     // store — stress mode must be able to like/copy too, not just video mode.
@@ -693,6 +709,9 @@ export class App {
           hoverPause: this._hoverPauseEnabled,
           dragEnabled: this._dragEnabled,
           reactionsEnabled: this._reactionsEnabled,
+          fontFamily: this._fontFamily,
+          fontSizeChoice: this._fontSizeChoice,
+          fontWeight: this._fontWeight,
         },
         presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
           id,
@@ -732,6 +751,18 @@ export class App {
         onReactionsChange: (enabled) => {
           this._reactionsEnabled = enabled;
           if (!enabled) this._clearSelection();
+          this._syncInteractionsState();
+        },
+        onFontFamilyChange: (id) => {
+          this._fontFamily = id as FontFamilyId;
+          this._syncInteractionsState();
+        },
+        onFontSizeChange: (id) => {
+          this._fontSizeChoice = id as FontSizeId;
+          this._syncInteractionsState();
+        },
+        onFontWeightChange: (id) => {
+          this._fontWeight = id as FontWeightId;
           this._syncInteractionsState();
         },
       });
@@ -1057,6 +1088,9 @@ export class App {
       hoverPause: this._hoverPauseEnabled,
       dragEnabled: this._dragEnabled,
       reactionsEnabled: this._reactionsEnabled,
+      fontFamily: this._fontFamily,
+      fontSizeChoice: this._fontSizeChoice,
+      fontWeight: this._fontWeight,
     };
   }
 
@@ -1551,10 +1585,141 @@ export class App {
   }
 
   private _pickVideoFontSize(): number {
-    // P3-1: distribute video danmaku across 18/24/30 instead of fixed 24
-    // so bucket 24 does not hold 100% of video spawns.
+    // CTX-0045: respect typography size choice as the "brush" default.
+    // When the user has picked a size, new danmaku are born at that tier
+    // (Bilibili: chosen size applies to your view). Fall back to random tiers
+    // only if the typing is somehow invalid.
+    const chosen = FONT_SIZES[this._fontSizeChoice];
+    if (chosen !== undefined) return chosen;
     const tiers = this._videoFontTiers;
     return tiers[Math.floor(Math.random() * tiers.length)]!;
+  }
+
+  /** Apply current typography to a freshly built DanmakuParams. */
+  private _withTypography<
+    T extends {
+      fontSize?: number;
+      fontFamily?: FontFamilyId;
+      fontWeight?: FontWeightId;
+    },
+  >(
+    params: T,
+  ): T & {
+    fontFamily: FontFamilyId;
+    fontWeight: FontWeightId;
+    fontSize: number;
+  } {
+    return {
+      ...params,
+      fontSize: params.fontSize ?? FONT_SIZES[this._fontSizeChoice],
+      fontFamily: (params.fontFamily as FontFamilyId) ?? this._fontFamily,
+      fontWeight: (params.fontWeight as FontWeightId) ?? this._fontWeight,
+    } as T & {
+      fontFamily: FontFamilyId;
+      fontWeight: FontWeightId;
+      fontSize: number;
+    };
+  }
+
+  /**
+   * Patch Scheduler stress-spawn to carry typography. We replace the instance's
+   * _spawnOne so the band assignment and width use the chosen size, and the
+   * resulting params carry family/weight for DanmakuLayer.
+   */
+  private _patchSchedulerTypography(): void {
+    const sched = this.scheduler as unknown as {
+      _spawnOne: (presetId: PresetId) => boolean;
+      _initializeSlot: (slot: PoolSlot, bandStart: number, userSent: boolean) => void;
+      pool: DanmakuPool;
+      textSampler: () => string;
+      activeEffects: CharacterEffects;
+      _assignBandStart: (params: unknown, allowOverflow: boolean) => number;
+      _getBakudanTypography?: () => {
+        family: FontFamilyId;
+        weight: FontWeightId;
+        sizeChoice: FontSizeId;
+      };
+    };
+    // Expose current typography via sched so patched methods need not alias `this`
+    sched._getBakudanTypography = () => ({
+      family: this._fontFamily,
+      weight: this._fontWeight,
+      sizeChoice: this._fontSizeChoice,
+    });
+    // Wrap _initializeSlot to fix width for serif/bold (measureText needs correct font)
+    const origInit = sched._initializeSlot.bind(sched);
+    sched._initializeSlot = function (slot: PoolSlot, bandStart: number, userSent: boolean) {
+      origInit(slot, bandStart, userSent);
+      // Re-measure width with the slot's actual font (bold/serif are wider)
+      try {
+        const hosted = (this as unknown as typeof sched)._getBakudanTypography?.();
+        const fallbackFamily = hosted?.family ?? 'sans';
+        const fallbackWeight = hosted?.weight ?? 'normal';
+        const fam =
+          (slot.params as unknown as { fontFamily?: FontFamilyId }).fontFamily ?? fallbackFamily;
+        const weight =
+          (slot.params as unknown as { fontWeight?: FontWeightId }).fontWeight ?? fallbackWeight;
+        // Inline fontStringFor to avoid import cycle in patch closure
+        const weightNum = weight === 'bold' ? 700 : 400;
+        const familyStack =
+          fam === 'serif'
+            ? "Georgia, 'Times New Roman', serif"
+            : fam === 'mono'
+              ? "'JetBrains Mono', 'Cascadia Code', monospace"
+              : "system-ui, -apple-system, 'Segoe UI', sans-serif";
+        const font = `${weightNum} ${slot.params.fontSize}px ${familyStack}`;
+        // Use a tiny offscreen canvas to measure correctly
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.font = font;
+          slot.width = ctx.measureText(slot.params.text).width + 4;
+        }
+      } catch {
+        // Keep original width on failure
+      }
+    };
+    const origSpawn = sched._spawnOne.bind(sched);
+    sched._spawnOne = function (presetId: PresetId): boolean {
+      // Replicate origSpawn but inject typography before band assignment
+      const hosted = (this as unknown as typeof sched)._getBakudanTypography?.();
+      const sizeChoice = hosted?.sizeChoice ?? 'normal';
+      const family = hosted?.family ?? 'sans';
+      const weight = hosted?.weight ?? 'normal';
+      const text = sched.textSampler();
+      const fontSize = FONT_SIZES[sizeChoice] ?? FONT_SIZES.normal;
+      const slateColors = [
+        '#f8fafc',
+        '#cbd5e1',
+        '#94a3b8',
+        '#38bdf8',
+        '#60a5fa',
+        '#818cf8',
+        '#a78bfa',
+        '#34d399',
+      ];
+      const color = slateColors[Math.floor(Math.random() * slateColors.length)]!;
+      const params = {
+        text,
+        color,
+        fontSize,
+        speed: 150 + Math.random() * 150,
+        opacity: 1,
+        preset: presetId,
+        presetParams: {} as Record<string, number>,
+        effects: { ...sched.activeEffects },
+        fontFamily: family,
+        fontWeight: weight,
+      } as unknown as Parameters<typeof sched.pool.activateBatch>[0][number];
+      const bandStart = sched._assignBandStart(params, true);
+      if (bandStart < 0) return false;
+      const [slot] = sched.pool.activateBatch([params] as unknown as []);
+      if (!slot) return false;
+      sched._initializeSlot(slot, bandStart, false);
+      return true;
+    };
+    // Keep reference to allow future restores if needed
+    void origSpawn;
   }
 
   private _pickVideoSpeed(fontSize: number): number {
@@ -1572,7 +1737,7 @@ export class App {
       this._videoRetryQueue = [];
       for (const entry of pending) {
         const ok = this.scheduler.userSpawn(
-          {
+          this._withTypography({
             text: entry.text,
             color: entry.color ?? '#f8fafc',
             fontSize: entry.fontSize ?? this._pickVideoFontSize(),
@@ -1581,7 +1746,7 @@ export class App {
             preset: entry.preset ?? 'scroll',
             presetParams: {},
             effects: entry.effects ?? { ...this.effects },
-          },
+          }),
           false,
         );
         if (!ok) {
@@ -1598,7 +1763,7 @@ export class App {
       const fontSize = entry.fontSize ?? this._pickVideoFontSize();
       const speed = entry.speed ?? this._pickVideoSpeed(fontSize);
       const spawned = this.scheduler.userSpawn(
-        {
+        this._withTypography({
           text: entry.text,
           color: entry.color ?? '#f8fafc',
           fontSize,
@@ -1607,7 +1772,7 @@ export class App {
           preset: entry.preset ?? 'scroll',
           presetParams: {},
           effects: entry.effects ?? { ...this.effects },
-        },
+        }),
         false,
       );
       if (!spawned) {
@@ -1781,21 +1946,24 @@ export class App {
 
   private _onUserSend(text: string): void {
     const time = this.mode === 'video' ? this.bg.currentTime : 0;
-    // P3-1: keep userSent at 24/200 for readability, but vary video fallback via
-    // _pickVideo* elsewhere. User danmaku stays distinct size so it reads as owned.
-    const entry = {
+    // CTX-0045: userSent now respects typography brush (size/family/weight)
+    // so the composer's choices are visible immediately and persist.
+    const entry = this._withTypography({
       time: Math.round(time * 10) / 10,
       text,
       color: '#f8fafc',
-      fontSize: 24,
+      fontSize: FONT_SIZES[this._fontSizeChoice],
       speed: 200,
       opacity: 0.9,
       preset: this.activePreset,
       presetParams: {},
       effects: { ...this.effects },
       userSent: true,
-    };
-    const spawned = this.scheduler.userSpawn(entry, true);
+    });
+    const spawned = this.scheduler.userSpawn(
+      entry as unknown as Parameters<typeof this.scheduler.userSpawn>[0],
+      true,
+    );
     if (!spawned) {
       // P1-2: userSpawn return was ignored, losing typed danmaku with no feedback.
       this._videoSpawnDropped++;

@@ -1,4 +1,5 @@
 import { BAKUDAN_THEME } from '../../cinemaConfig';
+import type { FontFamilyId, FontSizeId, FontWeightId } from '../../DanmakuLayer';
 
 export interface InteractionsState {
   presetId: string;
@@ -10,6 +11,10 @@ export interface InteractionsState {
   repulsionEnabled?: boolean;
   gravityEnabled?: boolean;
   jellyEnabled?: boolean;
+  /** Bilibili-like typography choices (CTX-0045). */
+  fontFamily?: FontFamilyId;
+  fontSizeChoice?: FontSizeId;
+  fontWeight?: FontWeightId;
 }
 
 export interface InteractionsPanelOptions {
@@ -17,10 +22,17 @@ export interface InteractionsPanelOptions {
   presets?: { id: string; label: string }[];
   effects?: { id: string; label: string }[];
   renderClasses?: { id: string; label: string }[];
+  fontFamilies?: { id: FontFamilyId; label: string }[];
+  fontSizes?: { id: FontSizeId; label: string }[];
+  fontWeights?: { id: FontWeightId; label: string }[];
   labels?: {
     presets?: string;
     effects?: string;
     renderClasses?: string;
+    typography?: string;
+    fontFamily?: string;
+    fontSize?: string;
+    fontWeight?: string;
   };
   onPresetChange: (id: string) => void;
   onEffectChange: (id: string, enabled: boolean) => void;
@@ -30,6 +42,9 @@ export interface InteractionsPanelOptions {
   onRepulsionChange?: (enabled: boolean) => void;
   onGravityChange?: (enabled: boolean) => void;
   onJellyChange?: (enabled: boolean) => void;
+  onFontFamilyChange?: (id: FontFamilyId) => void;
+  onFontSizeChange?: (id: FontSizeId) => void;
+  onFontWeightChange?: (id: FontWeightId) => void;
 }
 
 /**
@@ -50,6 +65,9 @@ export class InteractionsPanelHTML {
   private readonly repulsionInput: HTMLInputElement;
   private readonly gravityInput: HTMLInputElement;
   private readonly jellyInput: HTMLInputElement;
+  private readonly fontFamilyGroup: HTMLElement;
+  private readonly fontSizeGroup: HTMLElement;
+  private readonly fontWeightGroup: HTMLElement;
 
   constructor(opts: InteractionsPanelOptions) {
     this.opts = opts;
@@ -194,6 +212,101 @@ export class InteractionsPanelHTML {
     effectsSection.append(this.effectContainer);
     root.append(effectsSection);
 
+    // Typography — Bilibili-like font family / size / weight (CTX-0045)
+    const typoSection = document.createElement('div');
+    typoSection.className = 'bakudan-lab__section';
+    const typoHeading = document.createElement('h3');
+    typoHeading.textContent = opts.labels?.typography ?? 'Typography';
+    typoSection.append(typoHeading);
+
+    const makeRadioGroup = <T extends string>(
+      sectionTitle: string,
+      groupLabel: string,
+      choices: readonly { id: T; label: string }[],
+      current: string | undefined,
+      dataAttr: string,
+      inputName: string,
+      onChange: ((id: T) => void) | undefined,
+    ): HTMLElement => {
+      const groupTitle = document.createElement('h4');
+      groupTitle.textContent = sectionTitle;
+      groupTitle.style.fontSize = '11px';
+      groupTitle.style.color = 'var(--bakudan-text-muted)';
+      groupTitle.style.margin = '8px 0 4px';
+      typoSection.append(groupTitle);
+      const group = document.createElement('div');
+      group.setAttribute('role', 'radiogroup');
+      group.setAttribute('aria-label', groupLabel);
+      group.style.display = 'flex';
+      group.style.flexDirection = 'column';
+      group.style.gap = '8px';
+      for (const c of choices) {
+        const label = document.createElement('label');
+        label.className = 'bakudan-lab__checkbox-row';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = inputName;
+        radio.value = c.id;
+        radio.checked = c.id === current;
+        radio.dataset[dataAttr] = c.id;
+        radio.setAttribute('aria-label', c.label);
+        radio.addEventListener('change', () => {
+          if (radio.checked) onChange?.(c.id);
+        });
+        const span = document.createElement('span');
+        span.textContent = c.label;
+        label.append(radio, span);
+        group.append(label);
+      }
+      typoSection.append(group);
+      return group;
+    };
+
+    const families = opts.fontFamilies ?? [
+      { id: 'sans' as FontFamilyId, label: 'Sans' },
+      { id: 'serif' as FontFamilyId, label: 'Serif' },
+      { id: 'mono' as FontFamilyId, label: 'Mono' },
+    ];
+    const sizes = opts.fontSizes ?? [
+      { id: 'small' as FontSizeId, label: 'Small' },
+      { id: 'normal' as FontSizeId, label: 'Normal' },
+      { id: 'large' as FontSizeId, label: 'Large' },
+    ];
+    const weights = opts.fontWeights ?? [
+      { id: 'normal' as FontWeightId, label: 'Normal' },
+      { id: 'bold' as FontWeightId, label: 'Bold' },
+    ];
+
+    this.fontFamilyGroup = makeRadioGroup(
+      opts.labels?.fontFamily ?? 'Font family',
+      'Font family',
+      families,
+      this.state.fontFamily ?? 'sans',
+      'fontFamily',
+      'bakudan-font-family',
+      opts.onFontFamilyChange as ((id: string) => void) | undefined,
+    );
+    this.fontSizeGroup = makeRadioGroup(
+      opts.labels?.fontSize ?? 'Font size',
+      'Font size',
+      sizes,
+      this.state.fontSizeChoice ?? 'normal',
+      'fontSize',
+      'bakudan-font-size',
+      opts.onFontSizeChange as ((id: string) => void) | undefined,
+    );
+    this.fontWeightGroup = makeRadioGroup(
+      opts.labels?.fontWeight ?? 'Font weight',
+      'Font weight',
+      weights,
+      this.state.fontWeight ?? 'normal',
+      'fontWeight',
+      'bakudan-font-weight',
+      opts.onFontWeightChange as ((id: string) => void) | undefined,
+    );
+
+    root.append(typoSection);
+
     // Render classes
     const renderSection = document.createElement('div');
     renderSection.className = 'bakudan-lab__section';
@@ -252,6 +365,28 @@ export class InteractionsPanelHTML {
       const id = el.dataset.renderClass!;
       const label = this.opts.renderClasses?.find((r) => r.id === id)?.label ?? id;
       el.textContent = `${label}: ${s.renderClasses[id] ?? '—'}`;
+    }
+    // Typography
+    if (s.fontFamily !== undefined) {
+      for (const input of this.fontFamilyGroup.querySelectorAll<HTMLInputElement>(
+        'input[type="radio"]',
+      )) {
+        input.checked = input.value === s.fontFamily;
+      }
+    }
+    if (s.fontSizeChoice !== undefined) {
+      for (const input of this.fontSizeGroup.querySelectorAll<HTMLInputElement>(
+        'input[type="radio"]',
+      )) {
+        input.checked = input.value === s.fontSizeChoice;
+      }
+    }
+    if (s.fontWeight !== undefined) {
+      for (const input of this.fontWeightGroup.querySelectorAll<HTMLInputElement>(
+        'input[type="radio"]',
+      )) {
+        input.checked = input.value === s.fontWeight;
+      }
     }
   }
 

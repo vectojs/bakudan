@@ -5,6 +5,65 @@ import type { PoolSlot, DanmakuPool } from '@vectojs/danmaku-core';
 import type { LoadedAtlas } from './MSDFAtlas';
 import { BAKUDAN_THEME, DANMAKU_CHROME } from './cinemaConfig';
 
+// --- CTX-0045: Bilibili-like typography (font family / size / weight) ---
+export type FontFamilyId = 'sans' | 'serif' | 'mono';
+export type FontSizeId = 'small' | 'normal' | 'large';
+export type FontWeightId = 'normal' | 'bold';
+
+export const FONT_FAMILIES: Record<FontFamilyId, string> = {
+  sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+  serif: "Georgia, 'Times New Roman', serif",
+  mono: "'JetBrains Mono', 'Cascadia Code', monospace",
+};
+
+export const FONT_SIZES: Record<FontSizeId, number> = {
+  small: 18,
+  normal: 24,
+  large: 30,
+};
+
+export const FONT_WEIGHTS: Record<FontWeightId, number> = {
+  normal: 400,
+  bold: 700,
+};
+
+export const DEFAULT_TYPOGRAPHY: {
+  fontFamily: FontFamilyId;
+  fontSize: FontSizeId;
+  fontWeight: FontWeightId;
+} = {
+  fontFamily: 'sans',
+  fontSize: 'normal',
+  fontWeight: 'normal',
+};
+
+export function fontStringFor(
+  sizePx: number,
+  weight: FontWeightId | number,
+  family: FontFamilyId | string,
+): string {
+  const w = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
+  const fam =
+    (FONT_FAMILIES as Record<string, string>)[family as string] ?? family ?? FONT_FAMILIES.sans;
+  return `${w} ${sizePx}px ${fam}`;
+}
+
+export function fontSizePx(choice: FontSizeId): number {
+  return FONT_SIZES[choice] ?? FONT_SIZES.normal;
+}
+
+export function fontWeightNum(choice: FontWeightId): number {
+  return FONT_WEIGHTS[choice] ?? 400;
+}
+
+// Augment danmaku-core DanmakuParams so slots carry typography without casts everywhere.
+declare module '@vectojs/danmaku-core' {
+  interface DanmakuParams {
+    fontFamily?: FontFamilyId;
+    fontWeight?: FontWeightId;
+  }
+}
+
 /**
  * Geometry of the action pill drawn over a selected danmaku. Exported because
  * `App` places the accessibility hotspots on it: draw and hit-test must read the
@@ -253,8 +312,18 @@ let measureCanvasCtx: CanvasRenderingContext2D | null = null;
 /** Cache instrumentation for the HUD (measureText avoided vs. performed). */
 export const charWidthStats = { hits: 0, misses: 0 };
 
-function charWidth(ch: string, fontSize: number): number {
-  const key = fontSize + ch;
+function charWidth(
+  ch: string,
+  fontSize: number,
+  weight: FontWeightId | number = 400,
+  family: FontFamilyId | string = 'sans',
+): number {
+  const famKey =
+    typeof family === 'string' && (FONT_FAMILIES as Record<string, string>)[family]
+      ? family
+      : family;
+  const wNum = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
+  const key = `${fontSize}|${wNum}|${famKey}|${ch}`;
   const cached = charWidthCache.get(key);
   if (cached !== undefined) {
     charWidthStats.hits++;
@@ -266,16 +335,34 @@ function charWidth(ch: string, fontSize: number): number {
     measureCanvasCtx = c.getContext('2d');
   }
   if (!measureCanvasCtx) return fontSize * 0.6;
-  measureCanvasCtx.font = `400 ${fontSize}px system-ui, sans-serif`;
+  measureCanvasCtx.font = fontStringFor(fontSize, wNum, famKey as FontFamilyId);
   const w = measureCanvasCtx.measureText(ch).width;
   charWidthCache.set(key, w);
   return w;
 }
 
-const FONT_STRINGS = Array.from(
-  { length: 128 },
-  (_, fs) => `400 ${fs}px system-ui, -apple-system, sans-serif`,
-);
+/**
+ * Helper to build a Canvas font string for a slot (falls back to sans/400).
+ */
+export function slotFont(s: PoolSlot): string {
+  const fs = s.params.fontSize | 0;
+  const weight = (s.params as { fontWeight?: FontWeightId }).fontWeight ?? 'normal';
+  const family = (s.params as { fontFamily?: FontFamilyId }).fontFamily ?? 'sans';
+  const wNum = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
+  return fontStringFor(fs, wNum, family as FontFamilyId);
+}
+
+/**
+ * Whether this slot can use the MSDF GPU path. The atlas is built for the
+ * default sans 400 — serif/mono/bold remain Canvas2D (correct, not missing).
+ */
+export function isGLCompatible(s: PoolSlot): boolean {
+  const weight = (s.params as { fontWeight?: FontWeightId | number }).fontWeight ?? 'normal';
+  const family = (s.params as { fontFamily?: FontFamilyId }).fontFamily ?? 'sans';
+  if (family !== 'sans') return false;
+  if ((weight as unknown) === 'bold' || (weight as unknown) === 700) return false;
+  return true;
+}
 
 interface SlotCache {
   lastText?: string;
@@ -598,12 +685,14 @@ export class DanmakuLayer extends Entity {
     for (let fs = 0; fs < buckets.length; fs++) {
       const bucket = buckets[fs];
       if (bucket.length === 0) continue;
-      const font = FONT_STRINGS[fs] ?? FONT_STRINGS[127] ?? FONT_STRINGS[63];
       for (let j = 0; j < bucket.length; j++) {
         const s = bucket[j];
         const rx = (s.x + 0.5) | 0;
         const ry = (s.y + 0.5) | 0;
         const textY = ry + fs * 0.8;
+        // Per-slot font (CTX-0045): weight/family vary per danmaku, so the
+        // bucket-level FONT_STRINGS is not sufficient.
+        const font = slotFont(s);
         // Interaction chrome (user-sent box / hover-pause cue) stays on
         // Canvas2D, behind glyphs. The hover box is the affordance that tells
         // the user this danmaku is paused under their pointer; without it a
@@ -631,7 +720,8 @@ export class DanmakuLayer extends Entity {
         // canvas (z2) so the box stays behind the glyphs; the GL glyph layer is
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
-        if (glr && this._font && !s.userSent && cache.glSafe) {
+        // CTX-0045: MSDF atlas is sans/400 only — serif/mono/bold remain Canvas2D.
+        if (glr && this._font && !s.userSent && cache.glSafe && isGLCompatible(s)) {
           // GPU path: push this run's glyph quads to the batch.
           this.drawStats.glRuns++;
           if (!cache.glRun || cache.lastFS !== fs) {
@@ -698,7 +788,7 @@ export class DanmakuLayer extends Entity {
     frozen: PoolSlot[] | null = null,
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
-    const font = `400 ${fontSize}px system-ui, -apple-system, sans-serif`;
+    const font = slotFont(s);
     renderer.setGlobalAlpha(opacity);
 
     const isRotation = preset === 'rotation' && s.charAngles && s.charAngles.length > 0;
@@ -734,10 +824,12 @@ export class DanmakuLayer extends Entity {
     } else if (effects.rainbow) {
       let cx = rx;
       const chars = [...text];
+      const weight = (s.params as { fontWeight?: FontWeightId }).fontWeight ?? 'normal';
+      const family = (s.params as { fontFamily?: FontFamilyId }).fontFamily ?? 'sans';
       for (let i = 0; i < chars.length; i++) {
         const hue = ((s.age / 50 + i * 30) % 360) | 0;
         renderer.fillText(chars[i], cx, textY, font, `hsl(${hue}, 80%, 65%)`);
-        cx += charWidth(chars[i], fontSize);
+        cx += charWidth(chars[i], fontSize, weight, family);
       }
     } else {
       if (effects.outline || isSelected) {
@@ -779,6 +871,8 @@ export class DanmakuLayer extends Entity {
     fontSize: number,
   ): void {
     const chars = [...s.params.text];
+    const weight = (s.params as { fontWeight?: FontWeightId }).fontWeight ?? 'normal';
+    const family = (s.params as { fontFamily?: FontFamilyId }).fontFamily ?? 'sans';
     let cx = 0;
     for (let i = 0; i < chars.length; i++) {
       renderer.save();
@@ -786,7 +880,7 @@ export class DanmakuLayer extends Entity {
       renderer.rotate(s.charAngles[i] ?? 0);
       renderer.fillText(chars[i], 0, 0, font, color);
       renderer.restore();
-      cx += charWidth(chars[i], fontSize);
+      cx += charWidth(chars[i], fontSize, weight, family);
     }
   }
 
