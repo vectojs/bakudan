@@ -560,6 +560,18 @@ export class App {
         this.applyStressTarget(target);
       },
       onRateChange: (rate) => {
+        // CTX-0043: keep video playing — don't switch to paused stress mode.
+        if (this.mode === 'video') {
+          this._profSpawnRate = rate;
+          this.scheduler.setSpawnRate(rate);
+          this._syncThroughputState();
+          if (this.bg.isVideoReady && this.bg.paused) {
+            void this.bg
+              .play()
+              .catch((error: unknown) => this._announceVideoError(this._asVideoSourceError(error)));
+          }
+          return;
+        }
         this._setAppMode('stress');
         this._profSpawnRate = rate;
         this.scheduler.setSpawnRate(rate);
@@ -569,6 +581,11 @@ export class App {
         this.distributionId = distributionId;
         this._applyDistribution();
         this._syncThroughputState();
+        if (this.mode === 'video' && this.bg.isVideoReady && this.bg.paused) {
+          void this.bg
+            .play()
+            .catch((error: unknown) => this._announceVideoError(this._asVideoSourceError(error)));
+        }
       },
     });
     this.interactionsPanel = new InteractionsPanel({
@@ -674,6 +691,19 @@ export class App {
         labels: labels.panels.throughput,
         onTargetChange: (target) => this.applyStressTarget(target),
         onRateChange: (rate) => {
+          if (this.mode === 'video') {
+            this._profSpawnRate = rate;
+            this.scheduler.setSpawnRate(rate);
+            this._syncThroughputState();
+            if (this.bg.isVideoReady && this.bg.paused) {
+              void this.bg
+                .play()
+                .catch((error: unknown) =>
+                  this._announceVideoError(this._asVideoSourceError(error)),
+                );
+            }
+            return;
+          }
           this._setAppMode('stress');
           this._profSpawnRate = rate;
           this.scheduler.setSpawnRate(rate);
@@ -683,6 +713,11 @@ export class App {
           this.distributionId = distributionId as DistributionId;
           this._applyDistribution();
           this._syncThroughputState();
+          if (this.mode === 'video' && this.bg.isVideoReady && this.bg.paused) {
+            void this.bg
+              .play()
+              .catch((error: unknown) => this._announceVideoError(this._asVideoSourceError(error)));
+          }
         },
       });
       this.interactionsPanelHTML = new InteractionsPanelHTML({
@@ -846,6 +881,19 @@ export class App {
           this.applyStressTarget(target);
         },
         onRateChange: (rate) => {
+          if (this.mode === 'video') {
+            this._profSpawnRate = rate;
+            this.scheduler.setSpawnRate(rate);
+            this._syncThroughputState();
+            if (this.bg.isVideoReady && this.bg.paused) {
+              void this.bg
+                .play()
+                .catch((error: unknown) =>
+                  this._announceVideoError(this._asVideoSourceError(error)),
+                );
+            }
+            return;
+          }
           this._setAppMode('stress');
           this._profSpawnRate = rate;
           this.scheduler.setSpawnRate(rate);
@@ -855,6 +903,11 @@ export class App {
           this.distributionId = distributionId;
           this._applyDistribution();
           this._syncThroughputState();
+          if (this.mode === 'video' && this.bg.isVideoReady && this.bg.paused) {
+            void this.bg
+              .play()
+              .catch((error: unknown) => this._announceVideoError(this._asVideoSourceError(error)));
+          }
         },
       });
       this.interactionsPanel = new InteractionsPanel({
