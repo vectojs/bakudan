@@ -7,8 +7,10 @@ body {
 }
 
 body.hybrid {
+  --shell-header: 44px;
+  --shell-footer: auto;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: var(--shell-header) 1fr var(--shell-footer);
   grid-template-areas:
     "header"
     "stage"
@@ -17,9 +19,17 @@ body.hybrid {
   background-color: var(--bg-color, #07090d);
 }
 
+@media (max-width: 767px) {
+  body.hybrid {
+    --shell-header: 36px;
+  }
+}
+
 #bakudan-header {
   grid-area: header;
-  /* Height owned by header.css: 44px desktop / 36px mobile */
+  /* Height owned by header.css: 44px desktop / 36px mobile via --shell-header */
+  height: var(--shell-header, 44px);
+  min-height: var(--shell-header, 44px);
 }
 
 #stage-container {
@@ -32,7 +42,10 @@ body.hybrid {
 
 #command-deck {
   grid-area: footer;
-  /* Height owned by command.css: flex row, padding 8px, max-width 960 centered */
+  /* Height owned by command.css: flex row, padding 8px, max-width 960 centered.
+   * Grid reserves footer via --shell-footer (auto — deck measures itself) so
+   * stage shrinks predictably and video letterboxes are avoided. */
+  min-height: var(--shell-footer, auto);
 }
 
 #lab-drawer {

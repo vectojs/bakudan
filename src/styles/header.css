@@ -20,6 +20,7 @@
   /* Backdrop blur where supported — fallback is solid surface above */
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
+  contain: layout paint;
 }
 
 /* Fallback for browsers without backdrop-filter support */
@@ -28,6 +29,13 @@
 ) {
   #bakudan-header {
     background: var(--bakudan-surface, rgba(7, 9, 13, 1));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #bakudan-header {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 

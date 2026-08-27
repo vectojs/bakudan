@@ -16,6 +16,8 @@ async function main(): Promise<void> {
   const stageContainer = document.getElementById('stage-container') as HTMLElement | null;
   if (!canvas) return;
 
+  const cappedDPR = (): number => Math.min(window.devicePixelRatio || 1, 2);
+
   const scene = new Scene(canvas, {
     // Uncapped by the app — let the display's refresh rate (e.g. 240Hz) drive
     // rAF. The stress bench should show the true achievable frame rate, not an
@@ -25,7 +27,7 @@ async function main(): Promise<void> {
     // display or under browser zoom — measured soft on this 2560x1600 @1.6
     // panel. 2 is core's recommendation; cost scales with logical x dpr^2 and
     // holds at the 5,000-danmaku stress ceiling (CTX-0015a, 2026-08-23).
-    maxDPR: Math.min(window.devicePixelRatio || 1, 2),
+    maxDPR: cappedDPR(),
     a11ySyncInterval: 100,
     // Stack a WebGL2 layer above the 2D canvas. The danmaku text layer draws
     // its glyphs through it (MSDF, one batched draw call for the whole frame),
@@ -45,6 +47,21 @@ async function main(): Promise<void> {
   // Drop it to z1 so the layer order is: bg(0) < GL danmaku(1) < 2D UI(2).
   const glCanvas = (scene as unknown as { glCanvas?: HTMLCanvasElement }).glCanvas;
   if (glCanvas) glCanvas.style.zIndex = '1';
+
+  // In hybrid island mode the Scene's internal canvas ResizeObserver duplicates
+  // the stageContainer observer below (both call scene.resize on the same
+  // Grid size change — header collapse, lab drawer, browser chrome). Keep only
+  // the container observer when the island exists; the canvas fills the
+  // container so either fires, but only one should drive the backing store.
+  if (stageContainer) {
+    const internalObserver = (scene as unknown as { canvasResizeObserver?: ResizeObserver | null })
+      .canvasResizeObserver;
+    if (internalObserver) {
+      internalObserver.disconnect();
+      (scene as unknown as { canvasResizeObserver: ResizeObserver | null }).canvasResizeObserver =
+        null;
+    }
+  }
 
   // Video-export mode skips the catalog video autoload: a hanging remote
   // fetch would keep the exporter's networkidle0 from firing, and the clip
@@ -70,8 +87,11 @@ async function main(): Promise<void> {
   function readStageSize(): { width: number; height: number } {
     if (stageContainer) {
       const rect = stageContainer.getBoundingClientRect();
-      // Fallback to window size if container not yet laid out (0)
       if (rect.width > 0 && rect.height > 0) return { width: rect.width, height: rect.height };
+      // Container not yet laid out (0 before Grid settles) — avoid allocing a
+      // full-window backing store that will be discarded on the next observer
+      // tick. Return the last known good size instead.
+      if (prevW > 0 && prevH > 0) return { width: prevW, height: prevH };
     }
     return { width: window.innerWidth, height: window.innerHeight };
   }
@@ -89,6 +109,26 @@ async function main(): Promise<void> {
     app.onResize(width, height);
   }
 
+  // Keep backing store crisp across DPR/zoom changes. Scene.watchDevicePixelRatio
+  // already re-runs resize() on DPR change, but it keeps the original maxDPR
+  // cap — moving a window from 1x to 2x would stay at 1x (blurry) and the
+  // reverse would stay capped at the old DPR. Update the cap before re-scaling.
+  const syncDPR = (): void => {
+    const next = cappedDPR();
+    if (scene.maxDPR === next) return;
+    scene.maxDPR = next;
+    if (prevW > 0 && prevH > 0) {
+      scene.resize(prevW, prevH);
+      app.onResize(prevW, prevH);
+    } else {
+      const { width, height } = readStageSize();
+      if (width > 0 && height > 0) {
+        scene.resize(width, height);
+        app.onResize(width, height);
+      }
+    }
+  };
+
   // Hybrid: observe the stage container for CSS Grid size changes (header
   // collapse, lab drawer, browser chrome). Window resize alone no longer
   // fires for embedded scenes. Use the observer's contentRect when available
@@ -100,9 +140,10 @@ async function main(): Promise<void> {
     stageObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        const w = Math.round(entry.contentRect.width);
-        const h = Math.round(entry.contentRect.height);
-        if (w > 0 && h > 0 && w === prevW && h === prevH) return;
+        const w = entry.contentRect.width;
+        const h = entry.contentRect.height;
+        if (w === prevW && h === prevH) return;
+        if (w <= 0 || h <= 0) return;
       }
       resize();
     });
@@ -111,13 +152,43 @@ async function main(): Promise<void> {
     window.addEventListener('resize', resize);
   }
 
-  // visualViewport for mobile keyboard avoidance
+  // DPR/zoom listeners — Scene's internal watchDevicePixelRatio already traps
+  // DPR via matchMedia, but with a stale maxDPR cap. Mirror it here with an
+  // updated cap so zoom/monitor moves rescale to the new cap.
+  window.addEventListener('resize', syncDPR);
+  if (typeof window.matchMedia === 'function') {
+    try {
+      const bindDPRMedia = (): void => {
+        const dpr = window.devicePixelRatio || 1;
+        const mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+        mq.addEventListener(
+          'change',
+          () => {
+            syncDPR();
+            bindDPRMedia();
+          },
+          { once: true },
+        );
+      };
+      bindDPRMedia();
+    } catch {
+      // matchMedia throws on malformed query in some engines — DPR sync via
+      // window resize remains.
+    }
+  }
+
+  // visualViewport for mobile keyboard avoidance — rAF-batched so a single
+  // keyboard tick that fires both visualViewport resize and a Grid/ResizeObserver
+  // callback does not force two layouts (getBoundingClientRect + app layout).
+  let viewportRaf = 0;
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', () => {
       app.onViewportChange(window.visualViewport!);
-      // visualViewport changes can affect the Grid height; re-read stage size
-      // but the resize guard ensures no backing-store churn if layout is stable.
-      resize();
+      if (viewportRaf) return;
+      viewportRaf = requestAnimationFrame(() => {
+        viewportRaf = 0;
+        resize();
+      });
     });
   }
 

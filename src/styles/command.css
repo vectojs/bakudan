@@ -7,13 +7,10 @@
 
 #command-deck {
   grid-area: footer;
-  /* Shell reserves footer height via --shell-footer-height; deck's own
-   * padding lives inside .bakudan-command so the grid cell stays tight. */
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  /* In hybrid grid the footer stretches; center inner deck. */
 }
 
 .bakudan-command {
@@ -221,7 +218,9 @@
 }
 
 /* Keyboard focus ring — Signal-blue double ring per ARCHITECTURE.md
- * Inner ring is surface, outer is signal, so it pops on both dark and light. */
+ * Inner ring is surface, outer is signal, so it pops on both dark and light.
+ * Keep only :focus-visible — :focus without visible indicator fails WCAG 2.4.7
+ * when polyfill absent. */
 .bakudan-command__play:focus-visible,
 .bakudan-command__lab:focus-visible,
 .bakudan-command__send:focus-visible,
@@ -229,26 +228,6 @@
 .bakudan-command__rate:focus-visible,
 .bakudan-command__timeline:focus-visible {
   outline: none;
-  box-shadow:
-    0 0 0 2px var(--bakudan-surface, #07090d),
-    0 0 0 4px var(--bakudan-signal, #60a5fa);
-}
-
-/* Also handle focus (not only focus-visible) for programmatic focus */
-.bakudan-command__play:focus,
-.bakudan-command__lab:focus,
-.bakudan-command__send:focus,
-.bakudan-command__input:focus,
-.bakudan-command__rate:focus,
-.bakudan-command__timeline:focus {
-  outline: none;
-}
-
-.bakudan-command__play:focus-visible,
-.bakudan-command__lab:focus-visible,
-.bakudan-command__send:focus-visible,
-.bakudan-command__input:focus-visible,
-.bakudan-command__rate:focus-visible {
   box-shadow:
     0 0 0 2px var(--bakudan-surface, #07090d),
     0 0 0 4px var(--bakudan-focus-ring, var(--bakudan-signal, #60a5fa));
