@@ -40,6 +40,8 @@ import {
   type FontFamilyId,
   type FontSizeId,
   type FontWeightId,
+  DEFAULT_DANMAKU_STYLE,
+  type DanmakuStyle,
 } from './DanmakuLayer';
 import { DanmakuAnnouncer } from './DanmakuAnnouncer';
 import {
@@ -300,6 +302,10 @@ export class App {
   private _fontFamily: FontFamilyId = DEFAULT_TYPOGRAPHY.fontFamily;
   private _fontSizeChoice: FontSizeId = DEFAULT_TYPOGRAPHY.fontSize;
   private _fontWeight: FontWeightId = DEFAULT_TYPOGRAPHY.fontWeight;
+  // CTX-0046: Bilibili-like style — outline / shadow / opacity (richer than Bilibili's sliders).
+  private _danmakuStyle: DanmakuStyle = { ...DEFAULT_DANMAKU_STYLE };
+  // Bilibili color palette selection for the next send (mirrors the deck's dots)
+  private _nextDanmakuColor: string = '#f8fafc';
   private pointerX = 0;
   private pointerY = 0;
   /** Freeze-zone bookkeeping: pointer stillness + per-slot hold timers. */
@@ -430,6 +436,7 @@ export class App {
           : 0,
     }));
     this.danmakuLayer.profiler = this.profiler;
+    this.danmakuLayer.setStyle(this._danmakuStyle);
     // Wrap the GL renderer's flush() so the GPU submit is timed separately from
     // the JS batching loop. Scene calls flush() once per render pass, after every
     // node has pushed its quads — so this isolates drawArrays + buffer upload.
@@ -500,6 +507,16 @@ export class App {
         onSend: (text) => this._onUserSend(text),
         onLabToggle: () => this.setLabOpen(!this.labOpen),
         getState: () => this._commandDeckState(),
+        onColorChange: (color) => {
+          this._nextDanmakuColor = color;
+          this._syncPlaybackState();
+        },
+        onDanmakuStyleChange: (patch) => this.setDanmakuStyle(patch),
+        onFontSizeChange: (size) => {
+          this._fontSizeChoice = size as FontSizeId;
+          this._syncPlaybackState();
+          this._syncInteractionsState();
+        },
       });
     } else {
       this.commandDeck = new DanmakuCommandDeck({
@@ -712,6 +729,7 @@ export class App {
           fontFamily: this._fontFamily,
           fontSizeChoice: this._fontSizeChoice,
           fontWeight: this._fontWeight,
+          danmakuStyle: { ...this._danmakuStyle },
         },
         presets: (Object.keys(PRESET_TRANSLATIONS[this.currentLang]) as PresetId[]).map((id) => ({
           id,
@@ -765,6 +783,7 @@ export class App {
           this._fontWeight = id as FontWeightId;
           this._syncInteractionsState();
         },
+        onDanmakuStyleChange: (patch) => this.setDanmakuStyle(patch),
       });
       this.devtoolsPanelHTML = new DevToolsPanelHTML({
         state: {
@@ -1091,6 +1110,7 @@ export class App {
       fontFamily: this._fontFamily,
       fontSizeChoice: this._fontSizeChoice,
       fontWeight: this._fontWeight,
+      danmakuStyle: { ...this._danmakuStyle },
     };
   }
 
@@ -1139,6 +1159,31 @@ export class App {
     const state = this._interactionsState();
     if (this.interactionsPanelHTML) this.interactionsPanelHTML.setState(state);
     else if (this.interactionsPanel) this.interactionsPanel.setState(state);
+  }
+
+  // CTX-0046: danmaku style (Bilibili outline/shadow/opacity) — applied to layer + UI
+  getDanmakuStyle(): DanmakuStyle {
+    return { ...this._danmakuStyle };
+  }
+
+  setDanmakuStyle(patch: Partial<DanmakuStyle>): void {
+    this._danmakuStyle = { ...this._danmakuStyle, ...patch };
+    // Clamp
+    this._danmakuStyle.opacity = Math.max(0.1, Math.min(1, this._danmakuStyle.opacity));
+    this._danmakuStyle.outlineWidth = Math.max(
+      1,
+      Math.min(4, Math.round(this._danmakuStyle.outlineWidth)),
+    );
+    this._danmakuStyle.shadowBlur = Math.max(
+      0,
+      Math.min(8, Math.round(this._danmakuStyle.shadowBlur)),
+    );
+    this.danmakuLayer?.setStyle(this._danmakuStyle);
+    // Keep interactions panel in sync (it renders sliders)
+    this._syncInteractionsState();
+    // Keep command deck quick controls in sync
+    this._syncPlaybackState();
+    this.scene.markDirty();
   }
 
   private _benchState(): BenchmarkPanelState {
@@ -1333,6 +1378,9 @@ export class App {
       pendingSendText: '',
       labOpen: this.labOpen,
       disabled: this.mode !== 'video' || this.videoLoading || !this.bg.isVideoReady,
+      danmakuStyle: { ...this._danmakuStyle },
+      // current user style seeds next send (color pick in deck)
+      danmakuColor: this._nextDanmakuColor ?? '#f8fafc',
     };
   }
 
@@ -1948,13 +1996,16 @@ export class App {
     const time = this.mode === 'video' ? this.bg.currentTime : 0;
     // CTX-0045: userSent now respects typography brush (size/family/weight)
     // so the composer's choices are visible immediately and persist.
+    // CTX-0046: color comes from the Bilibili palette quick-pick (deck) so the
+    // send mirrors exactly what the user sees in the bar. Opacity will be
+    // multiplied by the global style in the layer, but seed per-slot close to 1.
     const entry = this._withTypography({
       time: Math.round(time * 10) / 10,
       text,
-      color: '#f8fafc',
+      color: this._nextDanmakuColor ?? '#f8fafc',
       fontSize: FONT_SIZES[this._fontSizeChoice],
       speed: 200,
-      opacity: 0.9,
+      opacity: 0.95,
       preset: this.activePreset,
       presetParams: {},
       effects: { ...this.effects },

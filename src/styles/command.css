@@ -233,6 +233,143 @@
     0 0 0 4px var(--bakudan-focus-ring, var(--bakudan-signal, #60a5fa));
 }
 
+/* CTX-0046: Bilibili-like danmaku controls — color palette, font-size, border/shadow, opacity
+ * Mirrors Bilibili's bottom danmaku bar: input + color dots + A size + 描边/阴影 + 不透明度.
+ * More knobs than Bilibili: outline color/width and shadow blur exposed in Lab for power users.
+ */
+.bakudan-command {
+  flex-wrap: wrap;
+}
+
+.bakudan-command__stylebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 100%;
+  width: 100%;
+  order: 5;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.08));
+  margin-top: 2px;
+  flex-wrap: wrap;
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+}
+
+.bakudan-command__palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bakudan-command__color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 250, 252, 0.22);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.bakudan-command__color-dot:hover {
+  transform: scale(1.12);
+}
+
+.bakudan-command__color-dot--active {
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 2px var(--bakudan-surface, #07090d),
+    0 0 0 4px var(--bakudan-accent, #f43f5e);
+}
+
+.bakudan-command__fontsize {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bakudan-command__fontsize-btn,
+.bakudan-command__style-toggle {
+  height: 26px;
+  min-width: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.18));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.98));
+  color: var(--bakudan-text, #f8fafc);
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.bakudan-command__fontsize-btn--active,
+.bakudan-command__style-toggle--active {
+  background: var(--bakudan-accent, #f43f5e);
+  border-color: transparent;
+  color: #fff;
+}
+
+.bakudan-command__fontsize-btn:focus-visible,
+.bakudan-command__style-toggle:focus-visible,
+.bakudan-command__color-dot:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bakudan-surface, #07090d),
+    0 0 0 4px var(--bakudan-focus-ring, #60a5fa);
+}
+
+.bakudan-command__opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--bakudan-font-label, 600 11px "Inter", system-ui, sans-serif);
+  color: var(--bakudan-text-muted, #94a3b8);
+  margin-left: auto;
+}
+
+.bakudan-command__opacity-range {
+  width: 84px;
+  accent-color: var(--bakudan-accent, #f43f5e);
+  cursor: pointer;
+}
+
+.bakudan-command__opacity-value {
+  font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
+  color: var(--bakudan-text, #f8fafc);
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Bilibili send: keep pink but add subtle glow like Bilibili's “发送” */
+.bakudan-command__send {
+  box-shadow: 0 1px 6px rgba(244, 63, 94, 0.28);
+}
+
+.bakudan-command__send:hover {
+  box-shadow: 0 2px 10px rgba(244, 63, 94, 0.38);
+}
+
+/* Bilibili input: show active color as left border accent (JS sets borderColor) */
+.bakudan-command__input {
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.bakudan-command__input:focus-visible {
+  border-color: var(--bakudan-signal, #60a5fa);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--bakudan-signal, #60a5fa) 30%, transparent);
+}
+
 /* Mobile two-row layout — no JS isMobile branch */
 @media (max-width: 767px) {
   #command-deck {
@@ -280,5 +417,20 @@
     flex: 1 1 100%;
     width: 100%;
     min-width: 0;
+  }
+
+  .bakudan-command__stylebar {
+    padding: 6px 2px 2px;
+    gap: 8px;
+  }
+
+  .bakudan-command__opacity {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+
+  .bakudan-command__opacity-range {
+    flex: 1;
+    width: auto;
   }
 }

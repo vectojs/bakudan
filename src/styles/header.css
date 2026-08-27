@@ -163,6 +163,66 @@
   font: var(--bakudan-font-mono, 500 11px "JetBrains Mono", monospace);
 }
 
+/* CTX-0046: Bilibili-like header polish
+ * - TV logo: pink badge like Bilibili's "bilibili" icon (inline style sets base, CSS adds shadow/hover)
+ * - Center pill mimics Bilibili's search bar: rounded, bordered, elevated, truncate-safe
+ * - Header gains subtle pink sheen and deeper blur like Bilibili's frosted top nav
+ */
+.bakudan-header__logo-icon {
+  box-shadow: 0 1px 6px rgba(244, 63, 94, 0.35);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.bakudan-header__left:hover .bakudan-header__logo-icon {
+  transform: scale(1.05) rotate(-2deg);
+  box-shadow: 0 2px 10px rgba(244, 63, 94, 0.5);
+}
+
+.bakudan-header__wordmark {
+  /* Bilibili wordmark is bolder and slightly pink-tinted on dark */
+  text-shadow: 0 0 12px rgba(244, 63, 94, 0.18);
+}
+
+.bakudan-header__center {
+  /* Bilibili search-like pill: elevated, rounded, border, truncate */
+  max-width: 560px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--bakudan-border, rgba(248, 250, 252, 0.14));
+  background: var(--bakudan-surface-raised, rgba(30, 41, 59, 0.96));
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  gap: 6px;
+}
+
+.bakudan-header__search-icon {
+  opacity: 0.9;
+}
+
+.bakudan-header__avatar {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
+}
+
+.bakudan-header__avatar:hover {
+  transform: scale(1.08);
+}
+
+#bakudan-header {
+  /* Deeper frosted look like Bilibili top nav (16px vs 12px) and hairline pink tint */
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow:
+    0 1px 0 rgba(248, 250, 252, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.22);
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--bakudan-accent, #f43f5e) 12%,
+    var(--bakudan-border, rgba(248, 250, 252, 0.18))
+  );
+}
+
 /* Responsive: <768px hide secondary metrics (frameTime, backend), keep wordmark + pill + fps */
 @media (max-width: 767px) {
   #bakudan-header {
@@ -191,5 +251,10 @@
     height: 20px;
     padding: 0 6px;
     font-size: 10px;
+  }
+
+  .bakudan-header__center {
+    max-width: none;
+    padding: 4px 10px;
   }
 }
