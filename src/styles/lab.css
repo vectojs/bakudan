@@ -42,6 +42,18 @@
   pointer-events: auto;
 }
 
+/* CTX-0050: prevent initial flash of 560x520 rect before JS sets --closed.
+ * Before hydration the drawer has no --open/--closed class (lab.css paints the
+ * 560x520 window). Hide it until JS chooses a state so the first paint does not
+ * show a rectangular border at the bottom-right. The HTML also ships with
+ * class="bakudan-lab--closed" so the first paint is already the 48px ball,
+ * but this guard covers slow-JS / test DOM / missing class. */
+#lab-drawer:not(.bakudan-lab--open):not(.bakudan-lab--closed) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
 #lab-drawer.bakudan-lab--closed {
   width: 48px !important;
   height: 48px !important;
@@ -80,7 +92,7 @@
   color: #ffffff;
   border: none;
   border-radius: 24px;
-  cursor: pointer;
+  cursor: grab;
   font-size: 20px;
   line-height: 1;
   flex-shrink: 0;
@@ -88,6 +100,7 @@
     background 0.15s,
     transform 0.15s;
   user-select: none;
+  touch-action: none;
 }
 
 #lab-drawer.bakudan-lab--closed .bakudan-lab__ball {
@@ -101,6 +114,11 @@
 
 .bakudan-lab__ball:active {
   transform: scale(0.96);
+}
+
+.bakudan-lab__ball--dragging {
+  cursor: grabbing !important;
+  transform: scale(1.02);
 }
 
 .bakudan-lab__ball:focus-visible {

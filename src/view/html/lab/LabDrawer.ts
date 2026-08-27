@@ -124,6 +124,16 @@ export class LabDrawerHTML {
   private dragOffsetY = 0;
   private dragPointerId: number | null = null;
 
+  // Ball drag state (CTX-0050) — closed ball is draggable via ball itself, not just header
+  private ballDragging = false;
+  private ballDragOffsetX = 0;
+  private ballDragOffsetY = 0;
+  private ballDragPointerId: number | null = null;
+  private ballDragMoved = false;
+  private ballDragStartX = 0;
+  private ballDragStartY = 0;
+  private ballSuppressClick = false;
+
   // Resize state
   private resizing = false;
   private resizeStartX = 0;
@@ -306,11 +316,12 @@ export class LabDrawerHTML {
     this.ballEl.type = 'button';
     this.ballEl.className = 'bakudan-lab__ball';
     this.ballEl.setAttribute('aria-label', 'Open lab');
-    this.ballEl.title = 'Open lab (floating ball)';
+    this.ballEl.title = 'Open lab (floating ball) — drag to move';
     this.ballEl.textContent = '🧪';
     // fallback text if emoji not rendered
     this.ballEl.setAttribute('aria-hidden', 'false');
     this.ballEl.addEventListener('click', this.handleBallClick);
+    this.ballEl.addEventListener('pointerdown', this.handleBallPointerDown);
 
     // Assemble — order: header, tabs, panels, resize, help modal, ball
     container.replaceChildren(
@@ -344,8 +355,103 @@ export class LabDrawerHTML {
   };
 
   private readonly handleBallClick = (e: Event): void => {
+    if (this.ballSuppressClick) {
+      this.ballSuppressClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
     e.stopPropagation();
     this.requestOpen(true);
+  };
+
+  // --- Ball drag (CTX-0050) — closed 48px circle draggable via ball itself ---
+
+  private readonly handleBallPointerDown = (e: PointerEvent): void => {
+    if (this.destroyed || this.open) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = this.element.getBoundingClientRect();
+    this.ballDragging = true;
+    this.ballDragMoved = false;
+    this.ballSuppressClick = false;
+    this.ballDragOffsetX = e.clientX - rect.left;
+    this.ballDragOffsetY = e.clientY - rect.top;
+    this.ballDragStartX = e.clientX;
+    this.ballDragStartY = e.clientY;
+    this.ballDragPointerId = e.pointerId;
+    try {
+      (this.ballEl as unknown as { setPointerCapture?: (id: number) => void }).setPointerCapture?.(
+        e.pointerId,
+      );
+    } catch {}
+    window.addEventListener('pointermove', this.handleBallPointerMove);
+    window.addEventListener('pointerup', this.handleBallPointerUp);
+    window.addEventListener('pointercancel', this.handleBallPointerUp);
+    document.body.style.userSelect = 'none';
+    this.ballEl.classList.add('bakudan-lab__ball--dragging');
+    this.ballEl.style.cursor = 'grabbing';
+    this.element.style.cursor = 'grabbing';
+  };
+
+  private readonly handleBallPointerMove = (e: PointerEvent): void => {
+    if (!this.ballDragging) return;
+    if (this.ballDragPointerId !== null && e.pointerId !== this.ballDragPointerId) return;
+    e.preventDefault();
+    const dx = e.clientX - this.ballDragStartX;
+    const dy = e.clientY - this.ballDragStartY;
+    if (!this.ballDragMoved && Math.hypot(dx, dy) > 4) {
+      this.ballDragMoved = true;
+    }
+    if (!this.ballDragMoved) return;
+    let newLeft = e.clientX - this.ballDragOffsetX;
+    let newTop = e.clientY - this.ballDragOffsetY;
+    const margin = 8;
+    const rect = this.element.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = rect.width;
+    const h = rect.height;
+    // When closed, w/h are 48; clamp so at least 16px of ball stays visible
+    // (same hedge as header drag: margin - w + 48 keeps a 48px sliver)
+    newLeft = Math.max(margin - w + 48, Math.min(newLeft, vw - 48));
+    newTop = Math.max(margin, Math.min(newTop, vh - 48));
+    // Switch from right/bottom anchoring to left/top (like header drag)
+    this.element.style.left = `${Math.round(newLeft)}px`;
+    this.element.style.top = `${Math.round(newTop)}px`;
+    this.element.style.right = 'auto';
+    this.element.style.bottom = 'auto';
+    // Keep the ball visually anchored during drag — also suppress hover scale
+    void h;
+  };
+
+  private readonly handleBallPointerUp = (e: PointerEvent): void => {
+    if (!this.ballDragging) return;
+    if (this.ballDragPointerId !== null && e.pointerId !== this.ballDragPointerId) return;
+    const wasMoved = this.ballDragMoved;
+    this.ballDragging = false;
+    this.ballDragPointerId = null;
+    this.ballDragMoved = false;
+    if (wasMoved) this.ballSuppressClick = true;
+    try {
+      (
+        this.ballEl as unknown as {
+          releasePointerCapture?: (id: number) => void;
+        }
+      ).releasePointerCapture?.(e.pointerId);
+    } catch {}
+    window.removeEventListener('pointermove', this.handleBallPointerMove);
+    window.removeEventListener('pointerup', this.handleBallPointerUp);
+    window.removeEventListener('pointercancel', this.handleBallPointerUp);
+    document.body.style.userSelect = '';
+    this.ballEl.classList.remove('bakudan-lab__ball--dragging');
+    this.ballEl.style.cursor = '';
+    this.element.style.cursor = '';
+    // If it was a drag, consume the upcoming click; otherwise let click open
+    if (wasMoved) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   };
 
   private requestOpen(open: boolean): void {
@@ -717,11 +823,15 @@ export class LabDrawerHTML {
     this.helpButton.removeEventListener('click', this.handleHelpToggle);
     this.helpCloseButton.removeEventListener('click', this.handleHelpClose);
     this.ballEl.removeEventListener('click', this.handleBallClick);
+    this.ballEl.removeEventListener('pointerdown', this.handleBallPointerDown);
     this.headerEl.removeEventListener('pointerdown', this.handleHeaderPointerDown);
     this.resizeHandleEl.removeEventListener('pointerdown', this.handleResizePointerDown);
     this.element.removeEventListener('keydown', this.handleContainerKeydown);
     window.removeEventListener('pointermove', this.handleHeaderPointerMove);
     window.removeEventListener('pointerup', this.handleHeaderPointerUp);
+    window.removeEventListener('pointermove', this.handleBallPointerMove);
+    window.removeEventListener('pointerup', this.handleBallPointerUp);
+    window.removeEventListener('pointercancel', this.handleBallPointerUp);
     window.removeEventListener('pointermove', this.handleResizePointerMove);
     window.removeEventListener('pointerup', this.handleResizePointerUp);
     document.body.style.userSelect = '';
