@@ -51,6 +51,8 @@ export interface BenchEnvelopeInput {
   params: {
     stressTarget: number;
     spawnRate: number;
+    /** Alias for spawnRate — benchmarks/stress-baseline uses fillSpawnRate, keep both for drift-free readers. */
+    fillSpawnRate?: number;
     settleMs: number;
     measureMs: number;
     /** Scene.maxFPS during the run — the selector's value. */
@@ -162,6 +164,10 @@ export interface BenchDeps {
   activeCount(): number;
   startProfiler(): void;
   stopProfiler(): BenchProfileReport | null;
+  /** CTX-0056: drain pool before cadence so refreshHz is display ceiling not 500-active 202Hz. */
+  resetPool?: () => void;
+  getSpawnRate?: () => number;
+  getTargetCount?: () => number;
 }
 
 export interface BenchRunResult {
@@ -199,38 +205,79 @@ export async function runInPageBench(
   // density after fill+settle, folding 6ms jsBatch into rAF intervals and
   // depressing refreshHz by ~36% (202→153). With the ceiling honest, fps vs
   // refresh and overBudget become comparable across harnesses.
+  // CTX-0056: drain pool before cadence so 500-active idle does not poison 240 → 202Hz; restore in finally.
+  let prevTarget: number | null = null;
+  let prevRate: number | null = null;
+  let didDrain = false;
+  const anyDeps = deps as BenchDeps & {
+    resetPool?: () => void;
+    getSpawnRate?: () => number;
+    getTargetCount?: () => number;
+  };
+  if (typeof anyDeps.getSpawnRate === 'function') {
+    try {
+      prevRate = anyDeps.getSpawnRate();
+    } catch {}
+  }
+  if (typeof anyDeps.getTargetCount === 'function') {
+    try {
+      prevTarget = anyDeps.getTargetCount();
+    } catch {}
+  }
+  if (typeof anyDeps.resetPool === 'function') {
+    try {
+      anyDeps.resetPool();
+      await new Promise<void>((resolve) => deps.requestAnimationFrame(() => resolve()));
+      didDrain = true;
+    } catch {}
+  }
   onProgress({ phase: 'calibrating', detail: labels.calibrating() });
   const refreshHz = await measureCadence(1000, deps.requestAnimationFrame, deps.now);
 
-  const effectiveTarget = deps.applyStressTarget(target);
-  deps.setSpawnRate(BENCH_SPAWN_RATE);
-
-  const fillStart = deps.now();
+  let effectiveTarget = 0;
   let filled = false;
-  while (deps.now() - fillStart < FILL_TIMEOUT_MS) {
-    const active = deps.activeCount();
-    if (active >= effectiveTarget) {
-      filled = true;
-      break;
+  let fillSeconds = 0;
+  let report: BenchProfileReport | null = null;
+  let activeAtEnd = 0;
+  try {
+    effectiveTarget = deps.applyStressTarget(target);
+    deps.setSpawnRate(BENCH_SPAWN_RATE);
+
+    const fillStart = deps.now();
+    filled = false;
+    while (deps.now() - fillStart < FILL_TIMEOUT_MS) {
+      const active = deps.activeCount();
+      if (active >= effectiveTarget) {
+        filled = true;
+        break;
+      }
+      onProgress({
+        phase: 'filling',
+        detail: labels.filling(active, effectiveTarget),
+      });
+      await deps.sleep(250);
     }
-    onProgress({
-      phase: 'filling',
-      detail: labels.filling(active, effectiveTarget),
-    });
-    await deps.sleep(250);
+    fillSeconds = (deps.now() - fillStart) / 1000;
+
+    onProgress({ phase: 'settling', detail: labels.settling() });
+    await deps.sleep(SETTLE_MS);
+
+    onProgress({ phase: 'measuring', detail: labels.measuring() });
+    deps.startProfiler();
+    await deps.sleep(MEASURE_MS);
+    report = deps.stopProfiler();
+    if (!report) throw new Error('FrameProfiler produced no report');
+
+    activeAtEnd = deps.activeCount();
+  } finally {
+    if (didDrain) {
+      try {
+        if (prevTarget !== null) deps.applyStressTarget(prevTarget);
+        if (prevRate !== null) deps.setSpawnRate(prevRate);
+      } catch {}
+    }
   }
-  const fillSeconds = (deps.now() - fillStart) / 1000;
-
-  onProgress({ phase: 'settling', detail: labels.settling() });
-  await deps.sleep(SETTLE_MS);
-
-  onProgress({ phase: 'measuring', detail: labels.measuring() });
-  deps.startProfiler();
-  await deps.sleep(MEASURE_MS);
-  const report = deps.stopProfiler();
   if (!report) throw new Error('FrameProfiler produced no report');
-
-  const activeAtEnd = deps.activeCount();
   const json = buildBenchEnvelope({
     name: 'bakudan-inpage-benchmark',
     timestamp: new Date().toISOString(),
@@ -242,6 +289,7 @@ export async function runInPageBench(
     params: {
       stressTarget: effectiveTarget,
       spawnRate: BENCH_SPAWN_RATE,
+      fillSpawnRate: BENCH_SPAWN_RATE,
       settleMs: SETTLE_MS,
       measureMs: MEASURE_MS,
       frameRate,

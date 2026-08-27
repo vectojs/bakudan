@@ -38,7 +38,19 @@ export const DEFAULT_TYPOGRAPHY: {
 };
 
 // CTX-0052: memoize font strings — the stress pool calls slotFont 10k×/frame (2.4M strings/s at 240Hz) and each was a fresh allocation. Typography space is 3×3×2=18 combos, so a 64-entry LRU eliminates the alloc/GC pressure.
-const _fontStringCache = new Map<string, string>();
+// CTX-0056: int key (size<<12|weight<<2|familyId) avoids per-slot string alloc for the lookup itself; SlotCache caches the result per slot.
+export const FAMILY_IDS: Record<FontFamilyId, number> = {
+  sans: 0,
+  serif: 1,
+  mono: 2,
+};
+function familyIdOf(family: FontFamilyId | string): number {
+  return (FAMILY_IDS as Record<string, number>)[family as string] ?? 0;
+}
+function fontIntKey(sizePx: number, wNum: number, family: FontFamilyId | string): number {
+  return (sizePx << 12) | (wNum << 2) | familyIdOf(family);
+}
+const _fontStringCache = new Map<number, string>();
 export function fontStringFor(
   sizePx: number,
   weight: FontWeightId | number,
@@ -47,7 +59,7 @@ export function fontStringFor(
   const w = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
   const fam =
     (FONT_FAMILIES as Record<string, string>)[family as string] ?? family ?? FONT_FAMILIES.sans;
-  const key = `${sizePx}|${w}|${fam}`;
+  const key = fontIntKey(sizePx, w, family);
   const hit = _fontStringCache.get(key);
   if (hit !== undefined) return hit;
   const s = `${w} ${sizePx}px ${fam}`;
@@ -353,8 +365,10 @@ const emojiRe = /\p{Extended_Pictographic}/u;
  * fontSize is an integer (Scheduler floors it), so the key space is bounded
  * (~21 sizes × the small CJK/ASCII working set) and never leaks.
  * CTX-0044: rotation removed, rainbow remains the sole per-char hue path.
+ * CTX-0056: two-level Map keyed by int fontKey (size<<12|weight<<2|famId) avoids
+ * per-char composite string alloc (was `${size}|${w}|${fam}|${ch}` → 9M alloc/s rainbow).
  */
-const charWidthCache = new Map<string, number>();
+const charWidthCacheByFont = new Map<number, Map<string, number>>();
 let measureCanvasCtx: CanvasRenderingContext2D | null = null;
 
 /** Cache instrumentation for the HUD (measureText avoided vs. performed). */
@@ -366,13 +380,14 @@ function charWidth(
   weight: FontWeightId | number = 400,
   family: FontFamilyId | string = 'sans',
 ): number {
-  const famKey =
-    typeof family === 'string' && (FONT_FAMILIES as Record<string, string>)[family]
-      ? family
-      : family;
   const wNum = typeof weight === 'number' ? weight : (FONT_WEIGHTS[weight as FontWeightId] ?? 400);
-  const key = `${fontSize}|${wNum}|${famKey}|${ch}`;
-  const cached = charWidthCache.get(key);
+  const key = fontIntKey(fontSize, wNum, family);
+  let inner = charWidthCacheByFont.get(key);
+  if (!inner) {
+    inner = new Map<string, number>();
+    charWidthCacheByFont.set(key, inner);
+  }
+  const cached = inner.get(ch);
   if (cached !== undefined) {
     charWidthStats.hits++;
     return cached;
@@ -383,9 +398,9 @@ function charWidth(
     measureCanvasCtx = c.getContext('2d');
   }
   if (!measureCanvasCtx) return fontSize * 0.6;
-  measureCanvasCtx.font = fontStringFor(fontSize, wNum, famKey as FontFamilyId);
+  measureCanvasCtx.font = fontStringFor(fontSize, wNum, family as FontFamilyId);
   const w = measureCanvasCtx.measureText(ch).width;
-  charWidthCache.set(key, w);
+  inner.set(ch, w);
   return w;
 }
 
@@ -418,6 +433,10 @@ interface SlotCache {
   glRun?: GlyphRun;
   glSafe?: boolean;
   isSpecial?: boolean;
+  // CTX-0056: per-slot font string + glCompatible cached by int key (size<<12|weight<<2|familyId) → no per-slot string alloc (2.4M/s at 10k)
+  font?: string;
+  fontKey?: number;
+  glCompat?: boolean;
 }
 
 /**
@@ -457,6 +476,27 @@ export class DanmakuLayer extends Entity {
       this._slotCaches.set(s, c);
     }
     return c;
+  }
+
+  // CTX-0056: per-slot font + glCompatible cache. Int key avoids per-slot string alloc (2.4M/s at 10k×240).
+  private _cachedFont(s: PoolSlot): { font: string; glCompat: boolean } {
+    const cache = this._getSlotCache(s);
+    const fs = s.params.fontSize | 0;
+    const weightRaw = (s.params as { fontWeight?: FontWeightId }).fontWeight ?? 'normal';
+    const wNum =
+      typeof weightRaw === 'number' ? weightRaw : (FONT_WEIGHTS[weightRaw as FontWeightId] ?? 400);
+    const familyRaw = (s.params as { fontFamily?: FontFamilyId }).fontFamily ?? 'sans';
+    const famId = familyIdOf(familyRaw as FontFamilyId);
+    const key = fontIntKey(fs, wNum, familyRaw as FontFamilyId);
+    if (cache.fontKey === key && cache.font !== undefined && cache.glCompat !== undefined) {
+      return { font: cache.font, glCompat: cache.glCompat };
+    }
+    const font = fontStringFor(fs, wNum, familyRaw as FontFamilyId);
+    const glCompat = famId === 0 && wNum === 400;
+    cache.font = font;
+    cache.fontKey = key;
+    cache.glCompat = glCompat;
+    return { font, glCompat };
   }
 
   private _cullMargin(s: PoolSlot): number {
@@ -750,9 +790,8 @@ export class DanmakuLayer extends Entity {
         const rx = (s.x + 0.5) | 0;
         const ry = (s.y + 0.5) | 0;
         const textY = ry + fs * 0.8;
-        // Per-slot font (CTX-0045): weight/family vary per danmaku, so the
-        // bucket-level FONT_STRINGS is not sufficient.
-        const font = slotFont(s);
+        // CTX-0056: per-slot cached font (int key) — avoids 2.4M slotFont string allocs/s at 10k×240
+        const { font, glCompat } = this._cachedFont(s);
         // Interaction chrome (user-sent box / hover-pause cue) stays on
         // Canvas2D, behind glyphs. The hover box is the affordance that tells
         // the user this danmaku is paused under their pointer; without it a
@@ -781,7 +820,8 @@ export class DanmakuLayer extends Entity {
         // z1 (below the 2D canvas), which would otherwise put the box on top.
         // They're rare (hand-typed), so the Canvas2D path costs nothing here.
         // CTX-0045: MSDF atlas is sans/400 only — serif/mono/bold remain Canvas2D.
-        if (glr && this._font && !s.userSent && cache.glSafe && isGLCompatible(s)) {
+        // CTX-0056: glCompat from per-slot cache avoids per-slot isGLCompatible string alloc
+        if (glr && this._font && !s.userSent && cache.glSafe && glCompat) {
           // GPU path: push this run's glyph quads to the batch.
           this.drawStats.glRuns++;
           if (!cache.glRun || cache.lastFS !== fs) {
@@ -848,7 +888,7 @@ export class DanmakuLayer extends Entity {
     frozen: PoolSlot[] | null = null,
   ): void {
     const { text, color, fontSize, opacity, effects, preset } = s.params;
-    const font = slotFont(s);
+    const { font } = this._cachedFont(s);
     renderer.setGlobalAlpha(opacity);
 
     // CTX-0044: rotation removed — former per-char save/translate/rotate path
