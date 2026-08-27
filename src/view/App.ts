@@ -1350,6 +1350,9 @@ export class App {
           activeCount: () => this.pool.activeCount,
           startProfiler: () => this.profiler.start(),
           stopProfiler: () => this.profiler.stop(),
+          resetPool: () => this.pool.reset(),
+          getSpawnRate: () => this.scheduler.rate,
+          getTargetCount: () => this.scheduler.target,
         },
         this._stressTargetBeforeVideo,
         (progress: BenchProgress) => {

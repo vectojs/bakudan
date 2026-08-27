@@ -182,6 +182,7 @@ async function main(): Promise<void> {
       measureMs: MEASURE_MS,
       settleMs: SETTLE_MS,
       fillSpawnRate: FILL_SPAWN_RATE,
+      spawnRate: FILL_SPAWN_RATE,
       enginePins: 'exact npm pins (see benchmarks/README.md)',
     },
     rows: [row],
